@@ -1,0 +1,6 @@
+{
+  "name": "Anesthesia Care - ระบบตรวจเช็คอุปกรณ์วิสัญญี",
+  "description": "ระบบตรวจเช็คครุภัณฑ์วิสัญญี รถ Emergency และกระเป๋า Emergency เชื่อมต่อ Google Sheets พร้อมระบบแจ้งเตือนหมดอายุ และ Audit Log",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

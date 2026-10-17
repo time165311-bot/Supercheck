@@ -1,0 +1,40 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper function for document ID length validation
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128;
+    }
+
+    // Users collection
+    match /users/{userId} {
+      allow read: if true;
+      allow write: if isValidId(userId);
+    }
+
+    // Inspection submission records
+    match /inspection_records/{recordId} {
+      allow read: if true;
+      allow create, update: if isValidId(recordId);
+      allow delete: if isValidId(recordId);
+    }
+
+    // Audit logs
+    match /audit_logs/{logId} {
+      allow read: if true;
+      allow create: if isValidId(logId);
+      allow delete: if isValidId(logId);
+    }
+
+    // App global settings
+    match /settings/{configId} {
+      allow read: if true;
+      allow write: if isValidId(configId);
+    }
+
+    // Default deny all other paths
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
