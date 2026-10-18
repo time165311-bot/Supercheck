@@ -254,19 +254,19 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
           {rawImageForCrop ? (
             <div className="p-4 bg-slate-50 dark:bg-neutral-900/90 rounded-2xl border border-sky-300 dark:border-neutral-700 space-y-4">
               <div className="flex items-center justify-between">
-                <span className="font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
-                  <Crop className="w-4 h-4 text-sky-600 dark:text-sky-400" />
-                  <span>ครอบตัดและปรับแต่งรูปโปรไฟล์</span>
+                <span className="font-bold text-neutral-900 dark:text-white flex items-center gap-1.5">
+                  <Camera className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                  <span>ปรับแต่งรูปโปรไฟล์</span>
                 </span>
-                <span className="text-[10px] text-slate-500 dark:text-neutral-400">
-                  ลากเพื่อย้ายตำแหน่งรูป
+                <span className="text-xs text-neutral-500 dark:text-neutral-400">
+                  ลากเพื่อจัดตำแหน่ง
                 </span>
               </div>
 
               {/* Canvas viewport with circular guide mask */}
               <div className="flex justify-center items-center py-2">
                 <div
-                  className="relative w-48 h-48 rounded-full overflow-hidden shadow-lg ring-4 ring-sky-500/80 cursor-grab active:cursor-grabbing touch-none bg-slate-900"
+                  className="relative w-48 h-48 rounded-full overflow-hidden shadow-lg ring-4 ring-blue-500/80 cursor-grab active:cursor-grabbing touch-none bg-neutral-900"
                   onMouseDown={(e) => handleStartDrag(e.clientX, e.clientY)}
                   onMouseMove={(e) => handleMoveDrag(e.clientX, e.clientY)}
                   onMouseUp={handleEndDrag}
@@ -289,31 +289,31 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                     height={240}
                     className="w-full h-full object-cover select-none pointer-events-none"
                   />
-                  {/* Subtle crosshair guide */}
-                  <div className="absolute inset-0 pointer-events-none border border-white/25 rounded-full" />
+                  {/* Guide ring */}
+                  <div className="absolute inset-0 pointer-events-none border border-white/30 rounded-full" />
                 </div>
               </div>
 
               {/* Cropper adjustment sliders & rotation */}
               <div className="space-y-3 px-2">
-                <div className="flex items-center justify-between gap-3 text-slate-600 dark:text-neutral-300">
+                <div className="flex items-center justify-between gap-3 text-neutral-600 dark:text-neutral-300">
                   <div className="flex items-center gap-2 flex-1">
-                    <ZoomOut className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                    <ZoomIn className="w-3.5 h-3.5 text-neutral-400 shrink-0" />
                     <input
                       type="range"
-                      min={0.7}
+                      min={0.5}
                       max={3}
                       step={0.05}
                       value={cropZoom}
                       onChange={(e) => setCropZoom(parseFloat(e.target.value))}
-                      className="w-full accent-sky-600 h-1.5 bg-slate-200 dark:bg-neutral-800 rounded-lg cursor-pointer"
+                      className="w-full accent-blue-600 h-1.5 bg-neutral-200 dark:bg-neutral-800 rounded-lg cursor-pointer"
                     />
-                    <ZoomIn className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                    <ZoomIn className="w-4 h-4 text-neutral-400 shrink-0" />
                   </div>
                   <button
                     type="button"
                     onClick={() => setCropRotation((prev) => (prev + 90) % 360)}
-                    className="p-1.5 rounded-lg border border-slate-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-slate-700 dark:text-neutral-200 hover:bg-slate-100 dark:hover:bg-neutral-700 transition cursor-pointer flex items-center gap-1 text-[11px]"
+                    className="p-1.5 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-700 transition cursor-pointer flex items-center gap-1 text-[11px] ios-touch"
                     title="หมุนรูป 90 องศา"
                   >
                     <RotateCw className="w-3 h-3" />
@@ -322,21 +322,21 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                 </div>
 
                 {/* Confirm / Cancel crop */}
-                <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-200 dark:border-neutral-800">
+                <div className="flex items-center justify-end gap-2 pt-2 border-t border-neutral-200 dark:border-neutral-800">
                   <button
                     type="button"
                     onClick={() => setRawImageForCrop(null)}
-                    className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-neutral-700 text-slate-600 dark:text-neutral-400 hover:bg-slate-100 dark:hover:bg-neutral-800 font-medium transition cursor-pointer"
+                    className="px-3.5 py-1.5 rounded-xl border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 font-medium transition cursor-pointer ios-touch"
                   >
                     ยกเลิก
                   </button>
                   <button
                     type="button"
                     onClick={handleApplyCrop}
-                    className="px-4 py-1.5 rounded-xl bg-sky-600 hover:bg-sky-700 text-white font-bold transition shadow-md flex items-center gap-1.5 cursor-pointer"
+                    className="px-4 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold transition shadow-xs flex items-center gap-1.5 cursor-pointer ios-touch"
                   >
                     <Check className="w-3.5 h-3.5" />
-                    <span>ครอบตัดและบันทึกรูป</span>
+                    <span>บันทึกรูปโปรไฟล์</span>
                   </button>
                 </div>
               </div>
@@ -377,16 +377,16 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
 
               {/* Profile Picture Upload & Presets Section */}
               <div className="space-y-2.5">
-                <label className="font-bold text-slate-700 dark:text-neutral-300 flex items-center gap-1.5">
-                  <Camera className="w-3.5 h-3.5 text-sky-600 dark:text-sky-400" />
-                  <span>รูปโปรไฟล์ผู้ใช้งาน (Avatar Preview)</span>
+                <label className="font-bold text-neutral-700 dark:text-neutral-300 flex items-center gap-1.5 text-xs">
+                  <Camera className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                  <span>รูปโปรไฟล์ผู้ใช้งาน</span>
                 </label>
 
-                <div className="p-4 bg-white dark:bg-neutral-950 rounded-2xl border border-slate-200 dark:border-neutral-800 space-y-3">
+                <div className="p-4 bg-white dark:bg-neutral-900 rounded-2xl border border-neutral-200 dark:border-neutral-800 space-y-3">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <label className="px-3.5 py-2 rounded-xl bg-sky-600 hover:bg-sky-700 text-white font-semibold transition cursor-pointer flex items-center gap-1.5 shadow-xs text-xs">
+                    <label className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold transition cursor-pointer flex items-center gap-1.5 shadow-xs text-xs ios-touch">
                       <Upload className="w-3.5 h-3.5" />
-                      <span>อัปโหลดรูปจากอุปกรณ์ (มีระบบครอบตัด)</span>
+                      <span>อัปโหลดรูปจากอุปกรณ์</span>
                       <input
                         type="file"
                         accept="image/*"
@@ -399,7 +399,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                       <button
                         type="button"
                         onClick={handleRemoveAvatar}
-                        className="px-3 py-2 rounded-xl border border-red-200 dark:border-red-900/50 hover:bg-red-50 dark:hover:bg-red-950/40 text-red-600 dark:text-red-400 font-medium transition cursor-pointer flex items-center gap-1 text-xs"
+                        className="px-3.5 py-2 rounded-xl border border-red-200 dark:border-red-900/50 hover:bg-red-50 dark:hover:bg-red-950/40 text-red-600 dark:text-red-400 font-medium transition cursor-pointer flex items-center gap-1 text-xs ios-touch"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                         <span>ลบรูป</span>

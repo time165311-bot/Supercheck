@@ -9,6 +9,7 @@ interface SubmissionLoadingModalProps {
 export const SubmissionLoadingModal: React.FC<SubmissionLoadingModalProps> = ({
   isOpen,
   progressPercent,
+  statusText,
 }) => {
   const [displayNumber, setDisplayNumber] = useState(0);
 
@@ -36,40 +37,54 @@ export const SubmissionLoadingModal: React.FC<SubmissionLoadingModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xs select-none">
-      <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 sm:p-8 max-w-xs w-full text-center shadow-2xl border border-slate-200 dark:border-slate-800 flex flex-col items-center justify-center space-y-3">
-        {/* Animated Circular Progress Spinner */}
-        <div className="relative w-24 h-24 mx-auto flex items-center justify-center">
-          <svg className="w-full h-full transform -rotate-90" viewBox="0 0 100 100">
-            {/* Background circle */}
-            <circle
-              cx="50"
-              cy="50"
-              r="40"
-              className="stroke-slate-100 dark:stroke-slate-800"
-              strokeWidth="7"
-              fill="transparent"
-            />
-            {/* Progress circle */}
-            <circle
-              cx="50"
-              cy="50"
-              r="40"
-              className="stroke-sky-600 dark:stroke-sky-400 transition-all duration-75 ease-out"
-              strokeWidth="7"
-              strokeDasharray={2 * Math.PI * 40}
-              strokeDashoffset={2 * Math.PI * 40 * (1 - displayNumber / 100)}
-              strokeLinecap="round"
-              fill="transparent"
-            />
-          </svg>
-          <div className="absolute inset-0 flex flex-col items-center justify-center">
-            <span className="text-2xl font-black text-slate-900 dark:text-white tabular-nums tracking-tight">
-              {displayNumber}%
-            </span>
-          </div>
+    <div className="fixed inset-0 z-50 flex flex-col items-center justify-center p-4 bg-black/75 backdrop-blur-md select-none transition-all duration-300">
+      {/* Pure spinning arrow circle loader without any white container box */}
+      <div className="relative w-28 h-28 flex items-center justify-center">
+        {/* Continuous rotating outer halo */}
+        <div className="absolute inset-0 rounded-full border-2 border-emerald-500/20 animate-ping opacity-25" />
+
+        <svg className="w-full h-full transform -rotate-90 animate-spin [animation-duration:2.5s]" viewBox="0 0 100 100">
+          <defs>
+            <linearGradient id="loaderGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stopColor="#38bdf8" />
+              <stop offset="100%" stopColor="#2563eb" />
+            </linearGradient>
+          </defs>
+          {/* Subtle Track */}
+          <circle
+            cx="50"
+            cy="50"
+            r="38"
+            className="stroke-white/10"
+            strokeWidth="3.5"
+            fill="transparent"
+          />
+          {/* Active Spinning Arc */}
+          <circle
+            cx="50"
+            cy="50"
+            r="38"
+            stroke="url(#loaderGradient)"
+            strokeWidth="4"
+            strokeDasharray={2 * Math.PI * 38}
+            strokeDashoffset={2 * Math.PI * 38 * 0.35}
+            strokeLinecap="round"
+            fill="transparent"
+          />
+        </svg>
+
+        {/* Center Percentage Display */}
+        <div className="absolute inset-0 flex flex-col items-center justify-center">
+          <span className="text-3xl font-bold text-white tabular-nums tracking-tight drop-shadow-md">
+            {displayNumber}%
+          </span>
         </div>
       </div>
+
+      {/* Clean Status Text below loader */}
+      <p className="mt-5 text-sm font-medium text-white/90 drop-shadow-sm tracking-wide text-center max-w-xs">
+        {statusText || 'กำลังบันทึกและส่งข้อมูล...'}
+      </p>
     </div>
   );
 };

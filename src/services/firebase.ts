@@ -5,6 +5,7 @@ import {
   getDoc,
   getDocFromServer,
   setDoc,
+  deleteDoc,
   collection,
   getDocs,
   query,
@@ -68,6 +69,18 @@ export async function saveInspectionToFirebase(record: InspectionHistoryRecord) 
   }
 }
 
+// Delete inspection record from Firebase Firestore
+export async function deleteInspectionFromFirebase(id: string): Promise<boolean> {
+  try {
+    const docRef = doc(db, 'inspection_records', id);
+    await deleteDoc(docRef);
+    return true;
+  } catch (e) {
+    console.error('Error deleting inspection from Firebase:', e);
+    return false;
+  }
+}
+
 // Fetch all inspection records from Firebase
 export async function fetchInspectionsFromFirebase(): Promise<InspectionHistoryRecord[]> {
   try {
@@ -114,6 +127,32 @@ export async function addAuditLogToFirebase(log: AuditLogEntry) {
     return true;
   } catch (e) {
     console.error('Error saving audit log to Firebase:', e);
+    return false;
+  }
+}
+
+// Delete single audit log from Firebase
+export async function deleteAuditLogInFirebase(id: string) {
+  try {
+    const docRef = doc(db, 'audit_logs', id);
+    await deleteDoc(docRef);
+    return true;
+  } catch (e) {
+    console.warn('Error deleting audit log in Firebase:', e);
+    return false;
+  }
+}
+
+// Clear all audit logs from Firebase
+export async function clearAllAuditLogsInFirebase() {
+  try {
+    const snap = await getDocs(collection(db, 'audit_logs'));
+    const batch = writeBatch(db);
+    snap.forEach((d) => batch.delete(d.ref));
+    await batch.commit();
+    return true;
+  } catch (e) {
+    console.warn('Error clearing audit logs in Firebase:', e);
     return false;
   }
 }

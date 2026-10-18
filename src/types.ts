@@ -116,3 +116,18 @@ export interface InspectionHistoryRecord {
     note?: string;
   }>;
 }
+
+export type DrugCategory = 'monthly' | 'quarterly' | 'adhoc';
+
+export interface DrugItem {
+  id: string;
+  category: DrugCategory;
+  name: string;
+  remaining: number;       // คงเหลือ
+  receivedDate: string;    // วันที่รับ (YYYY-MM-DD)
+  receivedQty: number;     // จำนวนที่รับ
+  minStock: number;        // ยอดต่ำสุด
+  batchRequest: string;    // เบิกครั้งละ
+  expDate: string;         // วันหมดอายุ (YYYY-MM-DD)
+  note: string;            // หมายเหตุ
+}

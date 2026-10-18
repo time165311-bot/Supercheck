@@ -524,40 +524,187 @@ function onOpen() {
   try {
     SpreadsheetApp.getUi()
       .createMenu('🖨️ ระบบพิมพ์ฟอร์ม A4')
-      .addItem('📋 โหลดรอบตรวจล่าสุดมาที่ฟอร์มพิมพ์', 'loadLatestToPrint_')
-      .addItem('🔎 โหลดรอบตรวจตามรหัสที่เลือก', 'loadSelectedRoundToPrint_')
+      .addItem('📋 โหลดรอบตรวจล่าสุดมาที่ฟอร์มพิมพ์', 'loadLatestToPrint')
+      .addItem('🔎 โหลดรอบตรวจตามรหัสที่เลือก', 'loadSelectedRoundToPrint')
       .addToUi();
   } catch (e) {}
 }
 
-function loadLatestToPrint_() {
+function loadLatestToPrint() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var master = ss.getSheetByName(SHEET_MASTER);
   if (!master || master.getLastRow() < 2) return;
   var lastRound = master.getRange(master.getLastRow(), 1).getValue();
-  loadRoundData_(ss, lastRound);
+  loadRoundData(ss, lastRound);
 }
 
 function loadSelectedRoundToPrint_() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var ui = SpreadsheetApp.getUi();
-  var prompt = ui.prompt('พิมพ์แบบฟอร์ม A4', 'กรุณากรอกรหัสรอบตรวจ (เช่น ครุภัณฑ์_2569_1510) ที่ต้องการดึงข้อมูลมาพิมพ์:', ui.ButtonSet.OK_CANCEL);
-  if (prompt.getSelectedButton() === ui.Button.OK) {
-    var roundId = prompt.getResponseText().trim();
-    if (roundId) loadRoundData_(ss, roundId);
+  var master = ss.getSheetByName(SHEET_MASTER);
+  if (!master || master.getLastRow() < 2) {
+    if (!master) {
+      master = ss.insertSheet(SHEET_MASTER);
+    }
+    var heads = [
+      'รหัสรอบตรวจ', 'วันเวลาที่บันทึก', 'วันที่ตรวจ', 'ผู้ตรวจ', 'หมวดหมู่', 'สถานที่/ห้อง',
+      'ลำดับ', 'หมายเลขพัสดุ', 'รหัส SAP', 'รายการ', 'มาตรฐาน/คุณลักษณะ', 'แหล่งเงินที่มา',
+      'ว/ด/ป ได้มา', 'จำนวน', 'ภาษี %', 'ราคา', 'ผลการตรวจ', 'หมายเหตุ'
+    ];
+    master.clear();
+    master.appendRow(heads);
+    master.setFrozenRows(1);
+    var today = Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyy-MM-dd');
+    master.appendRow([
+      'รอบตรวจ_ตัวอย่าง_' + today,
+      now_(),
+      today,
+      'เจ้าหน้าที่ (ตัวอย่าง)',
+      'ครุภัณฑ์',
+      'ห้องวิสัญญี',
+      1,
+      'EQ-001',
+      '4320280001',
+      'Laryngoscope Handle + Blades',
+      'ชุดส่องกล่องเสียง',
+      'เงินบำรุง',
+      '2025-01-01',
+      '1',
+      '7',
+      '5,000',
+      'ใช้งานได้',
+      'ปกติ'
+    ]);
   }
+  var data = master.getDataRange().getValues();
+  var roundsList = [];
+  var seenMap = {};
+  for (var i = 1; i < data.length; i++) {
+    var rId = String(data[i][0]).trim();
+    if (rId && !seenMap[rId]) {
+      seenMap[rId] = true;
+      var cName = String(data[i][4] || 'ครุภัณฑ์').trim();
+      var cKey = 'eq';
+      if (cName.indexOf('กระเป๋า') > -1) cKey = 'bag';
+      else if (cName.indexOf('รถ') > -1) cKey = 'cart';
+
+      roundsList.push({
+        id: rId,
+        date: String(data[i][2] || ''),
+        who: String(data[i][3] || ''),
+        catName: cName,
+        catKey: cKey,
+        title: String(data[i][5] || '')
+      });
+    }
+  }
+
+  if (roundsList.length === 0) {
+    SpreadsheetApp.getUi().alert('ไม่พบข้อมูลรอบตรวจใน Master sheet');
+    return;
+  }
+
+  var roundsJson = JSON.stringify(roundsList);
+
+  var html = '<!DOCTYPE html><html><head><meta charset="utf-8">' +
+    '<style>' +
+    'body { font-family: -apple-system, BlinkMacSystemFont, "Sarabun", sans-serif; padding: 16px; margin: 0; background: #fafafa; color: #1f2937; }' +
+    'h3 { margin: 0 0 10px 0; color: #0071e3; font-size: 15px; }' +
+    '.cat-btns { display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }' +
+    '.cat-btn { padding: 5px 10px; border: 1px solid #d1d5db; background: #fff; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer; }' +
+    '.cat-btn.active { background: #0071e3; color: #fff; border-color: #0071e3; }' +
+    '.label { font-size: 12px; font-weight: 600; color: #4b5563; margin-bottom: 6px; display: block; }' +
+    'select { width: 100%; padding: 8px 10px; font-size: 13px; border-radius: 8px; border: 1px solid #cbd5e1; background: #fff; margin-bottom: 16px; outline: none; }' +
+    '.action-bar { display: flex; justify-content: flex-end; gap: 8px; }' +
+    '#loadBtn { background: #0071e3; color: white; border: none; padding: 9px 20px; font-size: 13px; border-radius: 8px; cursor: pointer; font-weight: bold; }' +
+    '#loadBtn:disabled { background: #9ca3af; cursor: not-allowed; }' +
+    '#cancelBtn { background: #f3f4f6; color: #374151; border: 1px solid #d1d5db; padding: 9px 15px; font-size: 13px; border-radius: 8px; cursor: pointer; }' +
+    '</style></head><body>' +
+    '<h3>📋 เลือกดึงรอบตรวจเพื่อพิมพ์ A4</h3>' +
+    '<div class="cat-btns">' +
+    '  <button type="button" class="cat-btn active" id="btn-all" onclick="filterCat(\\'all\\', this)">🌟 ทั้งหมด</button>' +
+    '  <button type="button" class="cat-btn" id="btn-eq" onclick="filterCat(\\'eq\\', this)">🏥 ครุภัณฑ์</button>' +
+    '  <button type="button" class="cat-btn" id="btn-bag" onclick="filterCat(\\'bag\\', this)">💼 กระเป๋า Emer</button>' +
+    '  <button type="button" class="cat-btn" id="btn-cart" onclick="filterCat(\\'cart\\', this)">🛒 รถ Emer</button>' +
+    '</div>' +
+    '<span class="label">เลือกรอบตรวจที่ต้องการโหลด:</span>' +
+    '<select id="roundSel"></select>' +
+    '<div class="action-bar">' +
+    '  <button type="button" id="cancelBtn" onclick="google.script.host.close()">ยกเลิก</button>' +
+    '  <button type="button" id="loadBtn" onclick="doLoad()">⚡ โหลดข้อมูลรอบนี้</button>' +
+    '</div>' +
+    '<script>' +
+    'var allRounds = ' + roundsJson + ';' +
+    'var currentCat = "all";' +
+    'function renderOpts() {' +
+    '  var sel = document.getElementById("roundSel");' +
+    '  sel.innerHTML = "";' +
+    '  var filtered = allRounds.filter(function(r){ return currentCat === "all" || r.catKey === currentCat; });' +
+    '  if (filtered.length === 0) {' +
+    '    var opt = document.createElement("option");' +
+    '    opt.text = "-- ไม่มีรอบตรวจในหมวดนี้ --";' +
+    '    opt.value = "";' +
+    '    sel.appendChild(opt);' +
+    '    document.getElementById("loadBtn").disabled = true;' +
+    '    return;' +
+    '  }' +
+    '  document.getElementById("loadBtn").disabled = false;' +
+    '  for (var i = filtered.length - 1; i >= 0; i--) {' +
+    '    var r = filtered[i];' +
+    '    var badge = r.catKey === "bag" ? "[💼 กระเป๋า]" : r.catKey === "cart" ? "[🛒 รถ]" : "[🏥 ครุภัณฑ์]";' +
+    '    var opt = document.createElement("option");' +
+    '    opt.value = r.id;' +
+    '    opt.text = badge + " " + r.date + " - " + r.title + " (" + (r.who || "ผู้ตรวจ") + ")";' +
+    '    sel.appendChild(opt);' +
+    '  }' +
+    '}' +
+    'function filterCat(cat, el) {' +
+    '  currentCat = cat;' +
+    '  var btns = document.querySelectorAll(".cat-btn");' +
+    '  btns.forEach(function(b){ b.classList.remove("active"); });' +
+    '  el.classList.add("active");' +
+    '  renderOpts();' +
+    '}' +
+    'function doLoad() {' +
+    '  var sel = document.getElementById("roundSel");' +
+    '  var val = sel.value;' +
+    '  if (!val) return;' +
+    '  var btn = document.getElementById("loadBtn");' +
+    '  btn.disabled = true;' +
+    '  btn.innerText = "⏳ กำลังดึงข้อมูลฟอร์ม A4...";' +
+    '  google.script.run.withSuccessHandler(function(){' +
+    '    google.script.host.close();' +
+    '  }).withFailureHandler(function(err){' +
+    '    alert("เกิดข้อผิดพลาด: " + err.message);' +
+    '    btn.disabled = false;' +
+    '    btn.innerText = "⚡ โหลดข้อมูลรอบนี้";' +
+    '  }).loadRoundData_(val);' +
+    '}' +
+    'renderOpts();' +
+    '</script></body></html>';
+
+  var output = HtmlService.createHtmlOutput(html).setWidth(520).setHeight(270);
+  SpreadsheetApp.getUi().showModalDialog(output, 'เลือกดึงรอบตรวจเพื่อพิมพ์ A4');
 }
 
-function loadRoundData_(ss, roundId) {
+function loadRoundData_(ssOrId, optRoundId) {
+  var ss, roundId;
+  if (typeof optRoundId === 'undefined') {
+    ss = SpreadsheetApp.getActiveSpreadsheet();
+    roundId = ssOrId;
+  } else {
+    ss = ssOrId;
+    roundId = optRoundId;
+  }
   var master = ss.getSheetByName(SHEET_MASTER);
-  if (!master) return;
+  if (!master) return false;
   var data = master.getDataRange().getValues();
   var matched = [];
-  var roundMeta = { date: '', who: '', title: '' };
+  var roundMeta = { date: '', who: '', type: 'eq', title: '' };
   for (var i = 1; i < data.length; i++) {
     if (String(data[i][0]).trim() === String(roundId).trim()) {
       roundMeta.date = data[i][2];
       roundMeta.who = data[i][3];
+      roundMeta.type = data[i][4] || 'ครุภัณฑ์';
       roundMeta.title = data[i][5];
       matched.push({
         code: data[i][7],
@@ -576,15 +723,34 @@ function loadRoundData_(ss, roundId) {
     }
   }
   if (matched.length > 0) {
-    writeReport_(ss, {
-      title: roundMeta.title,
+    var docTitle = roundMeta.title;
+    if (!docTitle) {
+      if (roundMeta.type.indexOf('กระเป๋า') > -1) docTitle = 'แบบฟอร์มตรวจสอบความพร้อม กระเป๋า Emergency';
+      else if (roundMeta.type.indexOf('รถ') > -1) docTitle = 'แบบฟอร์มตรวจสอบความพร้อม รถ Emergency';
+      else docTitle = 'คลินิกงานบริการผู้ป่วยในวิสัญญี (ภาพรวมทุกห้อง)';
+    }
+
+    var printSheet = writeReport_(ss, {
+      title: docTitle,
+      type: roundMeta.type,
       date: roundMeta.date,
       who: roundMeta.who,
       sheetName: roundId,
       rows: matched
     });
-    SpreadsheetApp.getActiveSpreadsheet().setActiveSheet(ss.getSheetByName(SHEET_PRINT));
+    if (printSheet) {
+      ss.setActiveSheet(printSheet);
+    } else {
+      var fallback = ss.getSheetByName(SHEET_PRINT);
+      if (fallback) ss.setActiveSheet(fallback);
+    }
+    SpreadsheetApp.flush();
+    try {
+      ss.toast('ดึงข้อมูลรอบตรวจลงฟอร์มพิมพ์ A4 สำเร็จแล้ว', 'สำเร็จ', 3);
+    } catch(te){}
+    return true;
   }
+  return false;
 }
 
 function computeSheetName_(d) {
@@ -653,7 +819,14 @@ function writeReport_(ss, data) {
   var who     = data.who || '';
   var dots    = new Array(45).join('.');
 
-  cell_(sheet, 'E1:J1', 'ทะเบียนรายการครุภัณฑ์และอุปกรณ์', 15, true, 'center');
+  var reportTitle = 'ทะเบียนรายการครุภัณฑ์และอุปกรณ์';
+  if (data.type && String(data.type).indexOf('กระเป๋า') > -1) {
+    reportTitle = 'แบบฟอร์มตรวจสอบความพร้อม กระเป๋า Emergency';
+  } else if (data.type && String(data.type).indexOf('รถ') > -1) {
+    reportTitle = 'แบบฟอร์มตรวจสอบความพร้อม รถ Emergency';
+  }
+
+  cell_(sheet, 'E1:J1', reportTitle, 15, true, 'center');
   sheet.setRowHeight(1, 26);
   cell_(sheet, 'E2:J2', 'ณ วันที่ ' + dateTh, 12, false, 'center');
   sheet.setRowHeight(2, 22);
@@ -741,15 +914,7 @@ function writeReport_(ss, data) {
   sheet.getRange(HR, 1, 3 + total, NCOL)
        .setBorder(true, true, true, true, true, true, '#000000', SpreadsheetApp.BorderStyle.SOLID);
 
-  try {
-    sheet.autoResizeRows(ds, total);
-    SpreadsheetApp.flush();
-    for (var k = 0; k < total; k++) {
-      if (sheet.getRowHeight(ds + k) < CFG.rowHeight) sheet.setRowHeight(ds + k, CFG.rowHeight);
-    }
-  } catch (he) {
-    sheet.setRowHeights(ds, total, CFG.rowHeight);
-  }
+  sheet.setRowHeights(ds, total, 42);
 
   // ส่วนลงชื่อท้ายเอกสาร - ขยายความกว้างเต็ม 14 คอลัมน์ ไม่ให้ข้อความตกหล่นหรือขึ้น "อ......หัวหน้า"
   var signRow = ds + total + 2;
@@ -763,6 +928,7 @@ function writeReport_(ss, data) {
   sheet.getRange(signRow, 1, 2, NCOL)
        .setFontFamily(CFG.font).setFontSize(10.5)
        .setHorizontalAlignment('center').setVerticalAlignment('middle').setWrap(false);
+  return sheet;
 }
 
 function cell_(sheet, a1, text, size, bold, align) {
