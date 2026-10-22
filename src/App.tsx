@@ -163,7 +163,7 @@ export default function App() {
   const [isPasswordForced, setIsPasswordForced] = useState(false);
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [reportModalTitle, setReportModalTitle] = useState('คลินิกงานบริการผู้ป่วยในวิสัญญี');
-  const [reportModalCategory, setReportModalCategory] = useState<'eq' | 'bag' | 'cart'>('eq');
+  const [reportModalCategory, setReportModalCategory] = useState<'eq' | 'bag' | 'cart' | 'drug'>('eq');
   const [reportModalRows, setReportModalRows] = useState<any[]>([]);
   const [inspectionHistory, setInspectionHistory] = useState<InspectionHistoryRecord[]>(() =>
     getStored<InspectionHistoryRecord[]>('inspection_history', [])
@@ -1102,16 +1102,19 @@ export default function App() {
   };
 
   // Open Printable Report Modal anytime with selected category
-  const handleOpenPrintReport = (type: 'eq' | 'bag' | 'cart') => {
+  const handleOpenPrintReport = (type: 'eq' | 'bag' | 'cart' | 'drug') => {
     setReportModalCategory(type);
     let titleStr = '';
     let rows: any[] = [];
     if (type === 'eq') {
       titleStr = 'คลินิกงานบริการผู้ป่วยในวิสัญญี (ภาพรวมทุกห้อง)';
       rows = buildEqReportRows();
-    } else {
+    } else if (type === 'bag' || type === 'cart') {
       titleStr = lists[type].title;
       rows = buildCategoryReportRows(type);
+    } else {
+      titleStr = 'แบบฟอร์มตรวจสอบและเบิกจ่ายคลังยาและสารน้ำ';
+      rows = [];
     }
     setReportModalTitle(titleStr);
     setReportModalRows(rows);
@@ -1518,7 +1521,7 @@ export default function App() {
       />
 
       {/* Sticky Top Progress Bar on scroll */}
-      {currentView !== 'home' && currentView !== 'users' && (
+      {currentView !== 'home' && currentView !== 'users' && currentView !== 'drug_check' && (
         <div
           className={`sticky ${
             isNavVisible ? 'top-[53px]' : 'top-0'
@@ -1585,32 +1588,19 @@ export default function App() {
 
             {/* Menu Cards (Apple / Samsung One UI Style) */}
             <div className="space-y-3">
-              {/* Drug Inventory Card - Prominent on Home Screen */}
+              {/* Drug Inventory Card - Clean Minimalist Style */}
               <button
                 onClick={() => setCurrentView('drug_check')}
-                className="w-full text-left p-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-2xl shadow-lg shadow-blue-600/20 flex items-center gap-3.5 transition-all cursor-pointer group oneui-card relative overflow-hidden"
+                className="w-full text-left p-4 bg-white dark:bg-[#161822] hover:bg-neutral-50 dark:hover:bg-[#1c1f2c] rounded-2xl border border-neutral-200/70 dark:border-neutral-800 shadow-xs flex items-center gap-3.5 transition-all cursor-pointer group oneui-card"
               >
-                <div className="absolute right-3 -bottom-3 text-7xl opacity-15 pointer-events-none select-none">
+                <div className="w-12 h-12 rounded-2xl bg-neutral-100 dark:bg-neutral-800 text-neutral-800 dark:text-neutral-200 flex items-center justify-center text-2xl shrink-0 group-hover:scale-105 transition-transform">
                   💊
                 </div>
-                <div className="w-12 h-12 rounded-2xl bg-white/25 flex items-center justify-center text-2xl shrink-0 group-hover:scale-105 transition-transform backdrop-blur-xs">
-                  💊
-                </div>
-                <div className="flex-1 min-w-0 relative z-10">
+                <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between gap-2">
-                    <h3 className="text-sm sm:text-base font-extrabold text-white tracking-tight">
-                      ระบบตรวจเช็คคลังยาและสารน้ำ (Anesthesia Drug Inventory)
+                    <h3 className="text-sm font-bold text-neutral-900 dark:text-white">
+                      ระบบตรวจเช็คคลังยาและสารน้ำ
                     </h3>
-                    <span className="text-xs font-bold bg-white text-blue-700 px-2.5 py-0.5 rounded-full shadow-xs">
-                      หน้าหลัก 🌟
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2 mt-1 text-xs text-blue-100 flex-wrap font-medium">
-                    <span>Tab 1: คลังเดือน</span>
-                    <span>·</span>
-                    <span>Tab 2: ทุก 3 เดือน</span>
-                    <span>·</span>
-                    <span>Tab 3: ตามงบประมาณ</span>
                   </div>
                 </div>
               </button>
@@ -2587,6 +2577,7 @@ export default function App() {
             onBack={() => setCurrentView('home')}
             sheetUrl={sheetUrl}
             apiUrl={apiUrl}
+            onOpenPreview={() => handleOpenPrintReport('drug')}
           />
         )}
       </main>
@@ -2602,6 +2593,7 @@ export default function App() {
         onOpenReport={() => {
           if (currentView === 'bag_check') handleOpenPrintReport('bag');
           else if (currentView === 'cart_check') handleOpenPrintReport('cart');
+          else if (currentView === 'drug_check') handleOpenPrintReport('drug');
           else handleOpenPrintReport('eq');
         }}
         onOpenGoogleSheet={handleOpenGoogleSheet}

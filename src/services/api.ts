@@ -34,7 +34,8 @@ export async function testGasConnection(apiUrl: string): Promise<ApiTestResult> 
 export interface SubmitReportPayload {
   a?: string;
   action?: string;
-  type: 'eq' | 'bag' | 'cart';
+  type: 'eq' | 'bag' | 'cart' | 'drug';
+  category?: string;
   sheet: string;
   sheetName?: string;
   title: string;
@@ -54,8 +55,15 @@ export interface SubmitReportPayload {
     tax?: string;
     price?: string;
     location?: string;
-    res: string;
+    res?: string;
     note?: string;
+    remaining?: number | string;
+    receivedQty?: number | string;
+    receivedDate?: string;
+    totalQty?: number | string;
+    minStock?: number | string;
+    batchRequest?: string;
+    expDate?: string;
   }>;
 }
 

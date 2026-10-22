@@ -348,19 +348,14 @@ export const DEFAULT_LISTS: Record<'bag' | 'cart', ListConfig> = {
 export const GAS_SCRIPT_V5 = `/* ============================================================
    ระบบตรวจเช็คอุปกรณ์วิสัญญี — Google Apps Script (Code.gs) v6
    คุณสมบัติใหม่:
-   1. โหมดฟอร์มพิมพ์ A4 อัตโนมัติ (PRINT_TEMPLATE):
-      - มีชีต "📋 ฟอร์มพิมพ์_A4" หน้าเดียวที่อัปเดตข้อมูลรอบตรวจล่าสุดอัตโนมัติ
-      - เมื่อต้องการพิมพ์ แค่เปิดหน้านี้แล้วกด Ctrl + P ได้ทันที ออกมาพอดีหน้า A4 สวยงาม!
-      - ไม่สร้างแท็บชีตรกเต็มไฟล์ แก้ปัญหาแท็บแยกเยอะเกินไป
-   2. ชีต "📊 Master_รวมบันทึก": บันทึกรวมทุกรอบตามวันเวลา ไม่ต้องกลัวข้อมูลหาย
-   3. ชีต "Audit Log": บันทึกประวัติการล็อกอินและการกระทำ
-   4. สลับโหมดเป็นแยกแท็บได้ (ตั้งค่า WORKBOOK_MODE = 'SEPARATE_SHEETS')
+   1. โหมดฟอร์มพิมพ์ A4 อัตโนมัติ (แยกแท็บชีตตามรอบตรวจ พร้อมพิมพ์ A4 ทันที)
+   2. ชีต "Audit Log": บันทึกประวัติการล็อกอินและการกระทำ
+   3. เมนูระบบค้นหาชีตรอบตรวจอัจฉริยะ (Quick Jump) มุ่งตรงไปยังชีตทันที
    ============================================================ */
 
 // ตั้งค่าโหมดการจัดชีต:
-// 'PRINT_TEMPLATE' = แนะนำ! หน้าฟอร์มพิมพ์ A4 หน้าเดียว ไม่รกชีต สั่งพิมพ์ Ctrl+P สะดวกที่สุด
-// 'SEPARATE_SHEETS' = แยกแท็บชีตใหม่ทุกรอบตรวจ
-var WORKBOOK_MODE = 'PRINT_TEMPLATE';
+// 'SEPARATE_SHEETS' = เพิ่มแท็บชีตใหม่ทุกรอบตรวจโดยใช้โครงสร้างฟอร์มพิมพ์ A4 ทางการ 14 คอลัมน์ทันที
+var WORKBOOK_MODE = 'SEPARATE_SHEETS';
 
 var CFG = {
   font: 'Sarabun',
@@ -373,7 +368,6 @@ var NCOL = 14;
 var HR = 7;
 
 var SHEET_PRINT = '📋 ฟอร์มพิมพ์_A4';
-var SHEET_MASTER = '📊 Master_รวมบันทึก';
 var SHEET_USERS = 'Users';
 var SHEET_AUDIT = 'Audit Log';
 var USER_HEAD = ['Username', 'Name', 'Role', 'Active', 'Salt', 'Hash', 'MustChange', 'Created', 'LastLogin'];
@@ -401,8 +395,11 @@ function doPost(e) {
 
     if (act === 'login') return doLogin_(ss, data);
     if (act === 'audit') return doAuditLog_(ss, data);
+    if (act === 'export_pdf') return doExportPdf_(data);
 
     switch (act) {
+      case 'export_pdf':
+        return doExportPdf_(data);
       case 'log':
         var res = doLog_(ss, data);
         doAuditLog_(ss, {
@@ -414,12 +411,126 @@ function doPost(e) {
         });
         return res;
       default:
+        if (data.items && Array.isArray(data.items)) {
+          return doExportPdf_(data);
+        }
         return doLog_(ss, data);
     }
   } catch (err) {
     return fail_(String(err));
   } finally {
     try { lock.releaseLock(); } catch (x) {}
+  }
+}
+
+// ----------------- ส่งออก PDF A4 Landscape ผ่าน Google Drive -----------------
+function doExportPdf_(data) {
+  try {
+    var items = data.items || [];
+    var surveyDate = data.surveyDate || '21 ตุลาคม 2569';
+    var locationName = data.locationName || 'คลินิกงานบริการผู้ป่วยในวิสัญญี (ภาพรวมทุกห้อง)';
+
+    var tempSs = SpreadsheetApp.create('Temp_PDF_Export_' + new Date().getTime());
+    var sheet = tempSs.getActiveSheet();
+    sheet.setGridlines(true);
+
+    var colWidths = [40, 110, 110, 200, 160, 90, 80, 50, 50, 90, 70, 110];
+    for (var i = 0; i < colWidths.length; i++) {
+      sheet.setColumnWidth(i + 1, colWidths[i]);
+    }
+
+    sheet.getRange('A1:L1').merge().setValue('ทะเบียนรายการครุภัณฑ์และอุปกรณ์').setFontSize(16).setFontWeight('bold').setHorizontalAlignment('center');
+    sheet.getRange('A2:L2').merge().setValue('ณ วันที่ ' + surveyDate).setFontSize(12).setHorizontalAlignment('center');
+    sheet.getRange('A3:F3').merge().setValue(locationName).setFontSize(11).setFontWeight('bold');
+    sheet.getRange('G3:L3').merge().setValue('วัน, เดือน, ปี ที่สำรวจ: ' + surveyDate).setFontSize(11).setHorizontalAlignment('right');
+
+    sheet.getRange('A4:A5').merge().setValue('ลำดับที่');
+    sheet.getRange('B4:B5').merge().setValue('หมายเลขพัสดุ');
+    sheet.getRange('C4:C5').merge().setValue('รหัสสินทรัพย์ SAP');
+    sheet.getRange('D4:D5').merge().setValue('รายการ');
+    sheet.getRange('E4:E5').merge().setValue('มาตรฐานและคุณลักษณะเฉพาะ');
+    sheet.getRange('F4:F5').merge().setValue('แหล่งเงินที่มา (ประเภทเงินงบประมาณ)');
+    sheet.getRange('G4:G5').merge().setValue('ว/ด/ป ที่ได้มา');
+    sheet.getRange('H4:H5').merge().setValue('จำนวนตามบัญชี');
+    sheet.getRange('I4:I5').merge().setValue('อัตราภาษี (%)');
+    sheet.getRange('J4:J5').merge().setValue('ราคา (รวมภาษี)');
+    sheet.getRange('K4:K5').merge().setValue('สถานที่ตั้ง ตึก / ชั้น / ห้อง');
+    sheet.getRange('L4:L4').setValue('ผลการตรวจสอบพัสดุ');
+
+    var headerRange = sheet.getRange('A4:L5');
+    headerRange.setBackground('#F1F5F9')
+               .setFontWeight('bold')
+               .setHorizontalAlignment('center')
+               .setVerticalAlignment('middle')
+               .setBorder(true, true, true, true, true, true);
+
+    if (items.length > 0) {
+      var rowData = [];
+      for (var j = 0; j < items.length; j++) {
+        var itm = items[j];
+        rowData.push([
+          j + 1,
+          "'" + (itm.assetNo || itm.id || ''),
+          "'" + (itm.sapNo || itm.sap_id || ''),
+          itm.name || itm.item_name || '',
+          itm.spec || itm.specification || '',
+          itm.source || itm.budget_source || '',
+          itm.aquiredDate || itm.acquired_date || '',
+          itm.amount || 1,
+          itm.rate || 7,
+          itm.price || 0,
+          itm.location || itm.room_name || '',
+          itm.status === 'normal' || itm.checked ? '✓' : ''
+        ]);
+      }
+
+      var dataRange = sheet.getRange(6, 1, rowData.length, 12);
+      dataRange.setValues(rowData);
+      dataRange.setBorder(true, true, true, true, true, true);
+      dataRange.setFontSize(10);
+
+      sheet.getRange(6, 1, rowData.length, 1).setHorizontalAlignment('center');
+      sheet.getRange(6, 6, rowData.length, 4).setHorizontalAlignment('center');
+      sheet.getRange(6, 10, rowData.length, 1).setNumberFormat('#,##0.00').setHorizontalAlignment('right');
+      sheet.getRange(6, 11, rowData.length, 2).setHorizontalAlignment('center');
+    }
+
+    sheet.setFrozenRows(5);
+    SpreadsheetApp.flush();
+
+    var ssId = tempSs.getId();
+    var sheetId = sheet.getSheetId();
+    var pdfUrl = 'https://docs.google.com/spreadsheets/d/' + ssId + '/export?' +
+      'exportFormat=pdf' +
+      '&format=pdf' +
+      '&size=A4' +
+      '&portrait=false' +
+      '&fitw=true' +
+      '&gridlines=true' +
+      '&printtitle=true' +
+      '&fzr=true' +
+      '&gid=' + sheetId;
+
+    var response = UrlFetchApp.fetch(pdfUrl, {
+      headers: { 'Authorization': 'Bearer ' + ScriptApp.getOAuthToken() }
+    });
+
+    var pdfBlob = response.getBlob().setName('รายงาน_ครุภัณฑ์_' + surveyDate.replace(/\\s+/g, '_') + '.pdf');
+    var file = DriveApp.createFile(pdfBlob);
+    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+
+    DriveApp.getFileById(ssId).setTrashed(true);
+
+    return ContentService.createTextOutput(JSON.stringify({
+      success: true,
+      downloadUrl: file.getDownloadUrl(),
+      directUrl: 'https://drive.google.com/uc?export=download&id=' + file.getId()
+    })).setMimeType(ContentService.MimeType.JSON);
+  } catch (error) {
+    return ContentService.createTextOutput(JSON.stringify({
+      success: false,
+      error: error.toString()
+    })).setMimeType(ContentService.MimeType.JSON);
   }
 }
 
@@ -452,305 +563,250 @@ function doAuditLog_(ss, d) {
 // ----------------- ประมวลผลและบันทึกรายงาน -----------------
 function doLog_(ss, d) {
   var rows = d.rows || [];
-  writeReport_(ss, d);
-  appendMasterAll_(ss, d, rows);
+  if (d.type === 'drug') {
+    writeDrugReport_(ss, d);
+  } else {
+    writeReport_(ss, d);
+  }
   return ok_({ count: rows.length });
 }
 
-function appendMasterAll_(ss, d, rows) {
-  var sh = ss.getSheetByName(SHEET_MASTER);
-  var roundId = String(d.sheetName || computeSheetName_(d) || 'รอบตรวจ_' + now_());
-  if (!sh) {
-    sh = ss.insertSheet(SHEET_MASTER);
-    var heads = [
-      'รหัสรอบตรวจ', 'วันเวลาที่บันทึก', 'วันที่ตรวจ', 'ผู้ตรวจ', 'หมวดหมู่', 'สถานที่/ห้อง',
-      'ลำดับ', 'หมายเลขพัสดุ', 'รหัส SAP', 'รายการ', 'มาตรฐาน/คุณลักษณะ', 'แหล่งเงินที่มา',
-      'ว/ด/ป ได้มา', 'จำนวน', 'ภาษี %', 'ราคา', 'ผลการตรวจ', 'หมายเหตุ'
-    ];
-    sh.appendRow(heads);
-    sh.setFrozenRows(1);
-    sh.getRange(1, 1, 1, heads.length).setFontFamily(CFG.font).setFontWeight('bold').setBackground('#f1f5f9');
-    sh.setColumnWidth(1, 160);
-    sh.setColumnWidth(2, 140);
-    sh.setColumnWidth(3, 100);
-    sh.setColumnWidth(4, 120);
-    sh.setColumnWidth(5, 110);
-    sh.setColumnWidth(6, 150);
-    sh.setColumnWidth(7, 45);
-    sh.setColumnWidth(8, 120);
-    sh.setColumnWidth(9, 100);
-    sh.setColumnWidth(10, 180);
-    sh.setColumnWidth(11, 140);
-    sh.setColumnWidth(12, 100);
-    sh.setColumnWidth(13, 90);
-    sh.setColumnWidth(14, 45);
-    sh.setColumnWidth(15, 45);
-    sh.setColumnWidth(16, 75);
-    sh.setColumnWidth(17, 95);
-    sh.setColumnWidth(18, 140);
-  }
-  var now = now_();
-  var bulk = [];
-  for (var i = 0; i < rows.length; i++) {
-    var r = rows[i];
-    bulk.push([
-      roundId,
-      now,
-      String(d.date || ''),
-      String(d.who || ''),
-      String(d.type === 'eq' ? 'ครุภัณฑ์' : d.type === 'bag' ? 'กระเป๋า Emer' : 'รถ Emer'),
-      String(r.location || d.title || ''),
-      i + 1,
-      String(r.code || '-'),
-      String(r.sap || '-'),
-      String(r.name || '-'),
-      String(r.spec || '-'),
-      String(r.source || '-'),
-      String(r.date || '-'),
-      String(r.qty || '1'),
-      String(r.tax !== undefined && r.tax !== '' ? r.tax : '7'),
-      String(r.price || '-'),
-      String(r.res || '-'),
-      String(r.note || '')
-    ]);
-  }
-  if (bulk.length > 0) {
-    sh.getRange(sh.getLastRow() + 1, 1, bulk.length, bulk[0].length).setValues(bulk);
-  }
-}
-
-// เมนูลัดและฟังก์ชันโหลดรอบตรวจเพื่อพิมพ์ใน Google Sheets
+// เมนูลัดและฟังก์ชันค้นหาชีตด่วน & พิมพ์ใน Google Sheets
 function onOpen() {
   try {
     SpreadsheetApp.getUi()
-      .createMenu('🖨️ ระบบพิมพ์ฟอร์ม A4')
-      .addItem('📋 โหลดรอบตรวจล่าสุดมาที่ฟอร์มพิมพ์', 'loadLatestToPrint')
-      .addItem('🔎 โหลดรอบตรวจตามรหัสที่เลือก', 'loadSelectedRoundToPrint')
+      .createMenu('🏥 ระบบงานวิสัญญี')
+      .addItem('🔍 ค้นหาชีตรอบตรวจ (Quick Jump)', 'showSheetSearchDialog')
+      .addItem('🖨️ ตั้งค่าพิมพ์ฟอร์ม A4 แนวนอน (Page Setup)', 'setupActiveSheetA4Landscape')
       .addToUi();
   } catch (e) {}
 }
 
-function loadLatestToPrint() {
+// ระบบค้นหาชีตอัจฉริยะใน Google Sheets ค้นหาปุ๊บมุ่งตรงไปชีตนั้นทันที
+function getSheetsListForDialog() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var master = ss.getSheetByName(SHEET_MASTER);
-  if (!master || master.getLastRow() < 2) return;
-  var lastRound = master.getRange(master.getLastRow(), 1).getValue();
-  loadRoundData(ss, lastRound);
-}
+  if (!ss) return [];
+  var sheets = ss.getSheets();
+  var sheetList = [];
 
-function loadSelectedRoundToPrint_() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var master = ss.getSheetByName(SHEET_MASTER);
-  if (!master || master.getLastRow() < 2) {
-    if (!master) {
-      master = ss.insertSheet(SHEET_MASTER);
-    }
-    var heads = [
-      'รหัสรอบตรวจ', 'วันเวลาที่บันทึก', 'วันที่ตรวจ', 'ผู้ตรวจ', 'หมวดหมู่', 'สถานที่/ห้อง',
-      'ลำดับ', 'หมายเลขพัสดุ', 'รหัส SAP', 'รายการ', 'มาตรฐาน/คุณลักษณะ', 'แหล่งเงินที่มา',
-      'ว/ด/ป ได้มา', 'จำนวน', 'ภาษี %', 'ราคา', 'ผลการตรวจ', 'หมายเหตุ'
-    ];
-    master.clear();
-    master.appendRow(heads);
-    master.setFrozenRows(1);
-    var today = Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyy-MM-dd');
-    master.appendRow([
-      'รอบตรวจ_ตัวอย่าง_' + today,
-      now_(),
-      today,
-      'เจ้าหน้าที่ (ตัวอย่าง)',
-      'ครุภัณฑ์',
-      'ห้องวิสัญญี',
-      1,
-      'EQ-001',
-      '4320280001',
-      'Laryngoscope Handle + Blades',
-      'ชุดส่องกล่องเสียง',
-      'เงินบำรุง',
-      '2025-01-01',
-      '1',
-      '7',
-      '5,000',
-      'ใช้งานได้',
-      'ปกติ'
-    ]);
-  }
-  var data = master.getDataRange().getValues();
-  var roundsList = [];
-  var seenMap = {};
-  for (var i = 1; i < data.length; i++) {
-    var rId = String(data[i][0]).trim();
-    if (rId && !seenMap[rId]) {
-      seenMap[rId] = true;
-      var cName = String(data[i][4] || 'ครุภัณฑ์').trim();
-      var cKey = 'eq';
-      if (cName.indexOf('กระเป๋า') > -1) cKey = 'bag';
-      else if (cName.indexOf('รถ') > -1) cKey = 'cart';
-
-      roundsList.push({
-        id: rId,
-        date: String(data[i][2] || ''),
-        who: String(data[i][3] || ''),
-        catName: cName,
-        catKey: cKey,
-        title: String(data[i][5] || '')
-      });
-    }
-  }
-
-  if (roundsList.length === 0) {
-    SpreadsheetApp.getUi().alert('ไม่พบข้อมูลรอบตรวจใน Master sheet');
-    return;
-  }
-
-  var roundsJson = JSON.stringify(roundsList);
-
-  var html = '<!DOCTYPE html><html><head><meta charset="utf-8">' +
-    '<style>' +
-    'body { font-family: -apple-system, BlinkMacSystemFont, "Sarabun", sans-serif; padding: 16px; margin: 0; background: #fafafa; color: #1f2937; }' +
-    'h3 { margin: 0 0 10px 0; color: #0071e3; font-size: 15px; }' +
-    '.cat-btns { display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }' +
-    '.cat-btn { padding: 5px 10px; border: 1px solid #d1d5db; background: #fff; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer; }' +
-    '.cat-btn.active { background: #0071e3; color: #fff; border-color: #0071e3; }' +
-    '.label { font-size: 12px; font-weight: 600; color: #4b5563; margin-bottom: 6px; display: block; }' +
-    'select { width: 100%; padding: 8px 10px; font-size: 13px; border-radius: 8px; border: 1px solid #cbd5e1; background: #fff; margin-bottom: 16px; outline: none; }' +
-    '.action-bar { display: flex; justify-content: flex-end; gap: 8px; }' +
-    '#loadBtn { background: #0071e3; color: white; border: none; padding: 9px 20px; font-size: 13px; border-radius: 8px; cursor: pointer; font-weight: bold; }' +
-    '#loadBtn:disabled { background: #9ca3af; cursor: not-allowed; }' +
-    '#cancelBtn { background: #f3f4f6; color: #374151; border: 1px solid #d1d5db; padding: 9px 15px; font-size: 13px; border-radius: 8px; cursor: pointer; }' +
-    '</style></head><body>' +
-    '<h3>📋 เลือกดึงรอบตรวจเพื่อพิมพ์ A4</h3>' +
-    '<div class="cat-btns">' +
-    '  <button type="button" class="cat-btn active" id="btn-all" onclick="filterCat(\\'all\\', this)">🌟 ทั้งหมด</button>' +
-    '  <button type="button" class="cat-btn" id="btn-eq" onclick="filterCat(\\'eq\\', this)">🏥 ครุภัณฑ์</button>' +
-    '  <button type="button" class="cat-btn" id="btn-bag" onclick="filterCat(\\'bag\\', this)">💼 กระเป๋า Emer</button>' +
-    '  <button type="button" class="cat-btn" id="btn-cart" onclick="filterCat(\\'cart\\', this)">🛒 รถ Emer</button>' +
-    '</div>' +
-    '<span class="label">เลือกรอบตรวจที่ต้องการโหลด:</span>' +
-    '<select id="roundSel"></select>' +
-    '<div class="action-bar">' +
-    '  <button type="button" id="cancelBtn" onclick="google.script.host.close()">ยกเลิก</button>' +
-    '  <button type="button" id="loadBtn" onclick="doLoad()">⚡ โหลดข้อมูลรอบนี้</button>' +
-    '</div>' +
-    '<script>' +
-    'var allRounds = ' + roundsJson + ';' +
-    'var currentCat = "all";' +
-    'function renderOpts() {' +
-    '  var sel = document.getElementById("roundSel");' +
-    '  sel.innerHTML = "";' +
-    '  var filtered = allRounds.filter(function(r){ return currentCat === "all" || r.catKey === currentCat; });' +
-    '  if (filtered.length === 0) {' +
-    '    var opt = document.createElement("option");' +
-    '    opt.text = "-- ไม่มีรอบตรวจในหมวดนี้ --";' +
-    '    opt.value = "";' +
-    '    sel.appendChild(opt);' +
-    '    document.getElementById("loadBtn").disabled = true;' +
-    '    return;' +
-    '  }' +
-    '  document.getElementById("loadBtn").disabled = false;' +
-    '  for (var i = filtered.length - 1; i >= 0; i--) {' +
-    '    var r = filtered[i];' +
-    '    var badge = r.catKey === "bag" ? "[💼 กระเป๋า]" : r.catKey === "cart" ? "[🛒 รถ]" : "[🏥 ครุภัณฑ์]";' +
-    '    var opt = document.createElement("option");' +
-    '    opt.value = r.id;' +
-    '    opt.text = badge + " " + r.date + " - " + r.title + " (" + (r.who || "ผู้ตรวจ") + ")";' +
-    '    sel.appendChild(opt);' +
-    '  }' +
-    '}' +
-    'function filterCat(cat, el) {' +
-    '  currentCat = cat;' +
-    '  var btns = document.querySelectorAll(".cat-btn");' +
-    '  btns.forEach(function(b){ b.classList.remove("active"); });' +
-    '  el.classList.add("active");' +
-    '  renderOpts();' +
-    '}' +
-    'function doLoad() {' +
-    '  var sel = document.getElementById("roundSel");' +
-    '  var val = sel.value;' +
-    '  if (!val) return;' +
-    '  var btn = document.getElementById("loadBtn");' +
-    '  btn.disabled = true;' +
-    '  btn.innerText = "⏳ กำลังดึงข้อมูลฟอร์ม A4...";' +
-    '  google.script.run.withSuccessHandler(function(){' +
-    '    google.script.host.close();' +
-    '  }).withFailureHandler(function(err){' +
-    '    alert("เกิดข้อผิดพลาด: " + err.message);' +
-    '    btn.disabled = false;' +
-    '    btn.innerText = "⚡ โหลดข้อมูลรอบนี้";' +
-    '  }).loadRoundData_(val);' +
-    '}' +
-    'renderOpts();' +
-    '</script></body></html>';
-
-  var output = HtmlService.createHtmlOutput(html).setWidth(520).setHeight(270);
-  SpreadsheetApp.getUi().showModalDialog(output, 'เลือกดึงรอบตรวจเพื่อพิมพ์ A4');
-}
-
-function loadRoundData_(ssOrId, optRoundId) {
-  var ss, roundId;
-  if (typeof optRoundId === 'undefined') {
-    ss = SpreadsheetApp.getActiveSpreadsheet();
-    roundId = ssOrId;
-  } else {
-    ss = ssOrId;
-    roundId = optRoundId;
-  }
-  var master = ss.getSheetByName(SHEET_MASTER);
-  if (!master) return false;
-  var data = master.getDataRange().getValues();
-  var matched = [];
-  var roundMeta = { date: '', who: '', type: 'eq', title: '' };
-  for (var i = 1; i < data.length; i++) {
-    if (String(data[i][0]).trim() === String(roundId).trim()) {
-      roundMeta.date = data[i][2];
-      roundMeta.who = data[i][3];
-      roundMeta.type = data[i][4] || 'ครุภัณฑ์';
-      roundMeta.title = data[i][5];
-      matched.push({
-        code: data[i][7],
-        sap: data[i][8],
-        name: data[i][9],
-        spec: data[i][10],
-        source: data[i][11],
-        date: data[i][12],
-        qty: data[i][13],
-        tax: data[i][14],
-        price: data[i][15],
-        res: data[i][16],
-        note: data[i][17],
-        location: data[i][5]
-      });
-    }
-  }
-  if (matched.length > 0) {
-    var docTitle = roundMeta.title;
-    if (!docTitle) {
-      if (roundMeta.type.indexOf('กระเป๋า') > -1) docTitle = 'แบบฟอร์มตรวจสอบความพร้อม กระเป๋า Emergency';
-      else if (roundMeta.type.indexOf('รถ') > -1) docTitle = 'แบบฟอร์มตรวจสอบความพร้อม รถ Emergency';
-      else docTitle = 'คลินิกงานบริการผู้ป่วยในวิสัญญี (ภาพรวมทุกห้อง)';
-    }
-
-    var printSheet = writeReport_(ss, {
-      title: docTitle,
-      type: roundMeta.type,
-      date: roundMeta.date,
-      who: roundMeta.who,
-      sheetName: roundId,
-      rows: matched
-    });
-    if (printSheet) {
-      ss.setActiveSheet(printSheet);
-    } else {
-      var fallback = ss.getSheetByName(SHEET_PRINT);
-      if (fallback) ss.setActiveSheet(fallback);
-    }
-    SpreadsheetApp.flush();
+  for (var i = 0; i < sheets.length; i++) {
     try {
-      ss.toast('ดึงข้อมูลรอบตรวจลงฟอร์มพิมพ์ A4 สำเร็จแล้ว', 'สำเร็จ', 3);
-    } catch(te){}
+      var sh = sheets[i];
+      var sName = sh.getName();
+      // Skip hidden technical sheets
+      if (sName === SHEET_USERS || sName === SHEET_AUDIT) continue;
+
+      var sType = 'eq';
+      var icon = '🏥';
+      var catLabel = 'ครุภัณฑ์';
+
+      if (sName.indexOf('กระเป๋า') > -1 || sName.indexOf('Bag') > -1) {
+        sType = 'bag';
+        icon = '💼';
+        catLabel = 'กระเป๋า Emer';
+      } else if (sName.indexOf('รถ') > -1 || sName.indexOf('Cart') > -1) {
+        sType = 'cart';
+        icon = '🛒';
+        catLabel = 'รถ Emer';
+      } else if (sName.indexOf('ยา') > -1 || sName.indexOf('คลัง') > -1 || sName.indexOf('Drug') > -1) {
+        sType = 'drug';
+        icon = '💊';
+        catLabel = 'คลังยาและสารน้ำ';
+      } else if (sName.indexOf('ฟอร์ม') > -1 || sName.indexOf('Print') > -1) {
+        sType = 'print';
+        icon = '📋';
+        catLabel = 'แบบฟอร์มพิมพ์';
+      } else {
+        sType = 'other';
+        icon = '📄';
+        catLabel = 'แผ่นงานทั่วไป';
+      }
+
+      var rowCount = 0;
+      var colCount = 0;
+      try { rowCount = sh.getLastRow(); } catch(e) {}
+      try { colCount = sh.getLastColumn(); } catch(e) {}
+
+      sheetList.push({
+        name: sName,
+        type: sType,
+        icon: icon,
+        catLabel: catLabel,
+        rows: rowCount,
+        cols: colCount
+      });
+    } catch(err) {}
+  }
+  return sheetList;
+}
+
+function showSheetSearchDialog() {
+  var sheetList = [];
+  try {
+    sheetList = getSheetsListForDialog();
+  } catch(e) {}
+  var sheetsJson = JSON.stringify(sheetList);
+
+  var html = [
+    '<!DOCTYPE html>',
+    '<html><head><meta charset="utf-8">',
+    '<style>',
+    '  body { font-family: -apple-system, BlinkMacSystemFont, "Sarabun", sans-serif; padding: 14px; margin: 0; background: #f8fafc; color: #0f172a; }',
+    '  .header-box { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }',
+    '  h3 { margin: 0; color: #2563eb; font-size: 15px; font-weight: bold; display: flex; align-items: center; gap: 6px; }',
+    '  .refresh-btn { background: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe; padding: 4px 10px; border-radius: 8px; font-size: 11px; font-weight: 600; cursor: pointer; }',
+    '  .refresh-btn:hover { background: #dbeafe; }',
+    '  .search-box { position: relative; margin-bottom: 10px; }',
+    '  input[type="text"] { width: 100%; box-sizing: border-box; padding: 9px 12px; font-size: 13px; border-radius: 10px; border: 1.5px solid #cbd5e1; background: #fff; outline: none; }',
+    '  input[type="text"]:focus { border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37,99,235,0.15); }',
+    '  .cat-bar { display: flex; gap: 4px; margin-bottom: 10px; overflow-x: auto; padding-bottom: 4px; }',
+    '  .cat-btn { padding: 5px 10px; border: 1px solid #e2e8f0; background: #fff; border-radius: 8px; font-size: 11px; font-weight: 600; cursor: pointer; white-space: nowrap; }',
+    '  .cat-btn.active { background: #2563eb; color: #fff; border-color: #2563eb; }',
+    '  .status-text { font-size: 11px; color: #64748b; margin-bottom: 6px; }',
+    '  .sheet-list { max-height: 270px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }',
+    '  .sheet-card { display: flex; align-items: center; justify-content: space-between; padding: 9px 12px; background: #fff; border: 1.5px solid #e2e8f0; border-radius: 10px; cursor: pointer; transition: all .15s; }',
+    '  .sheet-card:hover { border-color: #2563eb; background: #f0f7ff; transform: translateY(-1px); box-shadow: 0 2px 4px rgba(0,0,0,0.05); }',
+    '  .sheet-title { font-size: 12px; font-weight: bold; color: #1e293b; display: flex; align-items: center; gap: 6px; }',
+    '  .sheet-meta { font-size: 10px; color: #64748b; margin-top: 2px; }',
+    '  .jump-badge { font-size: 11px; font-weight: 700; color: #2563eb; background: #dbeafe; padding: 4px 10px; border-radius: 8px; shrink: 0; }',
+    '</style></head><body>',
+    '<div class="header-box">',
+    '  <h3>🔍 ค้นหาชีตรอบตรวจ (Quick Jump)</h3>',
+    '  <button type="button" class="refresh-btn" onclick="fetchSheets()">🔄 รีเฟรช</button>',
+    '</div>',
+    '<div class="search-box">',
+    '  <input type="text" id="searchInput" placeholder="พิมพ์ชื่อชีต, วันที่, หรือคำที่ต้องการค้นหา...">',
+    '</div>',
+    '<div class="cat-bar">',
+    '  <button type="button" class="cat-btn active" data-cat="all">🌟 ทั้งหมด</button>',
+    '  <button type="button" class="cat-btn" data-cat="drug">💊 คลังยา</button>',
+    '  <button type="button" class="cat-btn" data-cat="eq">🏥 ครุภัณฑ์</button>',
+    '  <button type="button" class="cat-btn" data-cat="bag">💼 กระเป๋า</button>',
+    '  <button type="button" class="cat-btn" data-cat="cart">🛒 รถ</button>',
+    '</div>',
+    '<div class="status-text" id="statusCount"></div>',
+    '<div class="sheet-list" id="sheetContainer"></div>',
+    '<script>',
+    'var allSheets = ' + sheetsJson + ';',
+    'var currentCat = "all";',
+    'function renderSheets() {',
+    '  var q = (document.getElementById("searchInput").value || "").toLowerCase().trim();',
+    '  var container = document.getElementById("sheetContainer");',
+    '  container.innerHTML = "";',
+    '  var matched = allSheets.filter(function(s) {',
+    '    if (!s) return false;',
+    '    var catOk = currentCat === "all" || s.type === currentCat;',
+    '    var sName = String(s.name || "").toLowerCase();',
+    '    var sCat = String(s.catLabel || "").toLowerCase();',
+    '    var textOk = !q || sName.indexOf(q) > -1 || sCat.indexOf(q) > -1;',
+    '    return catOk && textOk;',
+    '  });',
+    '  var statusEl = document.getElementById("statusCount");',
+    '  if (statusEl) statusEl.textContent = "พบ " + matched.length + " ชีต (จากทั้งหมด " + allSheets.length + " ชีต)";',
+    '  if (matched.length === 0) {',
+    '    var empty = document.createElement("div");',
+    '    empty.style.textAlign = "center";',
+    '    empty.style.padding = "24px";',
+    '    empty.style.color = "#94a3b8";',
+    '    empty.style.fontSize = "12px";',
+    '    empty.textContent = allSheets.length === 0 ? "กำลังค้นหาชีต หรือยังไม่มีชีตในสเปรดชีตนี้..." : "ไม่พบชีตที่ตรงกับคำค้นหา";',
+    '    container.appendChild(empty);',
+    '    return;',
+    '  }',
+    '  matched.forEach(function(s) {',
+    '    var card = document.createElement("div");',
+    '    card.className = "sheet-card";',
+    '    card.onclick = function() { jumpTo(s.name); };',
+    '    var info = document.createElement("div");',
+    '    var title = document.createElement("div");',
+    '    title.className = "sheet-title";',
+    '    title.textContent = (s.icon || "📄") + " " + s.name;',
+    '    var meta = document.createElement("div");',
+    '    meta.className = "sheet-meta";',
+    '    meta.textContent = "หมวด: " + (s.catLabel || "-") + " • " + (s.rows || 0) + " แถว";',
+    '    info.appendChild(title);',
+    '    info.appendChild(meta);',
+    '    var badge = document.createElement("span");',
+    '    badge.className = "jump-badge";',
+    '    badge.textContent = "ไปที่ชีตนี้ ➜";',
+    '    card.appendChild(info);',
+    '    card.appendChild(badge);',
+    '    container.appendChild(card);',
+    '  });',
+    '}',
+    'function jumpTo(sheetName) {',
+    '  if (!sheetName) return;',
+    '  google.script.run',
+    '    .withSuccessHandler(function() {',
+    '      google.script.host.close();',
+    '    })',
+    '    .withFailureHandler(function(err) {',
+    '      alert("ไม่สามารถเปิดชีตได้: " + (err.message || err));',
+    '    })',
+    '    .jumpToSheetByName(sheetName);',
+    '}',
+    'function fetchSheets() {',
+    '  var statusEl = document.getElementById("statusCount");',
+    '  if (statusEl) statusEl.textContent = "กำลังโหลดรายชื่อชีต...";',
+    '  google.script.run',
+    '    .withSuccessHandler(function(list) {',
+    '      if (list && Array.isArray(list)) {',
+    '        allSheets = list;',
+    '        renderSheets();',
+    '      }',
+    '    })',
+    '    .getSheetsListForDialog();',
+    '}',
+    'var catButtons = document.querySelectorAll(".cat-btn");',
+    'for (var b = 0; b < catButtons.length; b++) {',
+    '  catButtons[b].onclick = function() {',
+    '    for (var j = 0; j < catButtons.length; j++) { catButtons[j].classList.remove("active"); }',
+    '    this.classList.add("active");',
+    '    currentCat = this.getAttribute("data-cat");',
+    '    renderSheets();',
+    '  };',
+    '}',
+    'document.getElementById("searchInput").oninput = renderSheets;',
+    'renderSheets();',
+    '// Also fetch dynamically to ensure live sheets are fully up to date',
+    'fetchSheets();',
+    'setTimeout(function() { document.getElementById("searchInput").focus(); }, 150);',
+    '</script></body></html>'
+  ].join('\\n');
+
+  var output = HtmlService.createHtmlOutput(html).setWidth(520).setHeight(430);
+  SpreadsheetApp.getUi().showModalDialog(output, 'ระบบค้นหาชีตอัจฉริยะ (Quick Jump)');
+}
+
+function jumpToSheetByName(sheetName) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (!ss) return false;
+  var sh = ss.getSheetByName(sheetName);
+  if (sh) {
+    ss.setActiveSheet(sh);
+    try {
+      SpreadsheetApp.setActiveSheet(sh);
+    } catch(e) {}
+    try {
+      ss.toast('มุ่งตรงไปยังชีต "' + sheetName + '" เรียบร้อยแล้ว', 'ค้นหาด่วน', 2);
+    } catch(e) {}
     return true;
   }
   return false;
+}
+
+// ฟังก์ชันตั้งค่าหน้ากระดาษ A4 แนวนอน พร้อมพิมพ์ Ctrl+P ได้ทันที
+function setupActiveSheetA4Landscape() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sh = ss.getActiveSheet();
+  if (!sh) return;
+  try {
+    sh.setPageSetUp(SpreadsheetApp.PageSize.A4, SpreadsheetApp.Orientation.LANDSCAPE);
+    sh.setHiddenGridlines(true);
+    ss.toast('ตั้งค่าชีตเป็นฟอร์มพิมพ์ A4 แนวนอนเรียบร้อยแล้ว (กด Ctrl + P ได้ทันที)', 'สำเร็จ', 3);
+  } catch(e) {
+    SpreadsheetApp.getUi().alert('การตั้งค่าหน้ากระดาษ: ' + e.message);
+  }
 }
 
 function computeSheetName_(d) {
@@ -928,6 +984,100 @@ function writeReport_(ss, data) {
   sheet.getRange(signRow, 1, 2, NCOL)
        .setFontFamily(CFG.font).setFontSize(10.5)
        .setHorizontalAlignment('center').setVerticalAlignment('middle').setWrap(false);
+  return sheet;
+}
+
+function writeDrugReport_(ss, data) {
+  var cat = String(data.category || 'monthly');
+  var baseName = data.sheetName || ('คลังยา_' + (cat === 'quarterly' ? 'เบิก3เดือน' : cat === 'adhoc' ? 'เบิกครั้งๆ' : 'คลังเดือน') + '_' + Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyyMMdd_HHmm'));
+  var sheet = getUniqueSheet_(ss, baseName);
+
+  var drugCols = 10;
+  if (sheet.getMaxColumns() < drugCols) {
+    sheet.insertColumnsAfter(sheet.getMaxColumns(), drugCols - sheet.getMaxColumns());
+  }
+
+  try {
+    sheet.setPageSetUp(SpreadsheetApp.PageSize.A4, SpreadsheetApp.Orientation.LANDSCAPE);
+  } catch (e) {}
+
+  sheet.setHiddenGridlines(true);
+  var widths = [45, 195, 65, 85, 75, 60, 75, 80, 95, 150];
+  for (var c = 0; c < drugCols; c++) sheet.setColumnWidth(c + 1, widths[c]);
+
+  var titleTh = cat === 'quarterly'
+    ? 'แบบฟอร์มเบิกจ่าย ยาเบิกทุก 3 เดือน'
+    : cat === 'adhoc'
+    ? 'แบบฟอร์มเบิกจ่าย ยาเบิกเป็นครั้งๆ (งบประมาณ / เบิกทุกเดือน)'
+    : 'แบบฟอร์มเบิกจ่าย ยาในคลังเดือน';
+
+  cell_(sheet, 'A1:J1', titleTh, 14, true, 'center');
+  sheet.setRowHeight(1, 30);
+
+  var subMeta = 'คลินิกงานบริการผู้ป่วยในวิสัญญี  |  ประจำเดือน/ปี (ณ วันที่ ' + thaiDate_(data.date) + ')  |  ผู้ตรวจสอบ: ' + (data.who || 'ผู้ดูแลระบบ');
+  cell_(sheet, 'A2:J2', subMeta, 10, false, 'center');
+  sheet.setRowHeight(2, 22);
+
+  var drugHeads = [
+    'ลำดับ', 'ชนิดยา / สารน้ำ', 'คงเหลือ', 'วันที่รับ', 'จำนวนที่รับ', 'รวม', 'ยอดต่ำสุด', 'เบิกครั้งละ', 'วันหมดอายุ (Exp)', 'หมายเหตุ'
+  ];
+  for (var i = 0; i < drugHeads.length; i++) {
+    sheet.getRange(4, i + 1).setValue(drugHeads[i]);
+  }
+  sheet.getRange(4, 1, 1, drugCols)
+       .setHorizontalAlignment('center').setVerticalAlignment('middle')
+       .setFontWeight('bold').setFontSize(11).setBackground('#f1f5f9');
+  sheet.setRowHeight(4, 28);
+
+  var rows = data.rows || [];
+  var total = Math.max(rows.length, 12);
+  var out = [];
+  for (var n = 0; n < total; n++) {
+    var r = rows[n];
+    if (!r) {
+      out.push(['', '', '', '', '', '', '', '', '', '']);
+      continue;
+    }
+    var totalQty = (Number(r.remaining) || 0) + (Number(r.receivedQty) || 0);
+    out.push([
+      n + 1,
+      r.name || '',
+      r.remaining !== undefined ? r.remaining : '',
+      r.receivedDate || '',
+      r.receivedQty !== undefined ? r.receivedQty : '',
+      totalQty || '',
+      r.minStock !== undefined ? r.minStock : '',
+      r.batchRequest || '',
+      r.expDate || '',
+      r.note || ''
+    ]);
+  }
+
+  var bodyRange = sheet.getRange(5, 1, total, drugCols);
+  bodyRange.setValues(out).setFontFamily(CFG.font).setFontSize(10.5).setVerticalAlignment('middle');
+  sheet.setRowHeights(5, total, 28);
+
+  // Column alignments
+  sheet.getRange(5, 1, total, 1).setHorizontalAlignment('center');
+  sheet.getRange(5, 2, total, 1).setHorizontalAlignment('left');
+  sheet.getRange(5, 3, total, 7).setHorizontalAlignment('center');
+  sheet.getRange(5, 10, total, 1).setHorizontalAlignment('left');
+
+  sheet.getRange(4, 1, total + 1, drugCols)
+       .setBorder(true, true, true, true, true, true, '#000000', SpreadsheetApp.BorderStyle.SOLID);
+
+  var signRow = 5 + total + 2;
+  if (sheet.getMaxRows() < signRow + 3) {
+    sheet.insertRowsAfter(sheet.getMaxRows(), 4);
+  }
+  sheet.getRange(signRow, 2, 1, 4).merge().setValue('ลงชื่อ .................................................... ผู้ตรวจสอบ');
+  sheet.getRange(signRow + 1, 2, 1, 4).merge().setValue('(' + (data.who || '....................................................') + ')');
+  sheet.getRange(signRow, 7, 1, 4).merge().setValue('ลงชื่อ .................................................... หัวหน้างาน');
+  sheet.getRange(signRow + 1, 7, 1, 4).merge().setValue('(....................................................)');
+  sheet.getRange(signRow, 1, 2, drugCols)
+       .setFontFamily(CFG.font).setFontSize(10.5)
+       .setHorizontalAlignment('center').setVerticalAlignment('middle').setWrap(false);
+
   return sheet;
 }
 

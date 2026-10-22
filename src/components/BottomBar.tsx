@@ -68,21 +68,6 @@ export const BottomBar: React.FC<BottomBarProps> = ({
           <span className="text-[10px] tracking-tight">รายงาน</span>
         </button>
 
-        {/* 3. Drug Inventory */}
-        {onOpenDrugInventory && (
-          <button
-            type="button"
-            onClick={onOpenDrugInventory}
-            className="relative flex flex-col items-center justify-center gap-0.5 py-1 px-3.5 rounded-xl text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-white transition-all cursor-pointer ios-touch"
-            title="ตรวจเช็คคลังยาและสารน้ำ"
-          >
-            <div className="p-1 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 transition text-blue-600 dark:text-blue-400">
-              <span className="text-base leading-none">💊</span>
-            </div>
-            <span className="text-[10px] tracking-tight">คลังยา</span>
-          </button>
-        )}
-
         {/* 3. Google Sheet Navigation */}
         <button
           type="button"

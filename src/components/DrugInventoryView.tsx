@@ -4,15 +4,18 @@ import {
   Calendar,
   Check,
   ChevronDown,
+  Clock,
   Download,
   FileSpreadsheet,
   FileText,
   Filter,
+  Minus,
   Plus,
   Printer,
   RefreshCw,
   Save,
   Search,
+  Sparkles,
   Trash2,
   X,
   ArrowLeft,
@@ -22,12 +25,15 @@ import jsPDF from 'jspdf';
 import 'jspdf-autotable';
 import { DrugCategory, DrugItem, User } from '../types';
 import { INITIAL_DRUGS_DATA } from '../constants/initialDrugs';
+import { sendInspectionToGas } from '../services/api';
+import { Send } from 'lucide-react';
 
 interface DrugInventoryViewProps {
   currentUser: User | null;
   onBack: () => void;
   sheetUrl?: string;
   apiUrl?: string;
+  onOpenPreview?: (category: DrugCategory) => void;
 }
 
 export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
@@ -35,6 +41,7 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
   onBack,
   sheetUrl,
   apiUrl,
+  onOpenPreview,
 }) => {
   const [activeTab, setActiveTab] = useState<DrugCategory>('monthly');
   const [drugs, setDrugs] = useState<DrugItem[]>(() => {
@@ -53,7 +60,7 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
   });
 
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterLowStockOnly, setFilterLowStockOnly] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<'all' | 'low' | 'expiring' | 'expired'>('all');
   const [saveSuccessMsg, setSaveSuccessMsg] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
   const [itemToDelete, setItemToDelete] = useState<DrugItem | null>(null);
@@ -79,23 +86,25 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
     }
   }, [drugs]);
 
-  // Filtered lists
+  // Filtered lists for the active tab
   const currentTabDrugs = useMemo(() => {
     return drugs.filter((d) => d.category === activeTab);
   }, [drugs, activeTab]);
 
-  const displayedDrugs = useMemo(() => {
-    return currentTabDrugs.filter((d) => {
-      const matchesSearch =
-        d.name.toLowerCase().includes(searchTerm.toLowerCase().trim()) ||
-        (d.note && d.note.toLowerCase().includes(searchTerm.toLowerCase().trim()));
-
-      const isLowStock = d.remaining <= d.minStock;
-      const matchesFilter = filterLowStockOnly ? isLowStock : true;
-
-      return matchesSearch && matchesFilter;
+  // Sorted by expiration date: earliest at top -> later at bottom, empty dates at the bottom
+  const sortedTabDrugs = useMemo(() => {
+    return [...currentTabDrugs].sort((a, b) => {
+      const expA = a.expDate ? a.expDate.trim() : '';
+      const expB = b.expDate ? b.expDate.trim() : '';
+      if (expA && expB) {
+        const cmp = expA.localeCompare(expB);
+        if (cmp !== 0) return cmp;
+      }
+      if (expA && !expB) return -1;
+      if (!expA && expB) return 1;
+      return a.name.localeCompare(b.name, 'th');
     });
-  }, [currentTabDrugs, searchTerm, filterLowStockOnly]);
+  }, [currentTabDrugs]);
 
   // Counts
   const monthlyCount = drugs.filter((d) => d.category === 'monthly').length;
@@ -111,6 +120,89 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
   const lowStockAdhoc = drugs.filter(
     (d) => d.category === 'adhoc' && d.remaining <= d.minStock
   ).length;
+
+  const lowStockCurrent = useMemo(() => {
+    return currentTabDrugs.filter((d) => d.remaining <= d.minStock).length;
+  }, [currentTabDrugs]);
+
+  // Active tab expiration stats
+  const expiringSoonCount = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return currentTabDrugs.filter((d) => {
+      if (!d.expDate) return false;
+      const exp = new Date(d.expDate);
+      if (isNaN(exp.getTime())) return false;
+      exp.setHours(0, 0, 0, 0);
+      const diff = Math.ceil((exp.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+      return diff >= 0 && diff <= 90;
+    }).length;
+  }, [currentTabDrugs]);
+
+  const expiredCount = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return currentTabDrugs.filter((d) => {
+      if (!d.expDate) return false;
+      const exp = new Date(d.expDate);
+      if (isNaN(exp.getTime())) return false;
+      exp.setHours(0, 0, 0, 0);
+      const diff = Math.ceil((exp.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+      return diff < 0;
+    }).length;
+  }, [currentTabDrugs]);
+
+  const displayedDrugs = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    return sortedTabDrugs.filter((d) => {
+      const matchesSearch =
+        d.name.toLowerCase().includes(searchTerm.toLowerCase().trim()) ||
+        (d.note && d.note.toLowerCase().includes(searchTerm.toLowerCase().trim()));
+
+      if (!matchesSearch) return false;
+
+      if (statusFilter === 'low') {
+        return d.remaining <= d.minStock;
+      }
+      if (statusFilter === 'expiring') {
+        if (!d.expDate) return false;
+        const exp = new Date(d.expDate);
+        if (isNaN(exp.getTime())) return false;
+        exp.setHours(0, 0, 0, 0);
+        const diff = Math.ceil((exp.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+        return diff >= 0 && diff <= 90;
+      }
+      if (statusFilter === 'expired') {
+        if (!d.expDate) return false;
+        const exp = new Date(d.expDate);
+        if (isNaN(exp.getTime())) return false;
+        exp.setHours(0, 0, 0, 0);
+        const diff = Math.ceil((exp.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+        return diff < 0;
+      }
+
+      return true;
+    });
+  }, [sortedTabDrugs, searchTerm, statusFilter]);
+
+  const getExpirationInfo = (expDate?: string) => {
+    if (!expDate) return { text: 'ไม่ระบุวันหมดอายุ', days: null, status: 'none' as const };
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const exp = new Date(expDate);
+    if (isNaN(exp.getTime())) return { text: expDate, days: null, status: 'none' as const };
+    exp.setHours(0, 0, 0, 0);
+    const diff = Math.ceil((exp.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+    if (diff < 0) {
+      return { text: `หมดอายุแล้ว (${Math.abs(diff)} วัน)`, days: diff, status: 'expired' as const };
+    }
+    if (diff <= 90) {
+      return { text: `ใกล้หมดอายุ (เหลือ ${diff} วัน)`, days: diff, status: 'expiring' as const };
+    }
+    return { text: `เหลือ ${diff} วัน`, days: diff, status: 'ok' as const };
+  };
 
   // Handlers for updating rows in real time
   const handleUpdateField = (
@@ -138,6 +230,56 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
       setTimeout(() => setSaveSuccessMsg(''), 3000);
     } catch (e) {
       alert('เกิดข้อผิดพลาดในการบันทึกข้อมูล');
+    }
+  };
+
+  const [isSyncingGas, setIsSyncingGas] = useState(false);
+
+  const handleSyncToGas = async () => {
+    if (!apiUrl) {
+      alert('กรุณาระบุ URL ของ Google Apps Script ในหน้าตั้งค่าก่อนครับ');
+      return;
+    }
+    setIsSyncingGas(true);
+    const catName =
+      activeTab === 'quarterly'
+        ? 'ยาเบิกทุก 3 เดือน'
+        : activeTab === 'adhoc'
+        ? 'ยาเบิกเป็นครั้งๆ / ยาตามงบประมาณ'
+        : 'ยาในคลังเดือน';
+
+    const thaiYear = String(new Date().getFullYear() + 543);
+    const timeSuffix = new Date().toTimeString().slice(0, 5).replace(':', '') + '_' + Math.floor(Math.random() * 900 + 100);
+    const uniqueSheet = `คลังยา_${activeTab === 'quarterly' ? '3เดือน' : activeTab === 'adhoc' ? 'ครั้งคราว' : 'คลังเดือน'}_${thaiYear}_${timeSuffix}`;
+
+    try {
+      await sendInspectionToGas(apiUrl, {
+        type: 'drug',
+        category: activeTab,
+        sheet: 'คลังยาและสารน้ำ',
+        sheetName: uniqueSheet,
+        title: `แบบฟอร์มตรวจสอบ ${catName}`,
+        date: new Date().toISOString().split('T')[0],
+        who: currentUser?.name || currentUser?.username || 'ผู้ดูแลระบบ',
+        user: currentUser?.username || 'user',
+        rows: sortedTabDrugs.map((d) => ({
+          name: d.name,
+          remaining: d.remaining,
+          receivedDate: d.receivedDate,
+          receivedQty: d.receivedQty,
+          totalQty: d.remaining + d.receivedQty,
+          minStock: d.minStock,
+          batchRequest: d.batchRequest,
+          expDate: d.expDate,
+          note: d.note,
+        })),
+      });
+      setSaveSuccessMsg(`✓ ส่งข้อมูล "${catName}" ลง Google Sheet สร้างแท็บใหม่เรียบร้อยแล้ว`);
+      setTimeout(() => setSaveSuccessMsg(''), 4500);
+    } catch (e: any) {
+      alert('เกิดข้อผิดพลาดในการส่งข้อมูล: ' + (e.message || 'กรุณาลองใหม่อีกครั้ง'));
+    } finally {
+      setIsSyncingGas(false);
     }
   };
 
@@ -198,233 +340,95 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
     setTimeout(() => setSaveSuccessMsg(''), 3000);
   };
 
-  // Export to Excel (.xlsx) using SheetJS with proper A4 Landscape setup
-  const handleExportExcel = () => {
-    const wb = XLSX.utils.book_new();
-
-    const categoryNames: Record<DrugCategory, string> = {
-      monthly: 'ยาในคลังเดือน',
-      quarterly: 'ยาเบิกทุก 3 เดือน',
-      adhoc: 'ยาเบิกเป็นครั้งๆ-ตามงบ',
-    };
-
-    (['monthly', 'quarterly', 'adhoc'] as DrugCategory[]).forEach((cat) => {
-      const catDrugs = drugs.filter((d) => d.category === cat);
-      const rows = catDrugs.map((d, idx) => ({
-        ลำดับ: idx + 1,
-        'ชนิดยา/สารน้ำ': d.name,
-        คงเหลือ: d.remaining,
-        วันที่รับ: d.receivedDate || '-',
-        จำนวนที่รับ: d.receivedQty,
-        รวม: d.remaining + d.receivedQty,
-        'ยอดต่ำสุด (Min Stock)': d.minStock,
-        เบิกครั้งละ: d.batchRequest || '-',
-        'วันหมดอายุ (Exp Date)': d.expDate || '-',
-        สถานะ: d.remaining <= d.minStock ? 'ต่ำกว่าเกณฑ์ (ต้องเบิก)' : 'ปกติ',
-        หมายเหตุ: d.note || '-',
-      }));
-
-      const ws = XLSX.utils.json_to_sheet(rows);
-
-      // Page Setup for Excel
-      ws['!pageSetup'] = {
-        orientation: 'landscape',
-        paperSize: 9, // A4
-        fitToWidth: 1,
-        fitToHeight: 0,
-      };
-
-      // Title at A1
-      ws['A1'] = { v: `รายงานคลังยาและสารน้ำ - ${categoryNames[cat]} (คลินิกงานบริการผู้ป่วยในวิสัญญี)`, t: 's' };
-
-      // Auto-fit column widths
-      ws['!cols'] = [
-        { wch: 6 },
-        { wch: 32 },
-        { wch: 10 },
-        { wch: 14 },
-        { wch: 12 },
-        { wch: 10 },
-        { wch: 20 },
-        { wch: 14 },
-        { wch: 16 },
-        { wch: 22 },
-        { wch: 25 },
-      ];
-
-      XLSX.utils.book_append_sheet(wb, ws, categoryNames[cat]);
-    });
-
-    const nowStr = new Date().toISOString().split('T')[0];
-    XLSX.writeFile(wb, `รายงานคลังยาและสารน้ำ_วิสัญญี_${nowStr}.xlsx`);
-  };
-
-  // Export to PDF (.pdf) using jsPDF + autoTable
-  const handleExportPdf = () => {
-    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
-    const todayStr = new Date().toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' });
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(14);
-    doc.text('แบบฟอร์มตรวจสอบและเบิกจ่ายคลังยาและสารน้ำ', 148, 12, { align: 'center' });
-
-    doc.setFontSize(10);
-    doc.text(`ณ วันที่ ${todayStr}`, 148, 18, { align: 'center' });
-
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(9);
-    doc.text('คลินิกงานบริการผู้ป่วยในวิสัญญี', 14, 24);
-    doc.text(`หมวดหมู่: ${activeTab === 'monthly' ? 'ยาในคลังเดือน' : activeTab === 'quarterly' ? 'ยาเบิกทุก 3 เดือน' : 'ยาเบิกเป็นครั้งๆ / ตามงบประมาณ'}`, 283, 24, { align: 'right' });
-
-    const tableData = displayedDrugs.map((d, idx) => [
-      idx + 1,
-      d.name || '-',
-      d.remaining ?? 0,
-      d.receivedDate || '-',
-      d.receivedQty ?? 0,
-      (d.remaining ?? 0) + (d.receivedQty ?? 0),
-      d.minStock ?? 0,
-      d.batchRequest || '-',
-      d.expDate || '-',
-      d.note || '-',
-    ]);
-
-    (doc as any).autoTable({
-      startY: 28,
-      head: [
-        [
-          'ลำดับ',
-          'ชนิดยา / สารน้ำ',
-          'คงเหลือ',
-          'วันที่รับ',
-          'จำนวนรับ',
-          'รวม',
-          'ยอดต่ำสุด',
-          'เบิกครั้งละ',
-          'วันหมดอายุ',
-          'หมายเหตุ',
-        ],
-      ],
-      body: tableData,
-      theme: 'grid',
-      styles: {
-        font: 'helvetica',
-        fontSize: 8,
-        cellPadding: 2,
-        textColor: [0, 0, 0],
-        lineColor: [0, 0, 0],
-        lineWidth: 0.1,
-      },
-      headStyles: {
-        fillColor: [241, 245, 249],
-        textColor: [0, 0, 0],
-        fontStyle: 'bold',
-        halign: 'center',
-        valign: 'middle',
-      },
-      columnStyles: {
-        0: { halign: 'center', cellWidth: 12 },
-        1: { halign: 'left', cellWidth: 60 },
-        2: { halign: 'center', cellWidth: 18 },
-        3: { halign: 'center', cellWidth: 26 },
-        4: { halign: 'center', cellWidth: 20 },
-        5: { halign: 'center', cellWidth: 18 },
-        6: { halign: 'center', cellWidth: 20 },
-        7: { halign: 'center', cellWidth: 24 },
-        8: { halign: 'center', cellWidth: 26 },
-        9: { halign: 'left', cellWidth: 50 },
-      },
-    });
-
-    const finalY = (doc as any).lastAutoTable.finalY || 150;
-    doc.setFontSize(9);
-    doc.text(`ลงชื่อ .................................................... ผู้ตรวจสอบ\n( ${currentUser?.name || 'ผู้ดูแลระบบ'} )`, 70, finalY + 14, { align: 'center' });
-    doc.text(`ลงชื่อ .................................................... หัวหน้างาน\n( .................................................... )`, 220, finalY + 14, { align: 'center' });
-
-    doc.save(`รายงานคลังยา_${activeTab}_${new Date().toISOString().split('T')[0]}.pdf`);
-  };
-
-  const handlePrint = () => {
-    window.print();
-  };
-
   return (
-    <div className="max-w-6xl mx-auto px-4 py-6 space-y-5 animate-in fade-in">
+    <div className="max-w-6xl mx-auto px-3 sm:px-4 py-4 sm:py-6 space-y-4 sm:space-y-5 animate-in fade-in">
       {/* Top Navigation / Back & Actions Header */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 bg-white dark:bg-[#161822] p-5 rounded-3xl border border-neutral-200 dark:border-neutral-800 shadow-sm">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 sm:gap-4 bg-white dark:bg-[#161822] p-4 sm:p-5 rounded-3xl border border-neutral-200 dark:border-neutral-800 shadow-sm">
+        <div className="flex items-center gap-2.5 sm:gap-3">
           <button
             type="button"
             onClick={onBack}
-            className="p-2.5 rounded-2xl bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-200 transition cursor-pointer flex items-center gap-1.5 text-xs font-semibold"
+            className="p-2 sm:p-2.5 rounded-2xl bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-200 transition cursor-pointer flex items-center gap-1.5 text-xs font-semibold shrink-0"
           >
             <ArrowLeft className="w-4 h-4" />
-            <span>กลับหน้าหลัก</span>
+            <span className="hidden xs:inline">กลับหน้าหลัก</span>
           </button>
           <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-lg sm:text-xl font-extrabold text-neutral-900 dark:text-white tracking-tight">
-                ระบบตรวจเช็คคลังยาและสารน้ำ
-              </h1>
-              <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800">
-                Anesthesia Drug Inventory
-              </span>
-            </div>
-            <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
-              คลินิกงานบริการผู้ป่วยในวิสัญญี | ผู้ตรวจ: {currentUser?.name || 'ผู้ดูแลระบบ'}
-            </p>
+            <h1 className="text-base sm:text-lg font-bold text-neutral-900 dark:text-white tracking-tight">
+              ระบบตรวจเช็คคลังยาและสารน้ำ
+            </h1>
           </div>
         </div>
 
-        {/* Action Buttons */}
-        <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto justify-end">
+        {/* Action Buttons: Add Drug, Save, Sync to Gas, Direct to Google Sheet */}
+        <div className="flex items-center gap-2 flex-wrap justify-end">
           <button
             type="button"
             onClick={() => setShowAddModal(true)}
-            className="px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs flex items-center gap-1.5 transition cursor-pointer shadow-xs"
+            className="flex-1 sm:flex-initial px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer shadow-xs"
           >
             <Plus className="w-4 h-4" />
-            <span>เพิ่มรายการยา</span>
+            <span>เพิ่มยา</span>
           </button>
 
           <button
             type="button"
             onClick={handleSaveData}
-            className="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs flex items-center gap-1.5 transition cursor-pointer shadow-xs"
+            className="flex-1 sm:flex-initial px-3 py-2 rounded-xl bg-neutral-900 hover:bg-neutral-800 dark:bg-white dark:hover:bg-neutral-200 text-white dark:text-neutral-900 font-semibold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer shadow-xs"
           >
             <Save className="w-4 h-4" />
-            <span>บันทึกข้อมูล</span>
+            <span>บันทึก</span>
           </button>
 
-          <button
-            type="button"
-            onClick={handleExportExcel}
-            className="px-3 py-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 font-semibold text-xs flex items-center gap-1.5 transition cursor-pointer"
-            title="ดาวน์โหลด Excel (.xlsx) จริง"
-          >
-            <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
-            <span>Excel</span>
-          </button>
+          {/* Sync & Create Sheet in Google Sheets */}
+          {apiUrl && (
+            <button
+              type="button"
+              disabled={isSyncingGas}
+              onClick={handleSyncToGas}
+              className="flex-1 sm:flex-initial px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer shadow-xs disabled:opacity-50"
+              title="ส่งข้อมูลหมวดนี้ไปสร้างแท็บใหม่ใน Google Sheets"
+            >
+              <Send className="w-4 h-4" />
+              <span>{isSyncingGas ? 'กำลังส่งข้อมูล...' : 'ส่งผลลง Google Sheet'}</span>
+            </button>
+          )}
 
-          <button
-            type="button"
-            onClick={handleExportPdf}
-            className="px-3 py-2 rounded-xl bg-rose-50 dark:bg-rose-950/60 hover:bg-rose-100 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 font-semibold text-xs flex items-center gap-1.5 transition cursor-pointer"
-            title="ดาวน์โหลด PDF A4 แนวนอน"
-          >
-            <FileText className="w-4 h-4 text-rose-600" />
-            <span>PDF</span>
-          </button>
+          {/* Preview & Print A4 Report */}
+          {onOpenPreview && (
+            <button
+              type="button"
+              onClick={() => onOpenPreview(activeTab)}
+              className="flex-1 sm:flex-initial px-3.5 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-semibold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer shadow-xs"
+              title="ดูพรีวิวแบบฟอร์ม A4 และดาวน์โหลด PDF"
+            >
+              <Printer className="w-4 h-4" />
+              <span>พรีวิว & พิมพ์ A4</span>
+            </button>
+          )}
 
-          <button
-            type="button"
-            onClick={handlePrint}
-            className="px-3 py-2 rounded-xl bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-200 font-semibold text-xs flex items-center gap-1.5 transition cursor-pointer"
-            title="พิมพ์เอกสาร"
-          >
-            <Printer className="w-4 h-4" />
-            <span>พิมพ์</span>
-          </button>
+          {/* Direct Link to Google Sheet */}
+          {sheetUrl ? (
+            <a
+              href={sheetUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-full sm:w-auto px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer shadow-xs"
+              title="มุ่งตรงไปยัง Google Sheet โดยตรง"
+            >
+              <FileSpreadsheet className="w-4 h-4" />
+              <span>มุ่งตรงไปยังหน้าชีต</span>
+            </a>
+          ) : (
+            <button
+              type="button"
+              onClick={() => alert('กรุณาระบุ URL ของ Google Sheet ในหน้าตั้งค่าก่อนครับ')}
+              className="w-full sm:w-auto px-3.5 py-2 rounded-xl bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 font-semibold text-xs flex items-center justify-center gap-1.5 cursor-pointer"
+            >
+              <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+              <span>มุ่งตรงไปยังหน้าชีต</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -435,20 +439,20 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
         </div>
       )}
 
-      {/* Top Tabs Bar inside page (3 Categories) */}
-      <div className="bg-white dark:bg-[#161822] p-2 rounded-2xl border border-neutral-200 dark:border-neutral-800 shadow-xs flex items-center justify-between gap-3 flex-wrap">
-        <div className="flex items-center gap-1.5 w-full sm:w-auto overflow-x-auto pb-1 sm:pb-0">
+      {/* Top Tabs Bar inside page (3 Categories) - Responsive and never cut off */}
+      <div className="bg-white dark:bg-[#161822] p-2.5 sm:p-3 rounded-2xl border border-neutral-200 dark:border-neutral-800 shadow-xs flex flex-col gap-3">
+        <div className="flex flex-wrap sm:flex-nowrap gap-2 w-full overflow-x-auto pb-1 sm:pb-0">
           <button
             type="button"
             onClick={() => setActiveTab('monthly')}
-            className={`flex-1 sm:flex-initial px-4 py-2.5 rounded-xl transition flex items-center justify-center gap-2 text-xs font-bold cursor-pointer whitespace-nowrap ${
+            className={`flex-1 min-w-[150px] px-3.5 py-2.5 rounded-xl transition flex items-center justify-center gap-2 text-xs font-bold cursor-pointer whitespace-nowrap ${
               activeTab === 'monthly'
-                ? 'bg-blue-600 text-white shadow-md shadow-blue-600/20'
-                : 'text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800'
+                ? 'bg-neutral-900 text-white dark:bg-white dark:text-neutral-900 shadow-xs'
+                : 'text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 bg-neutral-50 dark:bg-neutral-900/50'
             }`}
           >
             <span>📅 ยาในคลังเดือน</span>
-            <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${activeTab === 'monthly' ? 'bg-white/25 text-white' : 'bg-neutral-200 dark:bg-neutral-700 text-neutral-700 dark:text-neutral-300'}`}>
+            <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${activeTab === 'monthly' ? 'bg-neutral-700 text-white dark:bg-neutral-200 dark:text-neutral-900' : 'bg-neutral-200 dark:bg-neutral-700 text-neutral-700 dark:text-neutral-300'}`}>
               {monthlyCount}
             </span>
             {lowStockMonthly > 0 && (
@@ -461,14 +465,14 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
           <button
             type="button"
             onClick={() => setActiveTab('quarterly')}
-            className={`flex-1 sm:flex-initial px-4 py-2.5 rounded-xl transition flex items-center justify-center gap-2 text-xs font-bold cursor-pointer whitespace-nowrap ${
+            className={`flex-1 min-w-[150px] px-3.5 py-2.5 rounded-xl transition flex items-center justify-center gap-2 text-xs font-bold cursor-pointer whitespace-nowrap ${
               activeTab === 'quarterly'
-                ? 'bg-blue-600 text-white shadow-md shadow-blue-600/20'
-                : 'text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800'
+                ? 'bg-neutral-900 text-white dark:bg-white dark:text-neutral-900 shadow-xs'
+                : 'text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 bg-neutral-50 dark:bg-neutral-900/50'
             }`}
           >
-            <span>📊 ยาเบิกทุก 3 เดือน</span>
-            <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${activeTab === 'quarterly' ? 'bg-white/25 text-white' : 'bg-neutral-200 dark:bg-neutral-700 text-neutral-700 dark:text-neutral-300'}`}>
+            <span>📦 ยาเบิกทุก 3 เดือน</span>
+            <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${activeTab === 'quarterly' ? 'bg-neutral-700 text-white dark:bg-neutral-200 dark:text-neutral-900' : 'bg-neutral-200 dark:bg-neutral-700 text-neutral-700 dark:text-neutral-300'}`}>
               {quarterlyCount}
             </span>
             {lowStockQuarterly > 0 && (
@@ -481,14 +485,14 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
           <button
             type="button"
             onClick={() => setActiveTab('adhoc')}
-            className={`flex-1 sm:flex-initial px-4 py-2.5 rounded-xl transition flex items-center justify-center gap-2 text-xs font-bold cursor-pointer whitespace-nowrap ${
+            className={`flex-1 min-w-[180px] px-3.5 py-2.5 rounded-xl transition flex items-center justify-center gap-2 text-xs font-bold cursor-pointer whitespace-nowrap ${
               activeTab === 'adhoc'
-                ? 'bg-blue-600 text-white shadow-md shadow-blue-600/20'
-                : 'text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800'
+                ? 'bg-neutral-900 text-white dark:bg-white dark:text-neutral-900 shadow-xs'
+                : 'text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 bg-neutral-50 dark:bg-neutral-900/50'
             }`}
           >
-            <span>⚡ ยาเบิกเป็นครั้งๆ / ตามงบประมาณ</span>
-            <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${activeTab === 'adhoc' ? 'bg-white/25 text-white' : 'bg-neutral-200 dark:bg-neutral-700 text-neutral-700 dark:text-neutral-300'}`}>
+            <span>⚡ ยาเบิกเป็นครั้งๆ / ยาตามงบประมาณ</span>
+            <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${activeTab === 'adhoc' ? 'bg-neutral-700 text-white dark:bg-neutral-200 dark:text-neutral-900' : 'bg-neutral-200 dark:bg-neutral-700 text-neutral-700 dark:text-neutral-300'}`}>
               {adhocCount}
             </span>
             {lowStockAdhoc > 0 && (
@@ -499,254 +503,486 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
           </button>
         </div>
 
-        {/* Search & Filter Controls */}
-        <div className="flex items-center gap-2 w-full sm:w-auto">
-          <div className="relative flex-1 sm:w-64">
-            <Search className="w-4 h-4 absolute left-3 top-2.5 text-neutral-400" />
+        {/* 4 Clinical KPI Dashboard Summary Cards */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 pt-1 border-t border-neutral-100 dark:border-neutral-800/80">
+          <div
+            onClick={() => setStatusFilter('all')}
+            className={`p-2.5 rounded-xl border transition cursor-pointer flex items-center justify-between ${
+              statusFilter === 'all'
+                ? 'border-blue-500 bg-blue-50/60 dark:bg-blue-950/40'
+                : 'border-neutral-200 dark:border-neutral-800 bg-neutral-50/40 dark:bg-neutral-900/40 hover:bg-neutral-100 dark:hover:bg-neutral-800'
+            }`}
+          >
+            <div>
+              <span className="block text-[11px] font-medium text-neutral-500 dark:text-neutral-400">ยาทั้งหมดในหมวดนี้</span>
+              <span className="text-base font-extrabold text-neutral-900 dark:text-white">{currentTabDrugs.length} รายการ</span>
+            </div>
+            <span className="p-2 rounded-lg bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300">
+              <Sparkles className="w-4 h-4" />
+            </span>
+          </div>
+
+          <div
+            onClick={() => setStatusFilter('low')}
+            className={`p-2.5 rounded-xl border transition cursor-pointer flex items-center justify-between ${
+              statusFilter === 'low'
+                ? 'border-rose-500 bg-rose-50/70 dark:bg-rose-950/40'
+                : 'border-neutral-200 dark:border-neutral-800 bg-neutral-50/40 dark:bg-neutral-900/40 hover:bg-neutral-100 dark:hover:bg-neutral-800'
+            }`}
+          >
+            <div>
+              <span className="block text-[11px] font-medium text-neutral-500 dark:text-neutral-400">สต็อกต่ำ (ต้องเบิก)</span>
+              <span className={`text-base font-extrabold ${lowStockCurrent > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-neutral-900 dark:text-white'}`}>
+                {lowStockCurrent} รายการ
+              </span>
+            </div>
+            <span className="p-2 rounded-lg bg-rose-100 dark:bg-rose-900/50 text-rose-700 dark:text-rose-300">
+              <AlertTriangle className="w-4 h-4" />
+            </span>
+          </div>
+
+          <div
+            onClick={() => setStatusFilter('expiring')}
+            className={`p-2.5 rounded-xl border transition cursor-pointer flex items-center justify-between ${
+              statusFilter === 'expiring'
+                ? 'border-amber-500 bg-amber-50/70 dark:bg-amber-950/40'
+                : 'border-neutral-200 dark:border-neutral-800 bg-neutral-50/40 dark:bg-neutral-900/40 hover:bg-neutral-100 dark:hover:bg-neutral-800'
+            }`}
+          >
+            <div>
+              <span className="block text-[11px] font-medium text-neutral-500 dark:text-neutral-400">ใกล้หมดอายุ (≤ 90 วัน)</span>
+              <span className={`text-base font-extrabold ${expiringSoonCount > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-neutral-900 dark:text-white'}`}>
+                {expiringSoonCount} รายการ
+              </span>
+            </div>
+            <span className="p-2 rounded-lg bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300">
+              <Clock className="w-4 h-4" />
+            </span>
+          </div>
+
+          <div
+            onClick={() => setStatusFilter('expired')}
+            className={`p-2.5 rounded-xl border transition cursor-pointer flex items-center justify-between ${
+              statusFilter === 'expired'
+                ? 'border-rose-700 bg-rose-100/70 dark:bg-rose-950/60'
+                : 'border-neutral-200 dark:border-neutral-800 bg-neutral-50/40 dark:bg-neutral-900/40 hover:bg-neutral-100 dark:hover:bg-neutral-800'
+            }`}
+          >
+            <div>
+              <span className="block text-[11px] font-medium text-neutral-500 dark:text-neutral-400">หมดอายุแล้ว (Exp)</span>
+              <span className={`text-base font-extrabold ${expiredCount > 0 ? 'text-rose-700 dark:text-rose-400' : 'text-neutral-900 dark:text-white'}`}>
+                {expiredCount} รายการ
+              </span>
+            </div>
+            <span className="p-2 rounded-lg bg-rose-200 dark:bg-rose-900 text-rose-800 dark:text-rose-200">
+              <Calendar className="w-4 h-4" />
+            </span>
+          </div>
+        </div>
+
+        {/* Search & Quick Filter Chips */}
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 pt-2 border-t border-neutral-100 dark:border-neutral-800/80">
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 text-xs">
+            <button
+              type="button"
+              onClick={() => setStatusFilter('all')}
+              className={`px-3 py-1.5 rounded-xl font-semibold cursor-pointer whitespace-nowrap transition ${
+                statusFilter === 'all'
+                  ? 'bg-neutral-900 text-white dark:bg-white dark:text-neutral-900 shadow-2xs'
+                  : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-200'
+              }`}
+            >
+              🌟 ทั้งหมด ({sortedTabDrugs.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setStatusFilter('low')}
+              className={`px-3 py-1.5 rounded-xl font-semibold cursor-pointer whitespace-nowrap transition flex items-center gap-1 ${
+                statusFilter === 'low'
+                  ? 'bg-rose-600 text-white shadow-2xs'
+                  : 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 hover:bg-rose-100'
+              }`}
+            >
+              <AlertTriangle className="w-3.5 h-3.5" />
+              <span>เตือนเบิก ({lowStockCurrent})</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setStatusFilter('expiring')}
+              className={`px-3 py-1.5 rounded-xl font-semibold cursor-pointer whitespace-nowrap transition flex items-center gap-1 ${
+                statusFilter === 'expiring'
+                  ? 'bg-amber-600 text-white shadow-2xs'
+                  : 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 hover:bg-amber-100'
+              }`}
+            >
+              <Clock className="w-3.5 h-3.5" />
+              <span>ใกล้หมดอายุ ({expiringSoonCount})</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setStatusFilter('expired')}
+              className={`px-3 py-1.5 rounded-xl font-semibold cursor-pointer whitespace-nowrap transition flex items-center gap-1 ${
+                statusFilter === 'expired'
+                  ? 'bg-rose-700 text-white shadow-2xs'
+                  : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-200'
+              }`}
+            >
+              <span>หมดอายุ ({expiredCount})</span>
+            </button>
+          </div>
+
+          <div className="relative flex-1 sm:max-w-xs">
+            <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-neutral-400" />
             <input
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="ค้นหาชื่อยาหรือสารน้ำ..."
-              className="w-full pl-9 pr-3 py-2 bg-neutral-100 dark:bg-neutral-800 text-neutral-800 dark:text-neutral-100 rounded-xl text-xs outline-none focus:ring-2 focus:ring-blue-500/20 border border-transparent"
+              placeholder="ค้นหาชื่อยา, สารน้ำ, หรือหมายเหตุ..."
+              className="w-full pl-8 pr-3 py-1.5 bg-neutral-100 dark:bg-neutral-800 text-neutral-800 dark:text-neutral-100 rounded-xl text-xs outline-none focus:ring-1 focus:ring-neutral-400 border border-transparent"
             />
           </div>
-
-          <button
-            type="button"
-            onClick={() => setFilterLowStockOnly(!filterLowStockOnly)}
-            className={`px-3 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer whitespace-nowrap ${
-              filterLowStockOnly
-                ? 'bg-rose-600 text-white shadow-xs'
-                : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-200'
-            }`}
-            title="กรองเฉพาะยาที่คงเหลือ ≤ ยอดต่ำสุด"
-          >
-            <AlertTriangle className="w-3.5 h-3.5" />
-            <span>เตือนเบิก ({lowStockMonthly + lowStockQuarterly + lowStockAdhoc})</span>
-          </button>
         </div>
       </div>
 
-      {/* Printable/Responsive Table Content Area */}
-      <div
-        id="printable-drug-inventory-doc"
-        className="bg-white dark:bg-[#161822] text-neutral-900 dark:text-neutral-100 p-4 sm:p-6 rounded-3xl shadow-xl border border-neutral-200 dark:border-neutral-800"
-      >
-        <div className="mb-4 text-center">
-          <h2 className="text-base sm:text-lg font-bold text-neutral-900 dark:text-white">
-            แบบฟอร์มตรวจสอบและเบิกจ่ายคลังยาและสารน้ำ
-          </h2>
-          <p className="text-xs font-medium text-neutral-500 dark:text-neutral-400 mt-0.5">
-            หมวดหมู่:{' '}
-            {activeTab === 'monthly'
-              ? 'ยาในคลังเดือน (เบิกทุกเดือน)'
-              : activeTab === 'quarterly'
-              ? 'ยาเบิกทุก 3 เดือน'
-              : 'ยาเบิกเป็นครั้งๆ / ยาตามงบประมาณ'}{' '}
-            | ข้อมูล ณ วันที่{' '}
-            {new Date().toLocaleDateString('th-TH', {
-              year: 'numeric',
-              month: 'long',
-              day: 'numeric',
-            })}
-          </p>
+      {/* Main Content Area */}
+      <div className="bg-white dark:bg-[#161822] text-neutral-900 dark:text-neutral-100 p-3 sm:p-5 rounded-3xl shadow-sm border border-neutral-200 dark:border-neutral-800">
+        <div className="mb-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-1 pb-3 border-b border-neutral-200/70 dark:border-neutral-800">
+          <div>
+            <h2 className="text-sm sm:text-base font-bold text-neutral-900 dark:text-white">
+              แบบฟอร์มตรวจสอบและเบิกจ่ายคลังยาและสารน้ำ
+            </h2>
+            <p className="text-xs text-neutral-500 dark:text-neutral-400">
+              หมวดหมู่:{' '}
+              {activeTab === 'monthly'
+                ? 'ยาในคลังเดือน'
+                : activeTab === 'quarterly'
+                ? 'ยาเบิกทุก 3 เดือน'
+                : 'ยาเบิกเป็นครั้งๆ / ยาตามงบประมาณ'}
+            </p>
+          </div>
+          <span className="text-[11px] text-neutral-400 font-medium">
+            ข้อมูล ณ {new Date().toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' })}
+          </span>
         </div>
 
-        {/* Main Inventory Table (Exact 9 Columns Standard) */}
-        <div className="overflow-x-auto">
-          <table className="w-full border-collapse text-xs border border-neutral-300 dark:border-neutral-700 min-w-[950px]">
+        {/* 1. Mobile Optimized Card List View (block on mobile, hidden on tablet/desktop) */}
+        <div className="block md:hidden space-y-2.5">
+          {displayedDrugs.length === 0 ? (
+            <div className="p-8 text-center text-xs text-neutral-400">
+              ไม่พบรายการยาหรือสารน้ำในหมวดนี้
+            </div>
+          ) : (
+            displayedDrugs.map((item, idx) => {
+              const totalQty = item.remaining + item.receivedQty;
+              const isLowStock = item.remaining <= item.minStock;
+
+              return (
+                <div
+                  key={item.id}
+                  className={`p-3 rounded-2xl border transition-all ${
+                    isLowStock
+                      ? 'border-rose-300 dark:border-rose-900/60 bg-rose-50/20 dark:bg-rose-950/15'
+                      : 'border-neutral-200 dark:border-neutral-800 bg-neutral-50/40 dark:bg-neutral-900/40'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                      <span className="text-xs font-bold text-neutral-400 shrink-0">#{idx + 1}</span>
+                      <h4 className="text-xs sm:text-sm font-bold text-neutral-900 dark:text-white truncate">
+                        {item.name}
+                      </h4>
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      {isLowStock && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded-md font-bold bg-rose-100 dark:bg-rose-900/80 text-rose-700 dark:text-rose-300 whitespace-nowrap">
+                          ⚠️ ต่ำกว่าเกณฑ์
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => setItemToDelete(item)}
+                        className="p-1 rounded-lg text-neutral-400 hover:text-rose-500"
+                        title="ลบรายการ"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Compact Grid of Values */}
+                  <div className="grid grid-cols-3 gap-2 text-xs mb-2">
+                    <div className="bg-white dark:bg-neutral-800/80 p-2 rounded-xl border border-neutral-200 dark:border-neutral-700 text-center">
+                      <span className="block text-[10px] text-neutral-400 font-medium">คงเหลือ</span>
+                      <input
+                        type="number"
+                        min="0"
+                        value={item.remaining}
+                        onChange={(e) =>
+                          handleUpdateField(item.id, 'remaining', Number(e.target.value) || 0)
+                        }
+                        className={`w-full text-center font-bold text-xs outline-none bg-transparent ${
+                          isLowStock ? 'text-rose-600 dark:text-rose-400' : 'text-neutral-900 dark:text-white'
+                        }`}
+                      />
+                    </div>
+
+                    <div className="bg-white dark:bg-neutral-800/80 p-2 rounded-xl border border-neutral-200 dark:border-neutral-700 text-center">
+                      <span className="block text-[10px] text-neutral-400 font-medium">จำนวนรับ</span>
+                      <input
+                        type="number"
+                        min="0"
+                        value={item.receivedQty}
+                        onChange={(e) =>
+                          handleUpdateField(item.id, 'receivedQty', Number(e.target.value) || 0)
+                        }
+                        className="w-full text-center font-bold text-xs outline-none bg-transparent text-neutral-900 dark:text-white"
+                      />
+                    </div>
+
+                    <div className="bg-emerald-50 dark:bg-emerald-950/30 p-2 rounded-xl border border-emerald-200 dark:border-emerald-800/50 text-center">
+                      <span className="block text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">รวม</span>
+                      <span className="font-extrabold text-xs text-emerald-700 dark:text-emerald-300">{totalQty}</span>
+                    </div>
+                  </div>
+
+                  {/* Details row: Min, Batch, Exp */}
+                  <div className="grid grid-cols-2 gap-2 text-[11px] text-neutral-500 dark:text-neutral-400">
+                    <div className="flex items-center justify-between bg-white dark:bg-neutral-800/50 px-2 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-700">
+                      <span>ยอดต่ำสุด (Min):</span>
+                      <span className="font-bold text-neutral-800 dark:text-neutral-200">{item.minStock}</span>
+                    </div>
+                    <div className="flex items-center justify-between bg-white dark:bg-neutral-800/50 px-2 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-700">
+                      <span>เบิกครั้งละ:</span>
+                      <span className="font-medium text-neutral-800 dark:text-neutral-200">{item.batchRequest || '-'}</span>
+                    </div>
+                  </div>
+
+                  {/* Date & Note */}
+                  <div className="mt-2 pt-2 border-t border-neutral-200/50 dark:border-neutral-800/80 flex items-center justify-between gap-2 text-[11px]">
+                    <span className="text-neutral-400">
+                      Exp: {item.expDate || '-'}
+                    </span>
+                    {item.note && (
+                      <span className="text-neutral-600 dark:text-neutral-300 truncate max-w-[150px]">
+                        {item.note}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        {/* 2. Desktop Table View (hidden on mobile, block on tablet/desktop) */}
+        <div className="hidden md:block overflow-x-auto rounded-2xl border border-neutral-200 dark:border-neutral-800 shadow-2xs">
+          <table className="w-full border-collapse text-xs min-w-[950px]">
             <thead>
-              <tr className="bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 font-bold border-b border-neutral-300 dark:border-neutral-700 text-center">
-                <th className="p-2.5 border border-neutral-300 dark:border-neutral-700 w-12">
-                  ลำดับ
-                </th>
-                <th className="p-2.5 border border-neutral-300 dark:border-neutral-700 text-left min-w-[180px]">
-                  ชนิดยา / สารน้ำ
-                </th>
-                <th className="p-2.5 border border-neutral-300 dark:border-neutral-700 w-24 bg-blue-50/50 dark:bg-blue-950/30">
-                  คงเหลือ
-                </th>
-                <th className="p-2.5 border border-neutral-300 dark:border-neutral-700 w-36">
-                  วันที่รับ
-                </th>
-                <th className="p-2.5 border border-neutral-300 dark:border-neutral-700 w-28">
-                  จำนวนรับ
-                </th>
-                <th className="p-2.5 border border-neutral-300 dark:border-neutral-700 w-24 bg-emerald-50/50 dark:bg-emerald-950/30 font-extrabold text-emerald-800 dark:text-emerald-300">
-                  รวม
-                </th>
-                <th className="p-2.5 border border-neutral-300 dark:border-neutral-700 w-28">
-                  ยอดต่ำสุด (Min)
-                </th>
-                <th className="p-2.5 border border-neutral-300 dark:border-neutral-700 w-28">
-                  เบิกครั้งละ
-                </th>
-                <th className="p-2.5 border border-neutral-300 dark:border-neutral-700 w-36">
-                  วันหมดอายุ (Exp)
-                </th>
-                <th className="p-2.5 border border-neutral-300 dark:border-neutral-700 min-w-[140px]">
-                  หมายเหตุ
-                </th>
-                <th className="p-2.5 border border-neutral-300 dark:border-neutral-700 w-16 no-print">
-                  จัดการ
-                </th>
+              <tr className="bg-neutral-100 dark:bg-neutral-800/90 text-neutral-800 dark:text-neutral-200 font-bold border-b border-neutral-200 dark:border-neutral-700 text-center">
+                <th className="p-2.5 w-12">#</th>
+                <th className="p-2.5 text-left min-w-[180px]">ชนิดยา / สารน้ำ</th>
+                <th className="p-2.5 w-32 bg-blue-50/50 dark:bg-blue-950/20">คงเหลือ</th>
+                <th className="p-2.5 w-48">การรับงวดนี้ (วันที่ / จำนวน)</th>
+                <th className="p-2.5 w-20 bg-emerald-50/50 dark:bg-emerald-950/20 font-bold text-emerald-800 dark:text-emerald-300">รวม</th>
+                <th className="p-2.5 w-36">เกณฑ์เบิก (ต่ำสุด / ครั้งละ)</th>
+                <th className="p-2.5 w-40">วันหมดอายุ (Exp)</th>
+                <th className="p-2.5 min-w-[140px] text-left">หมายเหตุ</th>
+                <th className="p-2.5 w-14">จัดการ</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className="divide-y divide-neutral-200 dark:divide-neutral-800 bg-white dark:bg-[#161822]">
               {displayedDrugs.length === 0 ? (
                 <tr>
-                  <td
-                    colSpan={11}
-                    className="p-10 text-center text-neutral-400 dark:text-neutral-500"
-                  >
-                    ไม่พบรายการยาหรือสารน้ำในหมวดนี้
+                  <td colSpan={9} className="p-12 text-center text-xs text-neutral-400">
+                    ไม่พบรายการยาหรือสารน้ำที่ตรงกับเงื่อนไขการค้นหา
                   </td>
                 </tr>
               ) : (
                 displayedDrugs.map((item, idx) => {
-                  const totalQty = item.remaining + item.receivedQty;
+                  const totalQty = (Number(item.remaining) || 0) + (Number(item.receivedQty) || 0);
                   const isLowStock = item.remaining <= item.minStock;
+                  const expInfo = getExpirationInfo(item.expDate);
+                  const isExpired = expInfo.status === 'expired';
+                  const isExpiringSoon = expInfo.status === 'expiring';
 
                   return (
                     <tr
                       key={item.id}
-                      className={`border-b border-neutral-200 dark:border-neutral-800 transition-colors ${
-                        isLowStock
-                          ? 'bg-rose-50/70 dark:bg-rose-950/30 font-medium'
-                          : 'hover:bg-neutral-50/80 dark:hover:bg-neutral-800/40'
+                      className={`transition-colors ${
+                        isExpired
+                          ? 'bg-rose-100/50 dark:bg-rose-950/40 hover:bg-rose-100/80'
+                          : isLowStock
+                          ? 'bg-rose-50/50 dark:bg-rose-950/20 hover:bg-rose-50/80'
+                          : isExpiringSoon
+                          ? 'bg-amber-50/30 dark:bg-amber-950/15 hover:bg-amber-50/60'
+                          : 'hover:bg-neutral-50 dark:hover:bg-neutral-800/40'
                       }`}
                     >
-                      {/* 1. ลำดับ */}
-                      <td className="p-2 border border-neutral-300 dark:border-neutral-700 text-center text-neutral-500 font-mono">
+                      {/* 1. Index */}
+                      <td className="p-2.5 text-center text-neutral-500 font-mono text-xs">
                         {idx + 1}
                       </td>
 
-                      {/* 2. ชนิดยา / สารน้ำ */}
-                      <td className="p-2 border border-neutral-300 dark:border-neutral-700 text-left font-semibold">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-neutral-900 dark:text-neutral-100">
+                      {/* 2. Name & Status Badges */}
+                      <td className="p-2.5 text-left">
+                        <div className="space-y-1">
+                          <span className="font-bold text-sm text-neutral-900 dark:text-neutral-100 block">
                             {item.name}
                           </span>
-                          {isLowStock && (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded font-bold bg-rose-100 dark:bg-rose-900 text-rose-700 dark:text-rose-300 border border-rose-300 dark:border-rose-800 whitespace-nowrap">
-                              ⚠️ ต่ำกว่าเกณฑ์
+                          <div className="flex items-center gap-1 flex-wrap">
+                            {isExpired && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded font-bold bg-rose-600 text-white animate-pulse">
+                                🔴 หมดอายุแล้ว
+                              </span>
+                            )}
+                            {isExpiringSoon && !isExpired && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded font-bold bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700">
+                                ⏳ ใกล้หมดอายุ
+                              </span>
+                            )}
+                            {isLowStock && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded font-bold bg-rose-100 dark:bg-rose-900/60 text-rose-700 dark:text-rose-300 border border-rose-300 dark:border-rose-700">
+                                ⚠️ สต็อกต่ำ
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </td>
+
+                      {/* 3. Remaining (Numeric Stepper) */}
+                      <td className="p-2 bg-blue-50/30 dark:bg-blue-950/10">
+                        <div className="flex items-center justify-center gap-1 bg-white dark:bg-neutral-800 px-1 py-1 rounded-xl border border-neutral-300 dark:border-neutral-700 shadow-2xs">
+                          <button
+                            type="button"
+                            onClick={() => handleUpdateField(item.id, 'remaining', Math.max(0, (Number(item.remaining) || 0) - 1))}
+                            className="w-6 h-6 rounded-lg bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-700 dark:hover:bg-neutral-600 text-neutral-700 dark:text-neutral-200 flex items-center justify-center font-bold text-sm cursor-pointer transition shrink-0"
+                            title="ลดจำนวน (-1)"
+                          >
+                            <Minus className="w-3 h-3" />
+                          </button>
+                          <input
+                            type="number"
+                            min="0"
+                            value={item.remaining}
+                            onChange={(e) =>
+                              handleUpdateField(item.id, 'remaining', Math.max(0, Number(e.target.value) || 0))
+                            }
+                            className={`w-12 py-0.5 text-center font-extrabold text-xs outline-none bg-transparent ${
+                              isLowStock ? 'text-rose-600 dark:text-rose-400 font-bold' : 'text-neutral-900 dark:text-white'
+                            }`}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => handleUpdateField(item.id, 'remaining', (Number(item.remaining) || 0) + 1)}
+                            className="w-6 h-6 rounded-lg bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-700 dark:hover:bg-neutral-600 text-neutral-700 dark:text-neutral-200 flex items-center justify-center font-bold text-sm cursor-pointer transition shrink-0"
+                            title="เพิ่มจำนวน (+1)"
+                          >
+                            <Plus className="w-3 h-3" />
+                          </button>
+                        </div>
+                      </td>
+
+                      {/* 4. Received Date & Received Qty */}
+                      <td className="p-2">
+                        <div className="flex items-center justify-center gap-1">
+                          <input
+                            type="date"
+                            value={item.receivedDate || ''}
+                            onChange={(e) => handleUpdateField(item.id, 'receivedDate', e.target.value)}
+                            className="w-28 px-1.5 py-1 text-center text-[11px] bg-white dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-700 rounded-lg outline-none focus:border-blue-500"
+                            title="วันที่รับ"
+                          />
+                          <input
+                            type="number"
+                            min="0"
+                            value={item.receivedQty}
+                            onChange={(e) =>
+                              handleUpdateField(item.id, 'receivedQty', Math.max(0, Number(e.target.value) || 0))
+                            }
+                            className="w-14 px-1.5 py-1 text-center font-bold text-xs bg-white dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-700 rounded-lg outline-none focus:border-blue-500"
+                            title="จำนวนที่รับ"
+                          />
+                        </div>
+                      </td>
+
+                      {/* 5. Total Quantity */}
+                      <td className="p-2 text-center bg-emerald-50/30 dark:bg-emerald-950/10">
+                        <span className="inline-flex items-center justify-center min-w-[36px] px-2 py-1 rounded-xl bg-emerald-100 dark:bg-emerald-950/80 border border-emerald-300 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300 font-extrabold text-xs shadow-2xs">
+                          {totalQty}
+                        </span>
+                      </td>
+
+                      {/* 6. Thresholds (Min & Batch) */}
+                      <td className="p-2">
+                        <div className="grid grid-cols-2 gap-1 text-[11px]">
+                          <div className="flex items-center gap-1 bg-white dark:bg-neutral-800 px-1.5 py-1 rounded-lg border border-neutral-300 dark:border-neutral-700" title="ยอดต่ำสุด (Min)">
+                            <span className="text-[10px] text-neutral-400 font-medium">Min:</span>
+                            <input
+                              type="number"
+                              min="0"
+                              value={item.minStock}
+                              onChange={(e) =>
+                                handleUpdateField(item.id, 'minStock', Math.max(0, Number(e.target.value) || 0))
+                              }
+                              className="w-full text-center font-bold text-xs outline-none bg-transparent"
+                            />
+                          </div>
+                          <div className="bg-white dark:bg-neutral-800 px-1.5 py-1 rounded-lg border border-neutral-300 dark:border-neutral-700" title="เบิกครั้งละ">
+                            <input
+                              type="text"
+                              value={item.batchRequest || ''}
+                              onChange={(e) => handleUpdateField(item.id, 'batchRequest', e.target.value)}
+                              placeholder="ครั้งละ"
+                              className="w-full text-center text-xs outline-none bg-transparent"
+                            />
+                          </div>
+                        </div>
+                      </td>
+
+                      {/* 7. Exp Date & Expiration indicator */}
+                      <td className="p-2 text-center">
+                        <div className="space-y-1">
+                          <input
+                            type="date"
+                            value={item.expDate || ''}
+                            onChange={(e) => handleUpdateField(item.id, 'expDate', e.target.value)}
+                            className={`w-full px-2 py-1 text-center text-[11px] rounded-lg border outline-none ${
+                              isExpired
+                                ? 'border-rose-400 bg-rose-50/80 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 font-bold'
+                                : isExpiringSoon
+                                ? 'border-amber-400 bg-amber-50/80 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 font-medium'
+                                : 'border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-neutral-800 dark:text-neutral-200'
+                            }`}
+                          />
+                          {item.expDate && (
+                            <span
+                              className={`block text-[10px] font-semibold text-center truncate ${
+                                isExpired
+                                  ? 'text-rose-600 dark:text-rose-400 font-bold'
+                                  : isExpiringSoon
+                                  ? 'text-amber-600 dark:text-amber-400'
+                                  : 'text-neutral-400'
+                              }`}
+                            >
+                              {expInfo.text}
                             </span>
                           )}
                         </div>
                       </td>
 
-                      {/* 3. คงเหลือ (Editable) */}
-                      <td className="p-1 border border-neutral-300 dark:border-neutral-700 text-center bg-blue-50/30 dark:bg-blue-950/20">
-                        <input
-                          type="number"
-                          min="0"
-                          value={item.remaining}
-                          onChange={(e) =>
-                            handleUpdateField(
-                              item.id,
-                              'remaining',
-                              Number(e.target.value) || 0
-                            )
-                          }
-                          className={`w-full py-1.5 px-1.5 text-center font-bold rounded-lg border outline-none text-xs ${
-                            isLowStock
-                              ? 'text-rose-700 dark:text-rose-300 border-rose-400 bg-rose-50 dark:bg-rose-950/50'
-                              : 'text-neutral-900 dark:text-neutral-100 border-transparent hover:border-neutral-300 focus:border-blue-500 bg-transparent'
-                          }`}
-                        />
-                      </td>
-
-                      {/* 4. วันที่รับ (Date Picker) */}
-                      <td className="p-1 border border-neutral-300 dark:border-neutral-700 text-center">
-                        <input
-                          type="date"
-                          value={item.receivedDate || ''}
-                          onChange={(e) =>
-                            handleUpdateField(item.id, 'receivedDate', e.target.value)
-                          }
-                          className="w-full py-1.5 px-1 text-center rounded-lg border border-transparent hover:border-neutral-300 dark:hover:border-neutral-600 focus:border-blue-500 bg-transparent text-[11px] outline-none"
-                        />
-                      </td>
-
-                      {/* 5. จำนวนที่รับ (Editable) */}
-                      <td className="p-1 border border-neutral-300 dark:border-neutral-700 text-center">
-                        <input
-                          type="number"
-                          min="0"
-                          value={item.receivedQty}
-                          onChange={(e) =>
-                            handleUpdateField(
-                              item.id,
-                              'receivedQty',
-                              Number(e.target.value) || 0
-                            )
-                          }
-                          className="w-full py-1.5 px-1.5 text-center font-semibold rounded-lg border border-transparent hover:border-neutral-300 dark:hover:border-neutral-600 focus:border-blue-500 bg-transparent text-xs outline-none"
-                        />
-                      </td>
-
-                      {/* 6. รวม (Auto-calculated: คงเหลือ + จำนวนที่รับ) */}
-                      <td className="p-2 border border-neutral-300 dark:border-neutral-700 text-center font-extrabold bg-emerald-50/40 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-300">
-                        {totalQty}
-                      </td>
-
-                      {/* 7. ยอดต่ำสุด (Min Stock) (Editable) */}
-                      <td className="p-1 border border-neutral-300 dark:border-neutral-700 text-center">
-                        <input
-                          type="number"
-                          min="0"
-                          value={item.minStock}
-                          onChange={(e) =>
-                            handleUpdateField(
-                              item.id,
-                              'minStock',
-                              Number(e.target.value) || 0
-                            )
-                          }
-                          className="w-full py-1.5 px-1.5 text-center font-semibold rounded-lg border border-transparent hover:border-neutral-300 dark:hover:border-neutral-600 focus:border-blue-500 bg-transparent text-xs outline-none"
-                        />
-                      </td>
-
-                      {/* 8. เบิกครั้งละ (Editable) */}
-                      <td className="p-1 border border-neutral-300 dark:border-neutral-700 text-center">
-                        <input
-                          type="text"
-                          value={item.batchRequest || ''}
-                          onChange={(e) =>
-                            handleUpdateField(item.id, 'batchRequest', e.target.value)
-                          }
-                          className="w-full py-1.5 px-1 text-center rounded-lg border border-transparent hover:border-neutral-300 dark:hover:border-neutral-600 focus:border-blue-500 bg-transparent text-xs outline-none"
-                        />
-                      </td>
-
-                      {/* 9. วันหมดอายุ (Exp Date) */}
-                      <td className="p-1 border border-neutral-300 dark:border-neutral-700 text-center">
-                        <input
-                          type="date"
-                          value={item.expDate || ''}
-                          onChange={(e) =>
-                            handleUpdateField(item.id, 'expDate', e.target.value)
-                          }
-                          className="w-full py-1.5 px-1 text-center rounded-lg border border-transparent hover:border-neutral-300 dark:hover:border-neutral-600 focus:border-blue-500 bg-transparent text-[11px] outline-none"
-                        />
-                      </td>
-
-                      {/* 10. หมายเหตุ */}
-                      <td className="p-1 border border-neutral-300 dark:border-neutral-700 text-left">
+                      {/* 8. Note */}
+                      <td className="p-2 text-left">
                         <input
                           type="text"
                           value={item.note || ''}
-                          onChange={(e) =>
-                            handleUpdateField(item.id, 'note', e.target.value)
-                          }
-                          placeholder="ระบุหมายเหตุ..."
-                          className="w-full py-1.5 px-1.5 text-left rounded-lg border border-transparent hover:border-neutral-300 dark:hover:border-neutral-600 focus:border-blue-500 bg-transparent text-xs outline-none"
+                          onChange={(e) => handleUpdateField(item.id, 'note', e.target.value)}
+                          placeholder="หมายเหตุเพิ่มเติม..."
+                          className="w-full px-2 py-1 text-left text-xs bg-white dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-700 rounded-lg outline-none focus:border-blue-500 text-neutral-800 dark:text-neutral-200"
                         />
                       </td>
 
-                      {/* Delete button (no-print) */}
-                      <td className="p-1 border border-neutral-300 dark:border-neutral-700 text-center no-print">
+                      {/* 9. Actions */}
+                      <td className="p-2 text-center">
                         <button
                           type="button"
                           onClick={() => setItemToDelete(item)}
@@ -762,22 +998,6 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
               )}
             </tbody>
           </table>
-        </div>
-
-        {/* Footer Signatures for Printing */}
-        <div className="mt-12 pt-6 border-t border-neutral-300 dark:border-neutral-700 flex justify-between items-center text-xs text-neutral-800 dark:text-neutral-200">
-          <div className="w-1/2 text-center px-4 space-y-1">
-            <p>ลงชื่อ .................................................... ผู้ตรวจสอบ</p>
-            <p className="mt-1 font-semibold text-neutral-900 dark:text-white">
-              ( {currentUser?.name || '....................................................'} )
-            </p>
-          </div>
-          <div className="w-1/2 text-center px-4 space-y-1">
-            <p>ลงชื่อ .................................................... หัวหน้างาน</p>
-            <p className="mt-1 font-semibold text-neutral-900 dark:text-white">
-              ( .................................................... )
-            </p>
-          </div>
         </div>
       </div>
 

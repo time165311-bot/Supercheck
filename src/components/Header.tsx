@@ -80,19 +80,8 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         </div>
 
-        {/* Right Side: Drug Inventory, Bell, Settings */}
+        {/* Right Side: Bell, Settings */}
         <div className="flex items-center gap-1.5 shrink-0">
-          {onOpenDrugInventory && (
-            <button
-              onClick={onOpenDrugInventory}
-              title="ตรวจเช็คคลังยาและสารน้ำ"
-              className="px-2.5 py-1 rounded-xl bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 dark:hover:bg-blue-900/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer ios-touch"
-            >
-              <span>💊</span>
-              <span className="hidden sm:inline">คลังยา</span>
-            </button>
-          )}
-
           {/* Notification Bell (iOS rounded-full touch) */}
           <button
             onClick={onOpenNotifications}

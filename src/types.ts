@@ -98,7 +98,7 @@ export interface InspectionHistoryRecord {
   date: string;
   time: string;
   who: string;
-  type: 'eq' | 'bag' | 'cart';
+  type: 'eq' | 'bag' | 'cart' | 'drug';
   title: string;
   rows: Array<{
     no?: string;

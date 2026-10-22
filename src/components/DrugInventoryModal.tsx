@@ -251,23 +251,17 @@ export const DrugInventoryModal: React.FC<DrugInventoryModalProps> = ({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/80 backdrop-blur-xs select-none drug-inventory-modal-overlay">
       <div className="bg-white dark:bg-[#0c121d] rounded-3xl w-full max-w-6xl max-h-[96vh] flex flex-col shadow-2xl border border-neutral-200 dark:border-neutral-800 overflow-hidden relative drug-inventory-modal-container">
         {/* Header Bar */}
-        <div className="no-print px-4 py-3 sm:px-6 bg-neutral-100/90 dark:bg-[#111927] border-b border-neutral-200 dark:border-neutral-800 flex items-center justify-between gap-3 shrink-0 flex-wrap">
+        <div className="no-print px-4 py-3 sm:px-6 border-b border-neutral-200 dark:border-neutral-800 flex items-center justify-between gap-3 shrink-0 flex-wrap">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-blue-600 text-white flex items-center justify-center shadow-md shadow-blue-600/20 shrink-0">
+            <div className="w-10 h-10 rounded-2xl bg-neutral-900 dark:bg-white text-white dark:text-neutral-900 flex items-center justify-center shadow-md shadow-neutral-900/10 shrink-0">
               <span className="text-xl">💊</span>
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-base sm:text-lg font-bold text-neutral-900 dark:text-white tracking-tight">
-                  ระบบตรวจเช็คคลังยาและสารน้ำ
-                </h2>
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800">
-                  Anesthesia Drug Inventory
-                </span>
-              </div>
+              <h2 className="text-base sm:text-lg font-bold text-neutral-900 dark:text-white tracking-tight">
+                ระบบตรวจเช็คคลังยาและสารน้ำ
+              </h2>
               <p className="text-xs text-neutral-500 dark:text-neutral-400">
-                คลินิกงานบริการผู้ป่วยในวิสัญญี | ผู้ตรวจ:{' '}
-                {currentUser?.name || 'ผู้ดูแลระบบ'}
+                ผู้ตรวจ: {currentUser?.name || 'ผู้ดูแลระบบ'}
               </p>
             </div>
           </div>
@@ -277,7 +271,7 @@ export const DrugInventoryModal: React.FC<DrugInventoryModalProps> = ({
             <button
               type="button"
               onClick={() => setShowAddModal(true)}
-              className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs flex items-center gap-1.5 transition cursor-pointer shadow-xs"
+              className="px-3 py-1.5 rounded-xl bg-neutral-900 hover:bg-neutral-800 dark:bg-white dark:hover:bg-neutral-200 text-white dark:text-neutral-900 font-semibold text-xs flex items-center gap-1.5 transition cursor-pointer shadow-xs"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>เพิ่มรายการยา</span>
@@ -286,7 +280,7 @@ export const DrugInventoryModal: React.FC<DrugInventoryModalProps> = ({
             <button
               type="button"
               onClick={handleSaveData}
-              className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs flex items-center gap-1.5 transition cursor-pointer shadow-xs"
+              className="px-3 py-1.5 rounded-xl bg-neutral-900 hover:bg-neutral-800 dark:bg-white dark:hover:bg-neutral-200 text-white dark:text-neutral-900 font-semibold text-xs flex items-center gap-1.5 transition cursor-pointer shadow-xs"
             >
               <Save className="w-3.5 h-3.5" />
               <span>บันทึก</span>
@@ -340,7 +334,7 @@ export const DrugInventoryModal: React.FC<DrugInventoryModalProps> = ({
               onClick={() => setActiveTab('monthly')}
               className={`px-3 py-1.5 rounded-xl transition flex items-center gap-1.5 cursor-pointer ${
                 activeTab === 'monthly'
-                  ? 'bg-blue-600 text-white font-bold shadow-xs'
+                  ? 'bg-neutral-900 text-white dark:bg-white dark:text-neutral-900 font-bold shadow-xs'
                   : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-200/60 dark:hover:bg-neutral-700'
               }`}
             >
@@ -360,7 +354,7 @@ export const DrugInventoryModal: React.FC<DrugInventoryModalProps> = ({
               onClick={() => setActiveTab('quarterly')}
               className={`px-3 py-1.5 rounded-xl transition flex items-center gap-1.5 cursor-pointer ${
                 activeTab === 'quarterly'
-                  ? 'bg-blue-600 text-white font-bold shadow-xs'
+                  ? 'bg-neutral-900 text-white dark:bg-white dark:text-neutral-900 font-bold shadow-xs'
                   : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-200/60 dark:hover:bg-neutral-700'
               }`}
             >
@@ -380,7 +374,7 @@ export const DrugInventoryModal: React.FC<DrugInventoryModalProps> = ({
               onClick={() => setActiveTab('adhoc')}
               className={`px-3 py-1.5 rounded-xl transition flex items-center gap-1.5 cursor-pointer ${
                 activeTab === 'adhoc'
-                  ? 'bg-blue-600 text-white font-bold shadow-xs'
+                  ? 'bg-neutral-900 text-white dark:bg-white dark:text-neutral-900 font-bold shadow-xs'
                   : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-200/60 dark:hover:bg-neutral-700'
               }`}
             >
@@ -663,22 +657,6 @@ export const DrugInventoryModal: React.FC<DrugInventoryModalProps> = ({
                 </tbody>
               </table>
             </div>
-
-            {/* Official Signature Lines for Print */}
-            <div className="mt-8 pt-4 border-t border-neutral-200 dark:border-neutral-800 grid grid-cols-2 gap-8 text-center text-xs">
-              <div>
-                <p>ลงชื่อ .................................................... ผู้ตรวจสอบ</p>
-                <p className="mt-2 text-neutral-600 dark:text-neutral-400">
-                  ( {currentUser?.name || 'ผู้ดูแลระบบ'} )
-                </p>
-              </div>
-              <div>
-                <p>ลงชื่อ .................................................... หัวหน้างาน</p>
-                <p className="mt-2 text-neutral-600 dark:text-neutral-400">
-                  ( .................................................... )
-                </p>
-              </div>
-            </div>
           </div>
         </div>
 
@@ -701,7 +679,7 @@ export const DrugInventoryModal: React.FC<DrugInventoryModalProps> = ({
             <button
               type="button"
               onClick={handleSaveData}
-              className="px-4 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold cursor-pointer shadow-xs"
+              className="px-4 py-1.5 rounded-xl bg-neutral-900 hover:bg-neutral-800 dark:bg-white dark:hover:bg-neutral-200 text-white dark:text-neutral-900 font-bold cursor-pointer shadow-xs"
             >
               บันทึกการแก้ไข
             </button>
@@ -836,7 +814,7 @@ export const DrugInventoryModal: React.FC<DrugInventoryModalProps> = ({
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-2 px-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow-xs"
+                  className="flex-1 py-2 px-3 rounded-xl bg-neutral-900 hover:bg-neutral-800 dark:bg-white dark:text-neutral-900 text-white font-semibold shadow-xs"
                 >
                   บันทึกรายการ
                 </button>
