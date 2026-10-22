@@ -164,6 +164,7 @@ export default function App() {
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [reportModalTitle, setReportModalTitle] = useState('คลินิกงานบริการผู้ป่วยในวิสัญญี');
   const [reportModalCategory, setReportModalCategory] = useState<'eq' | 'bag' | 'cart' | 'drug'>('eq');
+  const [reportModalDrugSubCategory, setReportModalDrugSubCategory] = useState<'all' | 'monthly' | 'quarterly' | 'adhoc'>('monthly');
   const [reportModalRows, setReportModalRows] = useState<any[]>([]);
   const [inspectionHistory, setInspectionHistory] = useState<InspectionHistoryRecord[]>(() =>
     getStored<InspectionHistoryRecord[]>('inspection_history', [])
@@ -1102,12 +1103,18 @@ export default function App() {
   };
 
   // Open Printable Report Modal anytime with selected category
-  const handleOpenPrintReport = (type: 'eq' | 'bag' | 'cart' | 'drug') => {
+  const handleOpenPrintReport = (
+    type: 'eq' | 'bag' | 'cart' | 'drug',
+    drugSub?: 'all' | 'monthly' | 'quarterly' | 'adhoc'
+  ) => {
     setReportModalCategory(type);
+    if (drugSub) {
+      setReportModalDrugSubCategory(drugSub);
+    }
     let titleStr = '';
     let rows: any[] = [];
     if (type === 'eq') {
-      titleStr = 'คลินิกงานบริการผู้ป่วยในวิสัญญี (ภาพรวมทุกห้อง)';
+      titleStr = 'คลินิกงานบริการผู้ป่วยในวิสัญญี';
       rows = buildEqReportRows();
     } else if (type === 'bag' || type === 'cart') {
       titleStr = lists[type].title;
@@ -1134,7 +1141,7 @@ export default function App() {
     let sheetBaseName = '';
 
     if (type === 'eq') {
-      titleStr = 'คลินิกงานบริการผู้ป่วยในวิสัญญี (ภาพรวมทุกห้อง)';
+      titleStr = 'คลินิกงานบริการผู้ป่วยในวิสัญญี';
       sheetBaseName = 'ครุภัณฑ์';
 
       // Gather from all rooms
@@ -1229,19 +1236,28 @@ export default function App() {
     setSubmissionProgress(75);
     setSubmissionStatusText('กำลังส่งข้อมูลและสร้างชีตรอบใหม่ใน Google Sheets...');
 
-    // คำนวณชื่อชีตให้ชัดเจนเพื่อสร้างชีตใหม่ตามรอบการตรวจเสมอ ไม่ทับชีตเดิม
+    // คำนวณชื่อชีตมาตรฐาน Smart Naming Standard: [หมวด]_[สถานที่/ห้อง]_[วันที่] เช่น ครุภัณฑ์_OR3_22102569
     const dParts = (checkDate || '').split('-');
-    const cYear = dParts[0] || '2026';
-    const cMonth = dParts[1] || '10';
-    const cDay = dParts[2] || '14';
+    const cYear = dParts[0] || new Date().getFullYear().toString();
+    const cMonth = dParts[1] || ('0' + (new Date().getMonth() + 1)).slice(-2);
+    const cDay = dParts[2] || ('0' + new Date().getDate()).slice(-2);
     const thaiYear = String(parseInt(cYear, 10) + 543);
-    const timeSuffix = new Date().toTimeString().slice(0, 5).replace(':', '') + '_' + Math.floor(Math.random() * 900 + 100);
+    const dateFormatted = `${cDay}${cMonth}${thaiYear}`;
+
+    let locCode = 'ทุกห้อง';
+    if (activeRoomId && currentView === 'room_check') {
+      const roomObj = ROOMS.find((r) => r.id === activeRoomId);
+      if (roomObj) {
+        locCode = roomObj.n.replace(/\s+/g, '');
+      }
+    }
+
     const uniqueSheetName =
       type === 'eq'
-        ? `ครุภัณฑ์_${thaiYear}_${cDay}${cMonth}_${timeSuffix}`
+        ? `ครุภัณฑ์_${locCode}_${dateFormatted}`
         : type === 'bag'
-        ? `กระเป๋าEmer_${thaiYear}_${cMonth}_${timeSuffix}`
-        : `รถEmer_${thaiYear}_${cMonth}_${timeSuffix}`;
+        ? `กระเป๋า_EMER_${dateFormatted}`
+        : `รถ_EMER_${dateFormatted}`;
 
     // Send to GAS
     const res = await sendInspectionToGas(apiUrl, {
@@ -2577,7 +2593,7 @@ export default function App() {
             onBack={() => setCurrentView('home')}
             sheetUrl={sheetUrl}
             apiUrl={apiUrl}
-            onOpenPreview={() => handleOpenPrintReport('drug')}
+            onOpenPreview={(category) => handleOpenPrintReport('drug', category)}
           />
         )}
       </main>
@@ -2732,6 +2748,7 @@ export default function App() {
         isOpen={isReportModalOpen}
         onClose={() => setIsReportModalOpen(false)}
         initialCategory={reportModalCategory}
+        initialDrugSubCategory={reportModalDrugSubCategory}
         title={reportModalTitle}
         date={checkDate}
         inspector={inspectorName}

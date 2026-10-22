@@ -1,5 +1,5 @@
 import React from 'react';
-import { OfficialReportItemRow } from './OfficialReportModal';
+import { OfficialReportItemRow, formatAcquiredDate } from './OfficialReportModal';
 
 interface PrintReportTemplateProps {
   title?: string;
@@ -28,10 +28,13 @@ export const PrintReportTemplate: React.FC<PrintReportTemplateProps> = ({
   return (
     <div
       id="print-report-template-root"
+      className="paper-preview sheet-preview"
       style={{
-        width: '1050px',
+        display: 'inline-block',
+        width: 'max-content',
+        minWidth: '100%',
         padding: '20px',
-        background: '#ffffff',
+        backgroundColor: '#ffffff',
         color: '#000000',
         fontFamily: "'Sarabun', 'TH Sarabun PSK', sans-serif",
         boxSizing: 'border-box',
@@ -90,7 +93,7 @@ export const PrintReportTemplate: React.FC<PrintReportTemplateProps> = ({
             <th rowSpan={2} style={{ border: '1px solid #000', padding: '5px 4px', verticalAlign: 'middle' }}>รายการ</th>
             <th rowSpan={2} style={{ border: '1px solid #000', padding: '5px 4px', verticalAlign: 'middle' }}>คุณลักษณะเฉพาะ</th>
             <th rowSpan={2} style={{ border: '1px solid #000', padding: '5px 4px', verticalAlign: 'middle' }}>แหล่งเงิน</th>
-            <th rowSpan={2} style={{ border: '1px solid #000', padding: '5px 4px', verticalAlign: 'middle' }}>ว/ด/ป ได้มา</th>
+            <th rowSpan={2} style={{ border: '1px solid #000', padding: '5px 4px', verticalAlign: 'middle', width: '90px', minWidth: '90px', whiteSpace: 'nowrap', textAlign: 'center' }}>ว/ด/ป ได้มา</th>
             <th rowSpan={2} style={{ border: '1px solid #000', padding: '5px 4px', verticalAlign: 'middle' }}>จำนวน</th>
             <th rowSpan={2} style={{ border: '1px solid #000', padding: '5px 4px', verticalAlign: 'middle' }}>อัตรา(%)</th>
             <th rowSpan={2} style={{ border: '1px solid #000', padding: '5px 4px', verticalAlign: 'middle' }}>ราคา</th>
@@ -136,8 +139,8 @@ export const PrintReportTemplate: React.FC<PrintReportTemplateProps> = ({
                   <td style={{ border: '1px solid #000', padding: '5px 4px', textAlign: 'center', verticalAlign: 'middle' }}>
                     {row.source || '-'}
                   </td>
-                  <td style={{ border: '1px solid #000', padding: '5px 4px', textAlign: 'center', verticalAlign: 'middle' }}>
-                    {row.date || '-'}
+                  <td style={{ border: '1px solid #000', padding: '5px 4px', textAlign: 'center', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>
+                    {formatAcquiredDate(row.date)}
                   </td>
                   <td style={{ border: '1px solid #000', padding: '5px 4px', textAlign: 'center', verticalAlign: 'middle' }}>
                     {row.qty || '1'}

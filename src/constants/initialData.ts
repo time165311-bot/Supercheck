@@ -387,7 +387,8 @@ function doPost(e) {
   var lock = LockService.getScriptLock();
   try {
     lock.waitLock(25000);
-    var data = JSON.parse((e && e.postData && e.postData.contents) || '{}');
+    var contents = (e && e.postData && e.postData.contents) || '{}';
+    var data = JSON.parse(contents);
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     if (!ss) return fail_('สคริปต์ไม่ได้ผูกกับ Google Sheet', 'setup');
 
@@ -395,142 +396,34 @@ function doPost(e) {
 
     if (act === 'login') return doLogin_(ss, data);
     if (act === 'audit') return doAuditLog_(ss, data);
-    if (act === 'export_pdf') return doExportPdf_(data);
 
-    switch (act) {
-      case 'export_pdf':
-        return doExportPdf_(data);
-      case 'log':
-        var res = doLog_(ss, data);
-        doAuditLog_(ss, {
-          user: data.user || 'system',
-          name: data.who || data.user || 'เจ้าหน้าที่',
-          action: 'บันทึกผลการตรวจสอบ',
-          details: 'ส่งรายงานตรวจเช็ค ' + (data.title || data.sheet) + ' (' + (data.rows ? data.rows.length : 0) + ' รายการ)',
-          location: data.title || '-'
-        });
-        return res;
-      default:
-        if (data.items && Array.isArray(data.items)) {
-          return doExportPdf_(data);
-        }
-        return doLog_(ss, data);
+    // รับค่าข้อมูลส่งกลับไปให้ฝั่ง React นำไปเรนเดอร์พิมพ์ผ่าน Window Print Engine (A4 แนวนอน)
+    if (act === 'export_pdf') {
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        items: data.items || [],
+        surveyDate: data.surveyDate || '',
+        locationName: data.locationName || ''
+      })).setMimeType(ContentService.MimeType.JSON);
     }
+
+    if (act === 'log') {
+      var res = doLog_(ss, data);
+      doAuditLog_(ss, {
+        user: data.user || 'system',
+        name: data.who || data.user || 'เจ้าหน้าที่',
+        action: 'บันทึกผลการตรวจสอบ',
+        details: 'ส่งรายงานตรวจเช็ค ' + (data.title || data.sheet) + ' (' + (data.rows ? data.rows.length : 0) + ' รายการ)',
+        location: data.title || '-'
+      });
+      return res;
+    }
+
+    return doLog_(ss, data);
   } catch (err) {
     return fail_(String(err));
   } finally {
     try { lock.releaseLock(); } catch (x) {}
-  }
-}
-
-// ----------------- ส่งออก PDF A4 Landscape ผ่าน Google Drive -----------------
-function doExportPdf_(data) {
-  try {
-    var items = data.items || [];
-    var surveyDate = data.surveyDate || '21 ตุลาคม 2569';
-    var locationName = data.locationName || 'คลินิกงานบริการผู้ป่วยในวิสัญญี (ภาพรวมทุกห้อง)';
-
-    var tempSs = SpreadsheetApp.create('Temp_PDF_Export_' + new Date().getTime());
-    var sheet = tempSs.getActiveSheet();
-    sheet.setGridlines(true);
-
-    var colWidths = [40, 110, 110, 200, 160, 90, 80, 50, 50, 90, 70, 110];
-    for (var i = 0; i < colWidths.length; i++) {
-      sheet.setColumnWidth(i + 1, colWidths[i]);
-    }
-
-    sheet.getRange('A1:L1').merge().setValue('ทะเบียนรายการครุภัณฑ์และอุปกรณ์').setFontSize(16).setFontWeight('bold').setHorizontalAlignment('center');
-    sheet.getRange('A2:L2').merge().setValue('ณ วันที่ ' + surveyDate).setFontSize(12).setHorizontalAlignment('center');
-    sheet.getRange('A3:F3').merge().setValue(locationName).setFontSize(11).setFontWeight('bold');
-    sheet.getRange('G3:L3').merge().setValue('วัน, เดือน, ปี ที่สำรวจ: ' + surveyDate).setFontSize(11).setHorizontalAlignment('right');
-
-    sheet.getRange('A4:A5').merge().setValue('ลำดับที่');
-    sheet.getRange('B4:B5').merge().setValue('หมายเลขพัสดุ');
-    sheet.getRange('C4:C5').merge().setValue('รหัสสินทรัพย์ SAP');
-    sheet.getRange('D4:D5').merge().setValue('รายการ');
-    sheet.getRange('E4:E5').merge().setValue('มาตรฐานและคุณลักษณะเฉพาะ');
-    sheet.getRange('F4:F5').merge().setValue('แหล่งเงินที่มา (ประเภทเงินงบประมาณ)');
-    sheet.getRange('G4:G5').merge().setValue('ว/ด/ป ที่ได้มา');
-    sheet.getRange('H4:H5').merge().setValue('จำนวนตามบัญชี');
-    sheet.getRange('I4:I5').merge().setValue('อัตราภาษี (%)');
-    sheet.getRange('J4:J5').merge().setValue('ราคา (รวมภาษี)');
-    sheet.getRange('K4:K5').merge().setValue('สถานที่ตั้ง ตึก / ชั้น / ห้อง');
-    sheet.getRange('L4:L4').setValue('ผลการตรวจสอบพัสดุ');
-
-    var headerRange = sheet.getRange('A4:L5');
-    headerRange.setBackground('#F1F5F9')
-               .setFontWeight('bold')
-               .setHorizontalAlignment('center')
-               .setVerticalAlignment('middle')
-               .setBorder(true, true, true, true, true, true);
-
-    if (items.length > 0) {
-      var rowData = [];
-      for (var j = 0; j < items.length; j++) {
-        var itm = items[j];
-        rowData.push([
-          j + 1,
-          "'" + (itm.assetNo || itm.id || ''),
-          "'" + (itm.sapNo || itm.sap_id || ''),
-          itm.name || itm.item_name || '',
-          itm.spec || itm.specification || '',
-          itm.source || itm.budget_source || '',
-          itm.aquiredDate || itm.acquired_date || '',
-          itm.amount || 1,
-          itm.rate || 7,
-          itm.price || 0,
-          itm.location || itm.room_name || '',
-          itm.status === 'normal' || itm.checked ? '✓' : ''
-        ]);
-      }
-
-      var dataRange = sheet.getRange(6, 1, rowData.length, 12);
-      dataRange.setValues(rowData);
-      dataRange.setBorder(true, true, true, true, true, true);
-      dataRange.setFontSize(10);
-
-      sheet.getRange(6, 1, rowData.length, 1).setHorizontalAlignment('center');
-      sheet.getRange(6, 6, rowData.length, 4).setHorizontalAlignment('center');
-      sheet.getRange(6, 10, rowData.length, 1).setNumberFormat('#,##0.00').setHorizontalAlignment('right');
-      sheet.getRange(6, 11, rowData.length, 2).setHorizontalAlignment('center');
-    }
-
-    sheet.setFrozenRows(5);
-    SpreadsheetApp.flush();
-
-    var ssId = tempSs.getId();
-    var sheetId = sheet.getSheetId();
-    var pdfUrl = 'https://docs.google.com/spreadsheets/d/' + ssId + '/export?' +
-      'exportFormat=pdf' +
-      '&format=pdf' +
-      '&size=A4' +
-      '&portrait=false' +
-      '&fitw=true' +
-      '&gridlines=true' +
-      '&printtitle=true' +
-      '&fzr=true' +
-      '&gid=' + sheetId;
-
-    var response = UrlFetchApp.fetch(pdfUrl, {
-      headers: { 'Authorization': 'Bearer ' + ScriptApp.getOAuthToken() }
-    });
-
-    var pdfBlob = response.getBlob().setName('รายงาน_ครุภัณฑ์_' + surveyDate.replace(/\\s+/g, '_') + '.pdf');
-    var file = DriveApp.createFile(pdfBlob);
-    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-
-    DriveApp.getFileById(ssId).setTrashed(true);
-
-    return ContentService.createTextOutput(JSON.stringify({
-      success: true,
-      downloadUrl: file.getDownloadUrl(),
-      directUrl: 'https://drive.google.com/uc?export=download&id=' + file.getId()
-    })).setMimeType(ContentService.MimeType.JSON);
-  } catch (error) {
-    return ContentService.createTextOutput(JSON.stringify({
-      success: false,
-      error: error.toString()
-    })).setMimeType(ContentService.MimeType.JSON);
   }
 }
 
@@ -593,26 +486,31 @@ function getSheetsListForDialog() {
     try {
       var sh = sheets[i];
       var sName = sh.getName();
-      // Skip hidden technical sheets
+      // ข้ามชีตตั้งค่าและ Audit Log ภายใน
       if (sName === SHEET_USERS || sName === SHEET_AUDIT) continue;
 
+      var lowerName = String(sName || '').toLowerCase();
       var sType = 'eq';
       var icon = '🏥';
       var catLabel = 'ครุภัณฑ์';
 
-      if (sName.indexOf('กระเป๋า') > -1 || sName.indexOf('Bag') > -1) {
+      if (lowerName.indexOf('กระเป๋า') > -1 || lowerName.indexOf('bag') > -1) {
         sType = 'bag';
         icon = '💼';
         catLabel = 'กระเป๋า Emer';
-      } else if (sName.indexOf('รถ') > -1 || sName.indexOf('Cart') > -1) {
+      } else if (lowerName.indexOf('รถ') > -1 || lowerName.indexOf('cart') > -1 || lowerName.indexOf('car') > -1) {
         sType = 'cart';
         icon = '🛒';
         catLabel = 'รถ Emer';
-      } else if (sName.indexOf('ยา') > -1 || sName.indexOf('คลัง') > -1 || sName.indexOf('Drug') > -1) {
+      } else if (lowerName.indexOf('ยา') > -1 || lowerName.indexOf('คลัง') > -1 || lowerName.indexOf('drug') > -1) {
         sType = 'drug';
         icon = '💊';
         catLabel = 'คลังยาและสารน้ำ';
-      } else if (sName.indexOf('ฟอร์ม') > -1 || sName.indexOf('Print') > -1) {
+      } else if (lowerName.indexOf('ครุภัณฑ์') > -1 || lowerName.indexOf('equip') > -1 || lowerName.indexOf('or') > -1 || lowerName.indexOf('ห้อง') > -1 || lowerName.indexOf('room') > -1) {
+        sType = 'eq';
+        icon = '🏥';
+        catLabel = 'ครุภัณฑ์';
+      } else if (lowerName.indexOf('ฟอร์ม') > -1 || lowerName.indexOf('print') > -1 || lowerName.indexOf('master') > -1 || lowerName.indexOf('template') > -1) {
         sType = 'print';
         icon = '📋';
         catLabel = 'แบบฟอร์มพิมพ์';
@@ -629,6 +527,7 @@ function getSheetsListForDialog() {
 
       sheetList.push({
         name: sName,
+        smartName: formatSmartSheetName_(sName),
         type: sType,
         icon: icon,
         catLabel: catLabel,
@@ -638,6 +537,40 @@ function getSheetsListForDialog() {
     } catch(err) {}
   }
   return sheetList;
+}
+
+// ระบบจัดรูปแบบชื่อชีตให้อ่านง่าย Smart Naming Standard: [หมวด]_[สถานที่/ห้อง]_[วันที่]
+function formatSmartSheetName_(rawName) {
+  if (!rawName) return '';
+  var s = String(rawName).trim();
+  if (/^(ครุภัณฑ์|กระเป๋า|รถ|คลังยา|EQUIP|BAG|CAR|DRUG)_[^_\s]+_[0-9]+(_รอบ\d+)?$/i.test(s)) {
+    return s;
+  }
+  var lower = s.toLowerCase();
+  var cat = 'ครุภัณฑ์';
+  if (lower.indexOf('กระเป๋า') > -1 || lower.indexOf('bag') > -1) cat = 'กระเป๋า_EMER';
+  else if (lower.indexOf('รถ') > -1 || lower.indexOf('cart') > -1 || lower.indexOf('car') > -1) cat = 'รถ_EMER';
+  else if (lower.indexOf('ยา') > -1 || lower.indexOf('คลัง') > -1 || lower.indexOf('drug') > -1) cat = 'คลังยา_เดือน';
+  else if (lower.indexOf('ฟอร์ม') > -1 || lower.indexOf('print') > -1 || lower.indexOf('master') > -1) cat = 'ฟอร์มพิมพ์_มาสเตอร์';
+
+  var loc = '';
+  var mRoom = s.match(/(OR\s*[1-3]|PACU|MINOR\s*[1-3]|Sterile|ห้อง\S+)/i);
+  if (mRoom) loc = mRoom[1].replace(/\s+/g, '');
+
+  var mDate = s.match(/(\d{4})[_\s@\-]?(\d{2})[_\s@\-]?(\d{2})|(\d{2})[_\s@\-]?(\d{2})[_\s@\-]?(\d{4})/);
+  var dateStr = '';
+  if (mDate) dateStr = mDate[0].replace(/[@\s\-]/g, '');
+
+  var round = '';
+  var mRound = s.match(/รอบ\s*(\d+)/);
+  if (mRound) round = '_รอบ' + mRound[1];
+
+  var parts = [cat];
+  if (loc) parts.push(loc);
+  if (dateStr) parts.push(dateStr);
+  if (round) parts[parts.length - 1] += round;
+
+  return parts.length > 1 ? parts.join('_') : s;
 }
 
 function showSheetSearchDialog() {
@@ -695,10 +628,24 @@ function showSheetSearchDialog() {
     '  container.innerHTML = "";',
     '  var matched = allSheets.filter(function(s) {',
     '    if (!s) return false;',
-    '    var catOk = currentCat === "all" || s.type === currentCat;',
     '    var sName = String(s.name || "").toLowerCase();',
+    '    var smart = String(s.smartName || "").toLowerCase();',
     '    var sCat = String(s.catLabel || "").toLowerCase();',
-    '    var textOk = !q || sName.indexOf(q) > -1 || sCat.indexOf(q) > -1;',
+    '    var catOk = false;',
+    '    if (currentCat === "all") {',
+    '      catOk = true;',
+    '    } else if (currentCat === "eq") {',
+    '      catOk = s.type === "eq" || sName.indexOf("ครุภัณฑ์") > -1 || sName.indexOf("equip") > -1 || sName.indexOf("or") > -1 || sName.indexOf("ห้อง") > -1 || smart.indexOf("ครุภัณฑ์") > -1 || smart.indexOf("equip") > -1;',
+    '    } else if (currentCat === "bag") {',
+    '      catOk = s.type === "bag" || sName.indexOf("กระเป๋า") > -1 || sName.indexOf("bag") > -1 || smart.indexOf("กระเป๋า") > -1 || smart.indexOf("bag") > -1;',
+    '    } else if (currentCat === "cart") {',
+    '      catOk = s.type === "cart" || sName.indexOf("รถ") > -1 || sName.indexOf("cart") > -1 || sName.indexOf("car") > -1 || smart.indexOf("รถ") > -1 || smart.indexOf("cart") > -1;',
+    '    } else if (currentCat === "drug") {',
+    '      catOk = s.type === "drug" || sName.indexOf("ยา") > -1 || sName.indexOf("คลัง") > -1 || sName.indexOf("drug") > -1 || smart.indexOf("ยา") > -1 || smart.indexOf("คลัง") > -1;',
+    '    } else {',
+    '      catOk = s.type === currentCat;',
+    '    }',
+    '    var textOk = !q || sName.indexOf(q) > -1 || smart.indexOf(q) > -1 || sCat.indexOf(q) > -1;',
     '    return catOk && textOk;',
     '  });',
     '  var statusEl = document.getElementById("statusCount");',
@@ -709,7 +656,7 @@ function showSheetSearchDialog() {
     '    empty.style.padding = "24px";',
     '    empty.style.color = "#94a3b8";',
     '    empty.style.fontSize = "12px";',
-    '    empty.textContent = allSheets.length === 0 ? "กำลังค้นหาชีต หรือยังไม่มีชีตในสเปรดชีตนี้..." : "ไม่พบชีตที่ตรงกับคำค้นหา";',
+    '    empty.textContent = allSheets.length === 0 ? "กำลังค้นหาชีต หรือยังไม่มีชีตในสเปรดชีตนี้..." : "ไม่พบชีตที่ตรงกับเงื่อนไขการค้นหา";',
     '    container.appendChild(empty);',
     '    return;',
     '  }',
@@ -720,10 +667,15 @@ function showSheetSearchDialog() {
     '    var info = document.createElement("div");',
     '    var title = document.createElement("div");',
     '    title.className = "sheet-title";',
-    '    title.textContent = (s.icon || "📄") + " " + s.name;',
+    '    var displayTitle = (s.smartName && s.smartName !== s.name) ? s.smartName : s.name;',
+    '    title.textContent = (s.icon || "📄") + " " + displayTitle;',
     '    var meta = document.createElement("div");',
     '    meta.className = "sheet-meta";',
-    '    meta.textContent = "หมวด: " + (s.catLabel || "-") + " • " + (s.rows || 0) + " แถว";',
+    '    if (s.smartName && s.smartName !== s.name) {',
+    '      meta.textContent = "ชื่อแท็บจริง: " + s.name + " • หมวด: " + (s.catLabel || "-") + " • " + (s.rows || 0) + " แถว";',
+    '    } else {',
+    '      meta.textContent = "หมวด: " + (s.catLabel || "-") + " • " + (s.rows || 0) + " แถว";',
+    '    }',
     '    info.appendChild(title);',
     '    info.appendChild(meta);',
     '    var badge = document.createElement("span");',
@@ -802,7 +754,7 @@ function setupActiveSheetA4Landscape() {
   if (!sh) return;
   try {
     sh.setPageSetUp(SpreadsheetApp.PageSize.A4, SpreadsheetApp.Orientation.LANDSCAPE);
-    sh.setHiddenGridlines(true);
+    try { sh.setHideGridlines(false); } catch(ge) {}
     ss.toast('ตั้งค่าชีตเป็นฟอร์มพิมพ์ A4 แนวนอนเรียบร้อยแล้ว (กด Ctrl + P ได้ทันที)', 'สำเร็จ', 3);
   } catch(e) {
     SpreadsheetApp.getUi().alert('การตั้งค่าหน้ากระดาษ: ' + e.message);
@@ -820,13 +772,28 @@ function computeSheetName_(d) {
   var monthVal = m && m[2] ? m[2] : ('0' + (new Date().getMonth() + 1)).slice(-2);
   var dayVal = m && m[3] ? m[3] : ('0' + new Date().getDate()).slice(-2);
   var thaiYear = String(parseInt(yearVal, 10) + 543);
+  var dateCode = dayVal + monthVal + thaiYear;
+
+  var locCode = 'ทุกห้อง';
+  var rawTitle = String(d.title || d.location || d.sheet || '');
+  if (rawTitle.indexOf('OR 1') > -1 || rawTitle.indexOf('OR1') > -1) locCode = 'OR1';
+  else if (rawTitle.indexOf('OR 2') > -1 || rawTitle.indexOf('OR2') > -1) locCode = 'OR2';
+  else if (rawTitle.indexOf('OR 3') > -1 || rawTitle.indexOf('OR3') > -1) locCode = 'OR3';
+  else if (rawTitle.indexOf('PACU') > -1 || rawTitle.indexOf('พักฟื้น') > -1) locCode = 'PACU';
+  else if (rawTitle.indexOf('Sterile') > -1) locCode = 'Sterile';
+  else if (rawTitle.indexOf('MINOR 1') > -1 || rawTitle.indexOf('MINOR1') > -1) locCode = 'MINOR1';
+  else if (rawTitle.indexOf('MINOR 2') > -1 || rawTitle.indexOf('MINOR2') > -1) locCode = 'MINOR2';
+  else if (rawTitle.indexOf('MINOR 3') > -1 || rawTitle.indexOf('MINOR3') > -1) locCode = 'MINOR3';
 
   if (typeKey === 'bag') {
-    return 'กระเป๋าEmer_' + thaiYear + '_' + monthVal;
+    return 'กระเป๋า_EMER_' + dateCode;
   } else if (typeKey === 'cart') {
-    return 'รถEmer_' + thaiYear + '_' + monthVal;
+    return 'รถ_EMER_' + dateCode;
+  } else if (typeKey === 'drug') {
+    var catSub = d.category === 'quarterly' ? '3เดือน' : d.category === 'adhoc' ? 'ครั้งคราว' : 'เดือน';
+    return 'คลังยา_' + catSub + '_' + dateCode;
   } else {
-    return 'ครุภัณฑ์_' + thaiYear + '_' + dayVal + monthVal;
+    return 'ครุภัณฑ์_' + locCode + '_' + dateCode;
   }
 }
 
@@ -863,7 +830,7 @@ function writeReport_(ss, data) {
   } catch (pe) {}
 
   var maxRows = sheet.getMaxRows();
-  sheet.setHiddenGridlines(true);
+  try { sheet.setHideGridlines(false); } catch(ge) {}
   sheet.setRowHeights(1, maxRows, 22);
   sheet.getRange(1, 1, maxRows, sheet.getMaxColumns())
        .setFontFamily(CFG.font).setFontSize(CFG.bodySize).setVerticalAlignment('middle');
@@ -989,7 +956,15 @@ function writeReport_(ss, data) {
 
 function writeDrugReport_(ss, data) {
   var cat = String(data.category || 'monthly');
-  var baseName = data.sheetName || ('คลังยา_' + (cat === 'quarterly' ? 'เบิก3เดือน' : cat === 'adhoc' ? 'เบิกครั้งๆ' : 'คลังเดือน') + '_' + Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyyMMdd_HHmm'));
+  var catCode = cat === 'quarterly' ? '3เดือน' : cat === 'adhoc' ? 'ครั้งคราว' : 'เดือน';
+  var dateStr = String(data.date || now_());
+  var m = dateStr.match(/^(\\d{4})(?:-(\\d{2}))?(?:-(\\d{2}))?/);
+  var yearVal = m && m[1] ? m[1] : new Date().getFullYear().toString();
+  var monthVal = m && m[2] ? m[2] : ('0' + (new Date().getMonth() + 1)).slice(-2);
+  var dayVal = m && m[3] ? m[3] : ('0' + new Date().getDate()).slice(-2);
+  var thaiYear = String(parseInt(yearVal, 10) + 543);
+  var dateCode = dayVal + monthVal + thaiYear;
+  var baseName = data.sheetName || ('คลังยา_' + catCode + '_' + dateCode);
   var sheet = getUniqueSheet_(ss, baseName);
 
   var drugCols = 10;
@@ -1001,7 +976,7 @@ function writeDrugReport_(ss, data) {
     sheet.setPageSetUp(SpreadsheetApp.PageSize.A4, SpreadsheetApp.Orientation.LANDSCAPE);
   } catch (e) {}
 
-  sheet.setHiddenGridlines(true);
+  try { sheet.setHideGridlines(false); } catch (ge) {}
   var widths = [45, 195, 65, 85, 75, 60, 75, 80, 95, 150];
   for (var c = 0; c < drugCols; c++) sheet.setColumnWidth(c + 1, widths[c]);
 

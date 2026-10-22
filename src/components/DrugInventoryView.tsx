@@ -248,9 +248,13 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
         ? 'ยาเบิกเป็นครั้งๆ / ยาตามงบประมาณ'
         : 'ยาในคลังเดือน';
 
-    const thaiYear = String(new Date().getFullYear() + 543);
-    const timeSuffix = new Date().toTimeString().slice(0, 5).replace(':', '') + '_' + Math.floor(Math.random() * 900 + 100);
-    const uniqueSheet = `คลังยา_${activeTab === 'quarterly' ? '3เดือน' : activeTab === 'adhoc' ? 'ครั้งคราว' : 'คลังเดือน'}_${thaiYear}_${timeSuffix}`;
+    const now = new Date();
+    const thaiYear = String(now.getFullYear() + 543);
+    const day = ('0' + now.getDate()).slice(-2);
+    const month = ('0' + (now.getMonth() + 1)).slice(-2);
+    const dateFormatted = `${day}${month}${thaiYear}`;
+    const catCode = activeTab === 'quarterly' ? '3เดือน' : activeTab === 'adhoc' ? 'ครั้งคราว' : 'เดือน';
+    const uniqueSheet = `คลังยา_${catCode}_${dateFormatted}`;
 
     try {
       await sendInspectionToGas(apiUrl, {
