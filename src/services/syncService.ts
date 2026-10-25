@@ -1,6 +1,6 @@
 import QRCode from 'qrcode';
 import { STORAGE_KEYS, getStored, setStored, getStoredString, setStoredString } from './storage';
-import { User, EquipmentItem, ListConfig, ThemeMode, AuditLogEntry } from '../types';
+import { User, EquipmentItem, ListConfig, ThemeMode, AuditLogEntry, DrugItem, InspectionHistoryRecord } from '../types';
 
 export interface AppSyncData {
   apiUrl?: string;
@@ -10,8 +10,10 @@ export interface AppSyncData {
   users?: User[];
   equipment?: Record<string, EquipmentItem[]>;
   lists?: Record<'bag' | 'cart', ListConfig>;
+  drugs?: DrugItem[];
   globalChecks?: Record<string, Record<string, { result: 'ปกติ' | 'ผิดปกติ' | ''; note?: string }>>;
   lastSubmitted?: Record<string, string>;
+  inspectionHistory?: InspectionHistoryRecord[];
   auditLogs?: AuditLogEntry[];
   inspectorName?: string;
   lastSyncedAt?: string;

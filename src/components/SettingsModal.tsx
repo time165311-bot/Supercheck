@@ -4,8 +4,11 @@ import {
   CheckCircle2,
   Code2,
   Copy,
+  Download,
   ExternalLink,
   FileSpreadsheet,
+  FolderDown,
+  FolderUp,
   HelpCircle,
   Key,
   Link,
@@ -15,9 +18,11 @@ import {
   RefreshCw,
   Send,
   Share2,
+  ShieldCheck,
   Smartphone,
   Sun,
   Trash2,
+  Upload,
   User as UserIcon,
   X,
 } from 'lucide-react';
@@ -25,6 +30,7 @@ import { ThemeMode, User } from '../types';
 import { GAS_SCRIPT_V5 } from '../constants/initialData';
 import { testGasConnection } from '../services/api';
 import { createShareableSyncUrl, generateQrCode } from '../services/syncService';
+import { downloadBackupFile, importFullBackup } from '../services/storage';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -37,6 +43,8 @@ interface SettingsModalProps {
   onOpenPasswordModal?: () => void;
   onLogout?: () => void;
   onManualSync?: () => Promise<boolean>;
+  onPullFromGoogleSheets?: () => Promise<{ success: boolean; message: string }>;
+  onRestoreBackup?: (backupData: any) => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -50,6 +58,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onOpenPasswordModal,
   onLogout,
   onManualSync,
+  onPullFromGoogleSheets,
+  onRestoreBackup,
 }) => {
   const [apiUrl, setApiUrl] = useState(initialApiUrl);
   const [sheetUrl, setSheetUrl] = useState(initialSheetUrl);
@@ -68,7 +78,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [isManualSyncing, setIsManualSyncing] = useState(false);
   const [manualSyncMsg, setManualSyncMsg] = useState('');
 
-  // Sync state when opened
+  // Backup & Restore states
+  const [backupStatus, setBackupStatus] = useState<{ ok: boolean; msg: string } | null>(null);
+  const [isPullingSheets, setIsPullingSheets] = useState(false);
+  const [sheetsPullResult, setSheetsPullResult] = useState<{ ok: boolean; msg: string } | null>(null);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+  // Reset states when opened
   React.useEffect(() => {
     if (isOpen) {
       setApiUrl(initialApiUrl);
@@ -76,8 +92,75 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       setTheme(initialTheme);
       setTestResult(null);
       setSaveSuccess(false);
+      setBackupStatus(null);
+      setSheetsPullResult(null);
     }
   }, [isOpen, initialApiUrl, initialSheetUrl, initialTheme]);
+
+  const handleExportBackup = () => {
+    try {
+      downloadBackupFile();
+      setBackupStatus({ ok: true, msg: 'ส่งออกไฟล์สำรอง .json สำเร็จ' });
+      setTimeout(() => setBackupStatus(null), 4000);
+    } catch (err) {
+      setBackupStatus({ ok: false, msg: 'เกิดข้อผิดพลาดในการดาวน์โหลดไฟล์' });
+    }
+  };
+
+  const handleTriggerImport = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const text = event.target?.result as string;
+        const result = importFullBackup(text);
+        if (result.success && result.data) {
+          setBackupStatus({ ok: true, msg: result.message });
+          if (onRestoreBackup) {
+            onRestoreBackup(result.data);
+          }
+          if (result.data.settings) {
+            if (result.data.settings.apiUrl) setApiUrl(result.data.settings.apiUrl);
+            if (result.data.settings.sheetUrl) setSheetUrl(result.data.settings.sheetUrl);
+            if (result.data.settings.theme) setTheme(result.data.settings.theme);
+          }
+        } else {
+          setBackupStatus({ ok: false, msg: result.message });
+        }
+      } catch (err: any) {
+        setBackupStatus({ ok: false, msg: 'รูปแบบไฟล์ JSON เสียหายหรือไม่ถูกต้อง' });
+      } finally {
+        if (fileInputRef.current) fileInputRef.current.value = '';
+        setTimeout(() => setBackupStatus(null), 5000);
+      }
+    };
+    reader.onerror = () => {
+      setBackupStatus({ ok: false, msg: 'ไม่สามารถอ่านไฟล์ได้' });
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    };
+    reader.readAsText(file);
+  };
+
+  const handlePullFromSheets = async () => {
+    if (!onPullFromGoogleSheets) return;
+    setIsPullingSheets(true);
+    setSheetsPullResult(null);
+    try {
+      const res = await onPullFromGoogleSheets();
+      setSheetsPullResult({ ok: res.success, msg: res.message });
+    } catch (err: any) {
+      setSheetsPullResult({ ok: false, msg: err?.message || 'เกิดข้อผิดพลาดในการดึงข้อมูลจาก Google Sheets' });
+    } finally {
+      setIsPullingSheets(false);
+      setTimeout(() => setSheetsPullResult(null), 5000);
+    }
+  };
 
   const handleTestConnection = async () => {
     if (!apiUrl.trim()) return;
@@ -392,6 +475,114 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <RefreshCw className={`w-3 h-3 ${isManualSyncing ? 'animate-spin' : ''}`} />
                   <span>{isManualSyncing ? 'กำลังซิงค์...' : 'ซิงค์ข้อมูลเดี๋ยวนี้'}</span>
                 </button>
+              </div>
+            )}
+          </div>
+
+          {/* Section: System Data Persistence & Backup / Restore */}
+          <div className="p-4 bg-gradient-to-br from-emerald-50/70 via-teal-50/50 to-slate-50 dark:from-emerald-950/30 dark:via-teal-950/20 dark:to-slate-800/60 rounded-2xl border border-emerald-200/80 dark:border-emerald-800/60 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 rounded-xl bg-emerald-600 text-white shrink-0">
+                  <ShieldCheck className="w-4 h-4" />
+                </div>
+                <div>
+                  <h4 className="font-bold text-slate-800 dark:text-slate-100 flex items-center gap-1.5 flex-wrap">
+                    <span>การสำรองและกู้คืนข้อมูล (Global Backup & Restore)</span>
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300">
+                      💾 ป้องกันข้อมูลสูญหาย 100%
+                    </span>
+                  </h4>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    สำรองและกู้คืนคลังยา, ครุภัณฑ์, กระเป๋า, รถฉุกเฉิน, ผู้ใช้งาน และประวัติทั้งหมด
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Hidden JSON file input */}
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleFileChange}
+              accept=".json,application/json"
+              className="hidden"
+            />
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+              {/* Export JSON Button */}
+              <button
+                type="button"
+                onClick={handleExportBackup}
+                className="px-3 py-2.5 rounded-xl font-semibold bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-100 border border-slate-200 dark:border-slate-700 shadow-xs flex items-center justify-center gap-2 transition cursor-pointer text-xs group"
+                title="ดาวน์โหลดไฟล์ .json เพื่อเก็บสำรองข้อมูลไว้ในคอมพิวเตอร์"
+              >
+                <FolderDown className="w-4 h-4 text-emerald-600 dark:text-emerald-400 group-hover:scale-110 transition-transform" />
+                <span>📥 ส่งออกไฟล์สำรอง (Export JSON)</span>
+              </button>
+
+              {/* Import JSON Button */}
+              <button
+                type="button"
+                onClick={handleTriggerImport}
+                className="px-3 py-2.5 rounded-xl font-semibold bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-100 border border-slate-200 dark:border-slate-700 shadow-xs flex items-center justify-center gap-2 transition cursor-pointer text-xs group"
+                title="เลือกไฟล์ .json เพื่อกู้คืนข้อมูลระบบทั้งหมดกลับมาทันที"
+              >
+                <FolderUp className="w-4 h-4 text-teal-600 dark:text-teal-400 group-hover:scale-110 transition-transform" />
+                <span>📤 นำเข้าไฟล์สำรอง (Import JSON)</span>
+              </button>
+            </div>
+
+            {/* Google Sheets Bi-directional Sync Pull Button */}
+            {onPullFromGoogleSheets && (
+              <div className="pt-1.5 border-t border-emerald-100 dark:border-emerald-950/80 flex items-center justify-between gap-2 flex-wrap">
+                <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                  ดึงข้อมูลล่าสุดจาก Google Sheets มาอัปเดตทับเครื่องนี้ (Bi-directional Sync)
+                </span>
+                <button
+                  type="button"
+                  onClick={handlePullFromSheets}
+                  disabled={isPullingSheets}
+                  className="px-3 py-1.5 rounded-xl font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs flex items-center gap-1.5 transition text-xs disabled:opacity-50 cursor-pointer"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isPullingSheets ? 'animate-spin' : ''}`} />
+                  <span>{isPullingSheets ? 'กำลังดึงข้อมูล...' : '🔄 ดึงข้อมูลจาก Google Sheets'}</span>
+                </button>
+              </div>
+            )}
+
+            {/* Feedback alert messages */}
+            {backupStatus && (
+              <div
+                className={`p-2.5 rounded-xl text-xs font-medium flex items-center gap-2 transition-all ${
+                  backupStatus.ok
+                    ? 'bg-emerald-100/80 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
+                    : 'bg-rose-100/80 dark:bg-rose-950/60 text-rose-800 dark:text-rose-300 border border-rose-200 dark:border-rose-800'
+                }`}
+              >
+                {backupStatus.ok ? (
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                ) : (
+                  <X className="w-4 h-4 text-rose-600 shrink-0" />
+                )}
+                <span>{backupStatus.msg}</span>
+              </div>
+            )}
+
+            {sheetsPullResult && (
+              <div
+                className={`p-2.5 rounded-xl text-xs font-medium flex items-center gap-2 transition-all ${
+                  sheetsPullResult.ok
+                    ? 'bg-emerald-100/80 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
+                    : 'bg-rose-100/80 dark:bg-rose-950/60 text-rose-800 dark:text-rose-300 border border-rose-200 dark:border-rose-800'
+                }`}
+              >
+                {sheetsPullResult.ok ? (
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                ) : (
+                  <X className="w-4 h-4 text-rose-600 shrink-0" />
+                )}
+                <span>{sheetsPullResult.msg}</span>
               </div>
             )}
           </div>

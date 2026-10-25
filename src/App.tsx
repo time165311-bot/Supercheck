@@ -38,6 +38,8 @@ import {
 import {
   AuditLogEntry,
   CheckItemRow,
+  CheckItemState,
+  DrugItem,
   EquipmentItem,
   ExpiryAlertItem,
   InspectionHistoryRecord,
@@ -53,6 +55,7 @@ import {
   addAuditLog,
   calculateExpirationStatus,
   getAllExpiryAlerts,
+  getInitialDrugs,
   getInitialEquipment,
   getInitialLists,
   getLocalAuditLogs,
@@ -62,7 +65,9 @@ import {
   setStoredString,
   updateUserAvatar,
 } from './services/storage';
-import { sendInspectionToGas } from './services/api';
+import { pullDataFromGoogleSheets, sendInspectionToGas } from './services/api';
+import { useLocalStorage, useLocalStorageString } from './hooks/useLocalStorage';
+import { fileToBase64 } from './services/media';
 import { Header } from './components/Header';
 import { ExpiryAlertBanner } from './components/ExpiryAlertBanner';
 import { NotificationModal } from './components/NotificationModal';
@@ -79,6 +84,7 @@ import { DrugInventoryView } from './components/DrugInventoryView';
 import { UncheckedRoomsNavigator } from './components/UncheckedRoomsNavigator';
 import { SubmissionLoadingModal } from './components/SubmissionLoadingModal';
 import { QuickReplaceModal } from './components/QuickReplaceModal';
+import { GlobalScrollButtons } from './components/GlobalScrollButtons';
 import { checkUrlSyncPayload, fetchServerSync, pushServerSync } from './services/syncService';
 import {
   saveInspectionToFirebase,
@@ -120,17 +126,18 @@ function generateSalt(): string {
 }
 
 export default function App() {
-  // Theme state
-  const [theme, setTheme] = useState<ThemeMode>(() => {
-    return (getStoredString(STORAGE_KEYS.THEME, 'light') as ThemeMode) || 'light';
-  });
+  // Theme state backed by localStorage
+  const [theme, setTheme] = useLocalStorageString(
+    STORAGE_KEYS.THEME,
+    'light'
+  ) as [ThemeMode, (t: ThemeMode | ((prev: ThemeMode) => ThemeMode)) => void];
 
   // URLs
-  const [apiUrl, setApiUrl] = useState(() => getStoredString(STORAGE_KEYS.API_URL, ''));
-  const [sheetUrl, setSheetUrl] = useState(() => getStoredString(STORAGE_KEYS.SHEET_URL, ''));
+  const [apiUrl, setApiUrl] = useLocalStorageString(STORAGE_KEYS.API_URL, '');
+  const [sheetUrl, setSheetUrl] = useLocalStorageString(STORAGE_KEYS.SHEET_URL, '');
 
   // Auth & Users
-  const [users, setUsers] = useState<User[]>(() => getStored<User[]>(STORAGE_KEYS.USERS, []));
+  const [users, setUsers] = useLocalStorage<User[]>(STORAGE_KEYS.USERS, []);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [loginUsername, setLoginUsername] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
@@ -144,16 +151,31 @@ export default function App() {
   const [activeRoomId, setActiveRoomId] = useState<string>('or1');
   const [eqMode, setEqMode] = useState<'explore' | 'check'>('check');
 
-  // Domain Data
-  const [equipment, setEquipment] = useState<Record<string, EquipmentItem[]>>(() => getInitialEquipment());
-  const [lists, setLists] = useState<Record<'bag' | 'cart', ListConfig>>(() => getInitialLists());
-  const [globalChecks, setGlobalChecks] = useState<Record<string, Record<string, { result: 'ปกติ' | 'ผิดปกติ' | ''; note?: string }>>>(
-    () => getStored(STORAGE_KEYS.GLOBAL_CHECKS, {})
+  // Domain Data backed by useLocalStorage (Synchronous real-time persistence)
+  const [equipment, setEquipment] = useLocalStorage<Record<string, EquipmentItem[]>>(
+    STORAGE_KEYS.EQ,
+    () => getInitialEquipment()
   );
-  const [lastSubmitted, setLastSubmitted] = useState<Record<string, string>>(() =>
-    getStored(STORAGE_KEYS.LAST_SUBMITTED, {})
+  const [lists, setLists] = useLocalStorage<Record<'bag' | 'cart', ListConfig>>(
+    STORAGE_KEYS.CUSTOM_LISTS,
+    () => getInitialLists()
   );
-  const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>(() => getLocalAuditLogs());
+  const [drugs, setDrugs] = useLocalStorage<DrugItem[]>(
+    STORAGE_KEYS.DRUGS,
+    () => getInitialDrugs()
+  );
+  const [globalChecks, setGlobalChecks] = useLocalStorage<Record<string, Record<string, CheckItemState>>>(
+    STORAGE_KEYS.GLOBAL_CHECKS,
+    {}
+  );
+  const [lastSubmitted, setLastSubmitted] = useLocalStorage<Record<string, string>>(
+    STORAGE_KEYS.LAST_SUBMITTED,
+    {}
+  );
+  const [auditLogs, setAuditLogs] = useLocalStorage<AuditLogEntry[]>(
+    STORAGE_KEYS.AUDIT_LOGS,
+    () => getLocalAuditLogs()
+  );
 
   // Modals state
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -166,8 +188,9 @@ export default function App() {
   const [reportModalCategory, setReportModalCategory] = useState<'eq' | 'bag' | 'cart' | 'drug'>('eq');
   const [reportModalDrugSubCategory, setReportModalDrugSubCategory] = useState<'all' | 'monthly' | 'quarterly' | 'adhoc'>('monthly');
   const [reportModalRows, setReportModalRows] = useState<any[]>([]);
-  const [inspectionHistory, setInspectionHistory] = useState<InspectionHistoryRecord[]>(() =>
-    getStored<InspectionHistoryRecord[]>('inspection_history', [])
+  const [inspectionHistory, setInspectionHistory] = useLocalStorage<InspectionHistoryRecord[]>(
+    STORAGE_KEYS.HISTORY,
+    []
   );
   const [isSyncing, setIsSyncing] = useState(false);
   const [quickReplaceTarget, setQuickReplaceTarget] = useState<{
@@ -180,7 +203,7 @@ export default function App() {
   const [zoomedImageUrl, setZoomedImageUrl] = useState<string | null>(null);
 
   // Check form state (for currently active screen)
-  const [inspectorName, setInspectorName] = useState(() => getStoredString(STORAGE_KEYS.INSPECTOR, ''));
+  const [inspectorName, setInspectorName] = useLocalStorageString(STORAGE_KEYS.INSPECTOR, '');
   const [checkDate, setCheckDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [generalNote, setGeneralNote] = useState('');
   const [submissionFeedback, setSubmissionFeedback] = useState<{ success: boolean; msg: string; rows: any[] } | null>(null);
@@ -306,13 +329,21 @@ export default function App() {
         setUsers(serverData.users);
         setStored(STORAGE_KEYS.USERS, serverData.users);
       }
-      if (serverData.lists) {
+      if (
+        serverData.lists &&
+        serverData.lists.bag?.groups &&
+        Object.keys(serverData.lists.bag.groups).length > 0
+      ) {
         setLists(serverData.lists);
         setStored(STORAGE_KEYS.CUSTOM_LISTS, serverData.lists);
       }
       if (serverData.equipment && Object.keys(serverData.equipment).length > 0) {
         setEquipment(serverData.equipment);
         setStored(STORAGE_KEYS.EQ, serverData.equipment);
+      }
+      if (Array.isArray(serverData.drugs) && serverData.drugs.length > 0) {
+        setDrugs(serverData.drugs);
+        setStored(STORAGE_KEYS.DRUGS, serverData.drugs);
       }
       if (serverData.globalChecks) {
         setGlobalChecks((prev) => {
@@ -338,8 +369,8 @@ export default function App() {
         setStored(STORAGE_KEYS.AUDIT_LOGS, serverData.auditLogs);
       }
 
-      // If server was completely empty but this client already has apiUrl or sheetUrl configured:
-      if (!serverData.apiUrl && currentApi) {
+      // If server was completely empty or missing master modules, seed the server from local state:
+      if (!serverData.apiUrl || !serverData.lists || !serverData.equipment || !serverData.drugs) {
         await pushServerSync({
           apiUrl: currentApi,
           sheetUrl: currentSheet,
@@ -347,6 +378,7 @@ export default function App() {
           users: getStored<User[]>(STORAGE_KEYS.USERS, users),
           equipment,
           lists,
+          drugs,
           globalChecks,
           lastSubmitted,
           auditLogs,
@@ -385,7 +417,7 @@ export default function App() {
 
     // Subscribe to Firebase Cloud Firestore in real-time
     const unsubFirebaseHistory = subscribeInspectionHistory((records) => {
-      if (records && records.length > 0) {
+      if (records) {
         setInspectionHistory(records);
         setStored('inspection_history', records);
       }
@@ -429,7 +461,7 @@ export default function App() {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
-  // Sync equipment, lists, checks to storage
+  // Sync equipment, lists, drugs, checks to storage
   useEffect(() => {
     setStored(STORAGE_KEYS.EQ, equipment);
   }, [equipment]);
@@ -437,6 +469,10 @@ export default function App() {
   useEffect(() => {
     setStored(STORAGE_KEYS.CUSTOM_LISTS, lists);
   }, [lists]);
+
+  useEffect(() => {
+    setStored(STORAGE_KEYS.DRUGS, drugs);
+  }, [drugs]);
 
   useEffect(() => {
     setStored(STORAGE_KEYS.GLOBAL_CHECKS, globalChecks);
@@ -459,10 +495,11 @@ export default function App() {
         lastSubmitted,
         equipment,
         lists,
+        drugs,
       });
     }, 1200);
     return () => clearTimeout(timer);
-  }, [globalChecks, lastSubmitted, equipment, lists]);
+  }, [globalChecks, lastSubmitted, equipment, lists, drugs]);
 
   // Compute expiration alerts
   const expiryAlerts: ExpiryAlertItem[] = getAllExpiryAlerts(lists);
@@ -779,18 +816,27 @@ export default function App() {
     contextKey: string,
     itemKey: string,
     resultVal: 'ปกติ' | 'ผิดปกติ',
-    itemName: string
+    itemName: string,
+    defaultVal?: string
   ) => {
     setGlobalChecks((prev) => {
       const currentContext = prev[contextKey] || {};
       const existing = currentContext[itemKey] || { result: '' as const };
       const nextResult: 'ปกติ' | 'ผิดปกติ' | '' = existing.result === resultVal ? '' : resultVal;
 
-      const updatedContext: Record<string, { result: 'ปกติ' | 'ผิดปกติ' | ''; note?: string }> = {
+      const nextVal =
+        nextResult === 'ปกติ'
+          ? (existing.val && existing.val !== '✗' ? existing.val : (defaultVal || '✓'))
+          : nextResult === 'ผิดปกติ'
+          ? '✗'
+          : '';
+
+      const updatedContext: Record<string, { result: 'ปกติ' | 'ผิดปกติ' | ''; note?: string; val?: string }> = {
         ...currentContext,
         [itemKey]: {
           ...existing,
           result: nextResult,
+          val: nextVal,
         },
       };
 
@@ -810,11 +856,46 @@ export default function App() {
     });
   };
 
+  // Update custom value/count/pressure for check item
+  const handleUpdateCheckValue = (
+    contextKey: string,
+    itemKey: string,
+    value: string
+  ) => {
+    setGlobalChecks((prev) => {
+      const currentContext = prev[contextKey] || {};
+      const existing = currentContext[itemKey] || { result: '' as const };
+      const nextResult: 'ปกติ' | 'ผิดปกติ' | '' = value.trim() ? (existing.result || 'ปกติ') : '';
+
+      const updatedContext: Record<string, { result: 'ปกติ' | 'ผิดปกติ' | ''; note?: string; val?: string }> = {
+        ...currentContext,
+        [itemKey]: {
+          ...existing,
+          result: nextResult,
+          val: value,
+        },
+      };
+
+      const newGlobalChecks = {
+        ...prev,
+        [contextKey]: updatedContext,
+      };
+
+      setStored(STORAGE_KEYS.GLOBAL_CHECKS, newGlobalChecks);
+
+      pushServerSync({
+        globalChecks: newGlobalChecks,
+      }).catch(() => {});
+
+      return newGlobalChecks;
+    });
+  };
+
   // Update item note
   const handleUpdateItemNote = (contextKey: string, itemKey: string, noteText: string) => {
     const currentContext = globalChecks[contextKey] || {};
     const existing = currentContext[itemKey] || { result: '' as const };
-    const updatedContext: Record<string, { result: 'ปกติ' | 'ผิดปกติ' | ''; note?: string }> = {
+    const updatedContext: Record<string, { result: 'ปกติ' | 'ผิดปกติ' | ''; note?: string; val?: string }> = {
       ...currentContext,
       [itemKey]: {
         ...existing,
@@ -834,6 +915,7 @@ export default function App() {
     const updatedLists = { ...lists };
     updatedLists[category].groups[groupName][itemIdx].exp = newExp;
     setLists(updatedLists);
+    setStored(STORAGE_KEYS.CUSTOM_LISTS, updatedLists);
     pushServerSync({ lists: updatedLists });
 
     const entry = addAuditLog(
@@ -876,6 +958,8 @@ export default function App() {
         [groupNameOrRoomId]: [...roomEq, newItem],
       };
       setEquipment(updated);
+      setStored(STORAGE_KEYS.EQ, updated);
+      pushServerSync({ equipment: updated }).catch(() => {});
 
       const entry = addAuditLog(
         currentUser,
@@ -913,10 +997,14 @@ export default function App() {
         },
       };
 
-      setLists({
+      const nextLists = {
         ...lists,
         [category]: updatedCategory,
-      });
+      };
+
+      setLists(nextLists);
+      setStored(STORAGE_KEYS.CUSTOM_LISTS, nextLists);
+      pushServerSync({ lists: nextLists }).catch(() => {});
 
       const entry = addAuditLog(
         currentUser,
@@ -940,6 +1028,17 @@ export default function App() {
     setAddingGroupIdx(null);
   };
 
+  // Convert attached media file to compressed Base64 string for persistent storage
+  const handleNewItemImageUpload = async (file: File) => {
+    try {
+      const base64 = await fileToBase64(file, { maxWidth: 900, maxHeight: 900, quality: 0.85 });
+      setNewItemImg(base64);
+    } catch (e) {
+      console.error('Failed to convert image to Base64:', e);
+      alert('ไม่สามารถโหลดรูปภาพได้ กรุณาตรวจสอบไฟล์รูปภาพ');
+    }
+  };
+
   // Delete item
   const handleDeleteItem = (
     contextKey: string,
@@ -953,10 +1052,14 @@ export default function App() {
       const roomId = contextKey;
       const roomEq = equipment[roomId] || [];
       const updated = roomEq.filter((it) => it !== item);
-      setEquipment({
+      const nextEq = {
         ...equipment,
         [roomId]: updated,
-      });
+      };
+      setEquipment(nextEq);
+      setStored(STORAGE_KEYS.EQ, nextEq);
+      pushServerSync({ equipment: nextEq }).catch(() => {});
+
       const roomName = ROOMS.find((r) => r.id === roomId)?.n || roomId;
       const entry = addAuditLog(
         currentUser,
@@ -970,10 +1073,14 @@ export default function App() {
       const cat = contextKey as 'bag' | 'cart';
       const updatedList = { ...lists[cat] };
       updatedList.groups[groupName].splice(itemIdx, 1);
-      setLists({
+      const nextLists = {
         ...lists,
         [cat]: updatedList,
-      });
+      };
+      setLists(nextLists);
+      setStored(STORAGE_KEYS.CUSTOM_LISTS, nextLists);
+      pushServerSync({ lists: nextLists }).catch(() => {});
+
       const entry = addAuditLog(
         currentUser,
         'ลบรายการ',
@@ -1015,6 +1122,7 @@ export default function App() {
     };
 
     setLists(updatedLists);
+    setStored(STORAGE_KEYS.CUSTOM_LISTS, updatedLists);
 
     const entry = addAuditLog(
       currentUser,
@@ -1030,6 +1138,148 @@ export default function App() {
       lists: updatedLists,
       auditLogs: updatedAudit,
     });
+  };
+
+  // Restore full system backup handler
+  const handleRestoreBackup = (backup: any) => {
+    if (!backup || typeof backup !== 'object') return;
+
+    if (backup.settings) {
+      if (backup.settings.apiUrl !== undefined) {
+        setApiUrl(backup.settings.apiUrl);
+        setStoredString(STORAGE_KEYS.API_URL, backup.settings.apiUrl);
+      }
+      if (backup.settings.sheetUrl !== undefined) {
+        setSheetUrl(backup.settings.sheetUrl);
+        setStoredString(STORAGE_KEYS.SHEET_URL, backup.settings.sheetUrl);
+      }
+      if (backup.settings.theme !== undefined) {
+        setTheme(backup.settings.theme);
+        setStoredString(STORAGE_KEYS.THEME, backup.settings.theme);
+      }
+      if (backup.settings.inspectorName !== undefined) {
+        setInspectorName(backup.settings.inspectorName);
+        setStoredString(STORAGE_KEYS.INSPECTOR, backup.settings.inspectorName);
+      }
+    }
+
+    if (Array.isArray(backup.users) && backup.users.length > 0) {
+      setUsers(backup.users);
+      setStored(STORAGE_KEYS.USERS, backup.users);
+    }
+
+    if (backup.equipment && typeof backup.equipment === 'object') {
+      setEquipment(backup.equipment);
+      setStored(STORAGE_KEYS.EQ, backup.equipment);
+    }
+
+    if (backup.lists && typeof backup.lists === 'object') {
+      setLists(backup.lists);
+      setStored(STORAGE_KEYS.CUSTOM_LISTS, backup.lists);
+    }
+
+    if (Array.isArray(backup.drugs) && backup.drugs.length > 0) {
+      setDrugs(backup.drugs);
+      setStored(STORAGE_KEYS.DRUGS, backup.drugs);
+    }
+
+    if (backup.globalChecks && typeof backup.globalChecks === 'object') {
+      setGlobalChecks(backup.globalChecks);
+      setStored(STORAGE_KEYS.GLOBAL_CHECKS, backup.globalChecks);
+    }
+
+    if (backup.lastSubmitted && typeof backup.lastSubmitted === 'object') {
+      setLastSubmitted(backup.lastSubmitted);
+      setStored(STORAGE_KEYS.LAST_SUBMITTED, backup.lastSubmitted);
+    }
+
+    if (Array.isArray(backup.inspectionHistory)) {
+      setInspectionHistory(backup.inspectionHistory);
+      setStored(STORAGE_KEYS.HISTORY, backup.inspectionHistory);
+    }
+
+    if (Array.isArray(backup.auditLogs)) {
+      setAuditLogs(backup.auditLogs);
+      setStored(STORAGE_KEYS.AUDIT_LOGS, backup.auditLogs);
+    }
+
+    const logEntry = addAuditLog(
+      currentUser,
+      'ตั้งค่าระบบ',
+      'กู้คืนข้อมูลระบบทั้งหมดจากไฟล์สำรอง JSON (Restore Complete Backup)',
+      'ระบบหลัก',
+      apiUrl
+    );
+    setAuditLogs((prev) => [logEntry, ...prev]);
+
+    // Push restored state to server sync
+    pushServerSync({
+      apiUrl: backup.settings?.apiUrl || apiUrl,
+      sheetUrl: backup.settings?.sheetUrl || sheetUrl,
+      theme: backup.settings?.theme || theme,
+      users: backup.users || users,
+      equipment: backup.equipment || equipment,
+      lists: backup.lists || lists,
+      drugs: backup.drugs || drugs,
+      globalChecks: backup.globalChecks || globalChecks,
+      lastSubmitted: backup.lastSubmitted || lastSubmitted,
+      inspectionHistory: backup.inspectionHistory || inspectionHistory,
+      auditLogs: backup.auditLogs || auditLogs,
+    }).catch(() => {});
+  };
+
+  // Bi-directional Google Sheets sync: Pull master data from Google Sheets into local state & storage
+  const handlePullFromGoogleSheets = async (): Promise<{ success: boolean; message: string }> => {
+    try {
+      const res = await pullDataFromGoogleSheets(apiUrl, sheetUrl);
+      if (!res.success) {
+        return { success: false, message: res.message };
+      }
+
+      let count = 0;
+      if (res.equipment && Object.keys(res.equipment).length > 0) {
+        setEquipment(res.equipment);
+        setStored(STORAGE_KEYS.EQ, res.equipment);
+        count++;
+      }
+
+      if (res.lists && res.lists.bag?.groups) {
+        setLists(res.lists);
+        setStored(STORAGE_KEYS.CUSTOM_LISTS, res.lists);
+        count++;
+      }
+
+      if (Array.isArray(res.drugs) && res.drugs.length > 0) {
+        setDrugs(res.drugs);
+        setStored(STORAGE_KEYS.DRUGS, res.drugs);
+        count++;
+      }
+
+      if (Array.isArray(res.users) && res.users.length > 0) {
+        setUsers(res.users);
+        setStored(STORAGE_KEYS.USERS, res.users);
+        count++;
+      }
+
+      const logEntry = addAuditLog(
+        currentUser,
+        'ตั้งค่าระบบ',
+        'ดึงข้อมูลและอัปเดต Master Data จาก Google Sheets เรียบร้อยแล้ว',
+        'ระบบหลัก',
+        apiUrl
+      );
+      setAuditLogs((prev) => [logEntry, ...prev]);
+
+      return {
+        success: true,
+        message: res.message || 'ซิงค์ข้อมูลจาก Google Sheets ลงระบบสำเร็จ',
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        message: err?.message || 'เกิดข้อผิดพลาดในการดึงข้อมูลจาก Google Sheets',
+      };
+    }
   };
 
   // Helper row builders for all 3 categories (Eq, Bag, Cart)
@@ -1096,6 +1346,9 @@ export default function App() {
           location: `${cfg.title} (${gName})`,
           res: statusText,
           note: ch.note || '',
+          exp: o.exp || '',
+          group: gName,
+          val: ch.val || (ch.result === 'ปกติ' ? (o.qty || '✓') : ch.result === 'ผิดปกติ' ? '✗' : ''),
         });
       });
     });
@@ -1343,11 +1596,7 @@ export default function App() {
   };
 
   const handleDeleteHistoryRecord = async (recordId: string) => {
-    const isAdmin = !currentUser || currentUser.role === 'admin';
-    if (!isAdmin) {
-      alert('เฉพาะแอดมินผู้ดูแลระบบเท่านั้นที่สามารถลบประวัติรอบตรวจได้');
-      return;
-    }
+    const target = inspectionHistory.find((h) => h.id === recordId);
     const next = inspectionHistory.filter((h) => h.id !== recordId);
     setInspectionHistory(next);
     setStored('inspection_history', next);
@@ -1355,6 +1604,17 @@ export default function App() {
       await deleteInspectionFromFirebase(recordId);
     } catch (e) {
       console.warn('Failed to delete inspection from Firebase:', e);
+    }
+    if (target) {
+      const entry = addAuditLog(
+        currentUser,
+        'ลบรายการ',
+        `ลบประวัติการตรวจรอบ "${target.title}" วันที่ ${target.date || target.timestamp}`,
+        target.title,
+        apiUrl
+      );
+      setAuditLogs([entry, ...auditLogs]);
+      addAuditLogToFirebase(entry);
     }
   };
 
@@ -1942,7 +2202,7 @@ export default function App() {
                       accept="image/*"
                       className="hidden"
                       onChange={(e) => {
-                        if (e.target.files?.[0]) handleImageUpload(e.target.files[0]);
+                        if (e.target.files?.[0]) handleNewItemImageUpload(e.target.files[0]);
                       }}
                     />
                   </label>
@@ -2349,6 +2609,18 @@ export default function App() {
                                 placeholder="จำนวน (เช่น 2 หลอด)"
                                 className="px-3 py-1.5 rounded-xl bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 outline-none text-xs"
                               />
+                              <label className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl bg-neutral-100 dark:bg-neutral-800 border border-dashed border-neutral-300 dark:border-neutral-700 cursor-pointer text-neutral-600 dark:text-neutral-300 text-xs">
+                                <Image className="w-3.5 h-3.5" />
+                                <span>{newItemImg ? 'แนบรูปถ่ายแล้ว' : 'แนบรูปภาพ (ถ้ามี)'}</span>
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  className="hidden"
+                                  onChange={(e) => {
+                                    if (e.target.files?.[0]) handleNewItemImageUpload(e.target.files[0]);
+                                  }}
+                                />
+                              </label>
                             </div>
                             <div className="flex justify-end gap-2 pt-1">
                               <button
@@ -2392,6 +2664,15 @@ export default function App() {
                                 }`}
                               >
                                 <div className="flex items-start justify-between gap-3">
+                                  {item.img && (
+                                    <img
+                                      src={item.img}
+                                      alt={item.name}
+                                      onClick={() => setZoomedImageUrl(item.img!)}
+                                      className="w-10 h-10 rounded-xl object-cover shrink-0 cursor-pointer border border-neutral-200 dark:border-neutral-700 shadow-2xs"
+                                      title="แตะดูภาพใหญ่"
+                                    />
+                                  )}
                                   <div className="flex-1 min-w-0">
                                     <div className="flex items-center gap-2 flex-wrap">
                                       {item.no && (
@@ -2439,11 +2720,24 @@ export default function App() {
                                     </div>
                                   </div>
 
-                                  {/* Minimalist Check Buttons */}
-                                  <div className="flex items-center gap-1.5 shrink-0">
+                                  {/* Minimalist Check Buttons & Custom Reading Input */}
+                                  <div className="flex items-center gap-1.5 shrink-0 flex-wrap sm:flex-nowrap justify-end">
+                                    <div className="relative">
+                                      <input
+                                        type="text"
+                                        value={currentCheck.val !== undefined ? currentCheck.val : ''}
+                                        onChange={(e) =>
+                                          handleUpdateCheckValue(categoryKey, itemKey, e.target.value)
+                                        }
+                                        placeholder={item.qty ? `${item.qty}` : 'ระบุค่า/จำนวน'}
+                                        className="w-24 sm:w-28 h-8 px-2 text-xs rounded-xl font-medium text-center bg-white dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-700 text-neutral-800 dark:text-neutral-200 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition shadow-2xs"
+                                        title="ระบุจำนวนคงเหลือหรือค่าที่วัดได้จริง (เช่น 1, 2, 1400/1700 PSI หรือ ✓)"
+                                      />
+                                    </div>
+
                                     <button
                                       onClick={() =>
-                                        handleToggleCheck(categoryKey, itemKey, 'ปกติ', item.name)
+                                        handleToggleCheck(categoryKey, itemKey, 'ปกติ', item.name, item.qty || '✓')
                                       }
                                       className={`h-8 px-2.5 rounded-xl font-semibold text-xs flex items-center gap-1 transition border cursor-pointer ${
                                         isOk
@@ -2594,6 +2888,11 @@ export default function App() {
             sheetUrl={sheetUrl}
             apiUrl={apiUrl}
             onOpenPreview={(category) => handleOpenPrintReport('drug', category)}
+            drugs={drugs}
+            onDrugsChange={(updatedDrugs) => {
+              setDrugs(updatedDrugs);
+              setStored(STORAGE_KEYS.DRUGS, updatedDrugs);
+            }}
           />
         )}
       </main>
@@ -2665,6 +2964,7 @@ export default function App() {
             users,
             equipment,
             lists,
+            drugs,
             globalChecks,
             lastSubmitted,
             auditLogs: nextLogs,
@@ -2679,6 +2979,8 @@ export default function App() {
         }}
         onLogout={handleLogout}
         onManualSync={syncWithServer}
+        onPullFromGoogleSheets={handlePullFromGoogleSheets}
+        onRestoreBackup={handleRestoreBackup}
       />
 
       {/* Submission Loading & Percent Progress Modal */}
@@ -2824,6 +3126,9 @@ export default function App() {
           </button>
         </div>
       )}
+
+      {/* Global Scroll-to-Top and Bottom Floating Buttons */}
+      <GlobalScrollButtons />
     </div>
   );
 }

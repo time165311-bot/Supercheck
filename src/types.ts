@@ -35,6 +35,7 @@ export interface EquipmentItem {
 export interface CheckItemState {
   result: 'ปกติ' | 'ผิดปกติ' | '';
   note?: string;
+  val?: string; // numeric count or custom reading, e.g. "1400/1700 PSI", "2"
 }
 
 export interface CheckItemRow extends EquipmentItem {
@@ -44,6 +45,7 @@ export interface CheckItemRow extends EquipmentItem {
   idx: number;
   result: 'ปกติ' | 'ผิดปกติ' | '';
   note: string;
+  val?: string;
 }
 
 export interface RoomDef {
@@ -128,6 +130,7 @@ export interface DrugItem {
   receivedQty: number;     // จำนวนที่รับ
   minStock: number;        // ยอดต่ำสุด
   batchRequest: string;    // เบิกครั้งละ
+  unit?: string;           // หน่วยนับ เช่น amp, vial, box, ขวด, หลอด
   expDate: string;         // วันหมดอายุ (YYYY-MM-DD)
   note: string;            // หมายเหตุ
 }

@@ -1,5 +1,16 @@
-import { AuditLogEntry, EquipmentItem, ExpiryAlertItem, ListConfig, ThemeMode, User } from '../types';
+import {
+  AuditLogEntry,
+  EquipmentItem,
+  ExpiryAlertItem,
+  ListConfig,
+  ThemeMode,
+  User,
+  DrugItem,
+  CheckItemState,
+  InspectionHistoryRecord,
+} from '../types';
 import { DEFAULT_LISTS, ROOMS } from '../constants/initialData';
+import { INITIAL_DRUGS_DATA } from '../constants/initialDrugs';
 
 export const STORAGE_KEYS = {
   API_URL: 'anesthesia_api_url',
@@ -13,6 +24,8 @@ export const STORAGE_KEYS = {
   GLOBAL_CHECKS: 'anesthesia_global_checks',
   LAST_SUBMITTED: 'anesthesia_last_submitted',
   AUDIT_LOGS: 'anesthesia_audit_logs',
+  DRUGS: 'anesthesia_drug_inventory',
+  HISTORY: 'inspection_history',
 };
 
 export function getStored<T>(key: string, defaultValue: T): T {
@@ -48,10 +61,10 @@ export function setStoredString(key: string, value: string): void {
   }
 }
 
-// Initialise Equipment dataset
+// Initialise Equipment dataset (Guarantees local master persistence)
 export function getInitialEquipment(): Record<string, EquipmentItem[]> {
   const stored = getStored<Record<string, EquipmentItem[]> | null>(STORAGE_KEYS.EQ, null);
-  if (stored && Object.keys(stored).length > 0) {
+  if (stored && typeof stored === 'object' && Object.keys(stored).length > 0) {
     return stored;
   }
 
@@ -118,14 +131,187 @@ export function getInitialEquipment(): Record<string, EquipmentItem[]> {
   return eq;
 }
 
-// Initialise Lists (Bag & Cart)
+// Initialise Lists (Bag & Cart) - Preserves user modifications and custom groups 100%
 export function getInitialLists(): Record<'bag' | 'cart', ListConfig> {
   const stored = getStored<Record<'bag' | 'cart', ListConfig> | null>(STORAGE_KEYS.CUSTOM_LISTS, null);
-  if (stored && stored.bag && stored.cart) {
+  if (
+    stored &&
+    typeof stored === 'object' &&
+    stored.bag &&
+    stored.cart &&
+    stored.bag.groups &&
+    stored.cart.groups &&
+    (Object.keys(stored.bag.groups).length > 0 || Object.keys(stored.cart.groups).length > 0)
+  ) {
     return stored;
   }
   setStored(STORAGE_KEYS.CUSTOM_LISTS, DEFAULT_LISTS);
   return DEFAULT_LISTS;
+}
+
+// Initialise Drugs dataset
+export function getInitialDrugs(): DrugItem[] {
+  const stored = getStored<DrugItem[] | null>(STORAGE_KEYS.DRUGS, null);
+  if (stored && Array.isArray(stored) && stored.length > 0) {
+    return stored;
+  }
+  setStored(STORAGE_KEYS.DRUGS, INITIAL_DRUGS_DATA);
+  return INITIAL_DRUGS_DATA;
+}
+
+// Full System Backup & Restore Schema
+export interface FullSystemBackup {
+  version: string;
+  exportedAt: string;
+  appName: string;
+  settings: {
+    apiUrl: string;
+    sheetUrl: string;
+    theme: ThemeMode;
+    inspectorName?: string;
+  };
+  users: User[];
+  currentUserSession?: string | null;
+  equipment: Record<string, EquipmentItem[]>;
+  lists: Record<'bag' | 'cart', ListConfig>;
+  drugs: DrugItem[];
+  globalChecks: Record<string, Record<string, CheckItemState>>;
+  lastSubmitted: Record<string, string>;
+  inspectionHistory: InspectionHistoryRecord[];
+  auditLogs: AuditLogEntry[];
+}
+
+// Export all system data into a single structured object
+export function exportFullBackup(): FullSystemBackup {
+  return {
+    version: '1.0.0',
+    exportedAt: new Date().toISOString(),
+    appName: 'Anesthesia Check & Hospital Inventory',
+    settings: {
+      apiUrl: getStoredString(STORAGE_KEYS.API_URL, ''),
+      sheetUrl: getStoredString(STORAGE_KEYS.SHEET_URL, ''),
+      theme: (getStoredString(STORAGE_KEYS.THEME, 'light') as ThemeMode) || 'light',
+      inspectorName: getStoredString(STORAGE_KEYS.INSPECTOR, ''),
+    },
+    users: getStored<User[]>(STORAGE_KEYS.USERS, []),
+    currentUserSession: getStoredString(STORAGE_KEYS.SESSION, ''),
+    equipment: getStored<Record<string, EquipmentItem[]>>(STORAGE_KEYS.EQ, {}),
+    lists: getStored<Record<'bag' | 'cart', ListConfig>>(STORAGE_KEYS.CUSTOM_LISTS, DEFAULT_LISTS),
+    drugs: getStored<DrugItem[]>(STORAGE_KEYS.DRUGS, INITIAL_DRUGS_DATA),
+    globalChecks: getStored(STORAGE_KEYS.GLOBAL_CHECKS, {}),
+    lastSubmitted: getStored(STORAGE_KEYS.LAST_SUBMITTED, {}),
+    inspectionHistory: getStored<InspectionHistoryRecord[]>(STORAGE_KEYS.HISTORY, []),
+    auditLogs: getStored<AuditLogEntry[]>(STORAGE_KEYS.AUDIT_LOGS, []),
+  };
+}
+
+// Trigger automatic browser download of the JSON backup file
+export function downloadBackupFile(): void {
+  try {
+    const data = exportFullBackup();
+    const jsonStr = JSON.stringify(data, null, 2);
+    const blob = new Blob([jsonStr], { type: 'application/json;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    const now = new Date();
+    const dateStr = now.toISOString().split('T')[0];
+    const timeStr = `${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}`;
+    link.href = url;
+    link.download = `anesthesia_backup_${dateStr}_${timeStr}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  } catch (err) {
+    console.error('Failed to download backup file:', err);
+    throw err;
+  }
+}
+
+// Validate and import full JSON backup directly into LocalStorage
+export function importFullBackup(jsonInput: string | object): {
+  success: boolean;
+  message: string;
+  data?: FullSystemBackup;
+} {
+  try {
+    let parsed: any = jsonInput;
+    if (typeof jsonInput === 'string') {
+      parsed = JSON.parse(jsonInput);
+    }
+
+    if (!parsed || typeof parsed !== 'object') {
+      return { success: false, message: 'ไฟล์ข้อมูล JSON ไม่ถูกต้อง' };
+    }
+
+    // Check for valid backup signature or modules
+    const hasAnyModule =
+      parsed.equipment ||
+      parsed.lists ||
+      parsed.drugs ||
+      parsed.users ||
+      parsed.settings ||
+      parsed.inspectionHistory;
+
+    if (!hasAnyModule) {
+      return { success: false, message: 'โครงสร้างไฟล์ไม่ตรงกับข้อมูลสำรองของระบบ' };
+    }
+
+    // 1. Settings
+    if (parsed.settings) {
+      if (parsed.settings.apiUrl !== undefined) setStoredString(STORAGE_KEYS.API_URL, parsed.settings.apiUrl);
+      if (parsed.settings.sheetUrl !== undefined) setStoredString(STORAGE_KEYS.SHEET_URL, parsed.settings.sheetUrl);
+      if (parsed.settings.theme !== undefined) setStoredString(STORAGE_KEYS.THEME, parsed.settings.theme);
+      if (parsed.settings.inspectorName !== undefined) setStoredString(STORAGE_KEYS.INSPECTOR, parsed.settings.inspectorName);
+    }
+
+    // 2. Users
+    if (Array.isArray(parsed.users) && parsed.users.length > 0) {
+      setStored(STORAGE_KEYS.USERS, parsed.users);
+    }
+
+    // 3. Equipment
+    if (parsed.equipment && typeof parsed.equipment === 'object') {
+      setStored(STORAGE_KEYS.EQ, parsed.equipment);
+    }
+
+    // 4. Emergency Lists (Bag & Cart)
+    if (parsed.lists && typeof parsed.lists === 'object') {
+      setStored(STORAGE_KEYS.CUSTOM_LISTS, parsed.lists);
+    }
+
+    // 5. Drugs
+    if (Array.isArray(parsed.drugs) && parsed.drugs.length > 0) {
+      setStored(STORAGE_KEYS.DRUGS, parsed.drugs);
+    }
+
+    // 6. Checks & Last Submitted
+    if (parsed.globalChecks && typeof parsed.globalChecks === 'object') {
+      setStored(STORAGE_KEYS.GLOBAL_CHECKS, parsed.globalChecks);
+    }
+    if (parsed.lastSubmitted && typeof parsed.lastSubmitted === 'object') {
+      setStored(STORAGE_KEYS.LAST_SUBMITTED, parsed.lastSubmitted);
+    }
+
+    // 7. History & Audit Logs
+    if (Array.isArray(parsed.inspectionHistory)) {
+      setStored(STORAGE_KEYS.HISTORY, parsed.inspectionHistory);
+    }
+    if (Array.isArray(parsed.auditLogs)) {
+      setStored(STORAGE_KEYS.AUDIT_LOGS, parsed.auditLogs);
+    }
+
+    return {
+      success: true,
+      message: 'นำเข้าข้อมูลสำรองลงระบบเรียบร้อยแล้ว',
+      data: exportFullBackup(),
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      message: 'เกิดข้อผิดพลาดในการนำเข้าไฟล์: ' + (err?.message || 'รูปแบบ JSON เสียหาย'),
+    };
+  }
 }
 
 // Expiration calculation

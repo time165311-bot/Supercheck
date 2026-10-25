@@ -1,12 +1,31 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Printer, Download, X, FileSpreadsheet, History, Trash2, Calendar, User as UserIcon } from 'lucide-react';
+import {
+  Printer,
+  Download,
+  X,
+  FileSpreadsheet,
+  History,
+  Trash2,
+  Calendar,
+  User as UserIcon,
+  ZoomIn,
+  ZoomOut,
+  Maximize2,
+  RotateCcw,
+  Move,
+} from 'lucide-react';
 import { InspectionHistoryRecord, User, DrugItem } from '../types';
 import { INITIAL_DRUGS_DATA } from '../constants/initialDrugs';
 import {
   DrugInventoryReportPreview,
   generateDrugPrintHtml,
   getDrugCategoryTitle,
+  getMonthAndYearThai,
 } from './DrugInventoryReportPreview';
+import {
+  EmergencyChecklistReportPreview,
+  generateEmergencyPrintHtml,
+} from './EmergencyChecklistReportPreview';
 
 export interface OfficialReportItemRow {
   no?: string | number;
@@ -22,6 +41,10 @@ export interface OfficialReportItemRow {
   location?: string;
   res: string; // 'ใช้งานได้' | 'ใช้งานไม่ได้' | 'ไม่พบรายการ'
   note?: string;
+  exp?: string;
+  group?: string;
+  val?: string; // actual count, e.g. "1400/1700 PSI", "2", "✓"
+  weekVals?: { [week: number]: string };
 }
 
 export interface OfficialReportModalProps {
@@ -144,6 +167,122 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
   const [drugSubCategory, setDrugSubCategory] = useState<'all' | 'monthly' | 'quarterly' | 'adhoc'>(initialDrugSubCategory);
   const [drugHeaderNote, setDrugHeaderNote] = useState<string>('(เพิ่ม Column Exp.)');
 
+  // Zoom & Pan Engine state
+  const [zoom, setZoom] = useState<number>(1.0);
+  const [pan, setPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState<boolean>(false);
+  const dragStartRef = useRef<{ x: number; y: number; panX: number; panY: number }>({ x: 0, y: 0, panX: 0, panY: 0 });
+  const touchPinchRef = useRef<{ initialDist: number; initialZoom: number } | null>(null);
+  const previewContainerRef = useRef<HTMLDivElement>(null);
+  const previewContentRef = useRef<HTMLDivElement>(null);
+
+  // Week values tracking for bag and cart
+  const [weekItemValues, setWeekItemValues] = useState<{ [itemKey: string]: { [week: number]: string } }>({});
+
+  const handleZoomIn = () => {
+    setZoom((z) => Math.min(2.5, Math.round((z + 0.15) * 100) / 100));
+  };
+
+  const handleZoomOut = () => {
+    setZoom((z) => Math.max(0.4, Math.round((z - 0.15) * 100) / 100));
+  };
+
+  const handleResetZoom = () => {
+    setZoom(1.0);
+    setPan({ x: 0, y: 0 });
+  };
+
+  const handleFitScreen = () => {
+    if (previewContainerRef.current && previewContentRef.current) {
+      const containerW = previewContainerRef.current.clientWidth - 48;
+      const contentW = previewContentRef.current.scrollWidth || 1080;
+      if (contentW > 0 && containerW > 0) {
+        const fitScale = Math.min(1.0, Math.max(0.4, containerW / contentW));
+        setZoom(Math.round(fitScale * 100) / 100);
+        setPan({ x: 0, y: 0 });
+      }
+    } else {
+      setZoom(0.85);
+      setPan({ x: 0, y: 0 });
+    }
+  };
+
+  // PC: Ctrl + Mouse Wheel zoom
+  useEffect(() => {
+    const container = previewContainerRef.current;
+    if (!container) return;
+
+    const onWheel = (e: WheelEvent) => {
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        const delta = e.deltaY < 0 ? 0.1 : -0.1;
+        setZoom((prev) => Math.min(2.5, Math.max(0.4, Math.round((prev + delta) * 100) / 100)));
+      }
+    };
+
+    container.addEventListener('wheel', onWheel, { passive: false });
+    return () => container.removeEventListener('wheel', onWheel);
+  }, [isOpen]);
+
+  // Mouse Drag to Pan
+  const handleMouseDown = (e: React.MouseEvent) => {
+    const target = e.target as HTMLElement;
+    if (
+      ['INPUT', 'BUTTON', 'SELECT', 'TEXTAREA'].includes(target.tagName) ||
+      target.closest('input, button, select, textarea')
+    ) {
+      return;
+    }
+    setIsDragging(true);
+    dragStartRef.current = {
+      x: e.clientX,
+      y: e.clientY,
+      panX: pan.x,
+      panY: pan.y,
+    };
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!isDragging) return;
+    const dx = e.clientX - dragStartRef.current.x;
+    const dy = e.clientY - dragStartRef.current.y;
+    setPan({
+      x: dragStartRef.current.panX + dx,
+      y: dragStartRef.current.panY + dy,
+    });
+  };
+
+  const handleMouseUp = () => {
+    if (isDragging) setIsDragging(false);
+  };
+
+  // Mobile Touch Pinch-to-zoom
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length === 2) {
+      const dist = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+      touchPinchRef.current = { initialDist: dist, initialZoom: zoom };
+    }
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (e.touches.length === 2 && touchPinchRef.current) {
+      const dist = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+      const ratio = dist / touchPinchRef.current.initialDist;
+      const nextZoom = Math.min(2.5, Math.max(0.4, touchPinchRef.current.initialZoom * ratio));
+      setZoom(Math.round(nextZoom * 100) / 100);
+    }
+  };
+
+  const handleTouchEnd = () => {
+    touchPinchRef.current = null;
+  };
+
   // Sync category when initialCategory changes or modal opens
   useEffect(() => {
     if (initialCategory) {
@@ -258,12 +397,13 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
   // For 'cart' -> 'แบบฟอร์มตรวจสอบความพร้อม รถ Emergency'
   // For 'drug' -> 'แบบฟอร์มตรวจสอบและเบิกจ่ายคลังยาและสารน้ำ'
   const mainDocHeading = useMemo(() => {
+    const { month, year } = getMonthAndYearThai(displayDate);
     if (selectedCategory === 'eq') return 'ทะเบียนรายการครุภัณฑ์และอุปกรณ์';
-    if (selectedCategory === 'bag') return 'แบบฟอร์มตรวจสอบความพร้อม กระเป๋า Emergency';
-    if (selectedCategory === 'cart') return 'แบบฟอร์มตรวจสอบความพร้อม รถ Emergency';
+    if (selectedCategory === 'bag') return `ตารางตรวจเช็คกระเป๋ายา Emergency ประจำเดือน ${month} / ปี ${year}`;
+    if (selectedCategory === 'cart') return `ตารางตรวจเช็ครถ Emergency ประจำเดือน ${month} / ปี ${year}  หน่วยงาน: ${cleanClinicName}`;
     if (selectedCategory === 'drug') return getDrugCategoryTitle(drugSubCategory, displayDate);
     return 'ทะเบียนรายการครุภัณฑ์และอุปกรณ์';
-  }, [selectedCategory, drugSubCategory, displayDate]);
+  }, [selectedCategory, drugSubCategory, displayDate, cleanClinicName]);
 
   if (!isOpen) return null;
 
@@ -328,6 +468,13 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
             clinicName: cleanClinicName,
             subCategory: drugSubCategory,
             headerNote: drugHeaderNote,
+          })
+        : selectedCategory === 'bag' || selectedCategory === 'cart'
+        ? generateEmergencyPrintHtml(selectedCategory, activeItems, {
+            date: displayDate,
+            inspector: displayInspector,
+            agencyName: cleanClinicName,
+            weekItemValues,
           })
         : `
       <!DOCTYPE html>
@@ -518,9 +665,15 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
 
   const handleDeleteCurrentRecord = () => {
     if (!selectedRecord || !onDeleteHistoryRecord) return;
-    if (confirm(`ยืนยันการลบประวัติการตรวจรอบ "${selectedRecord.title}" (${selectedRecord.timestamp})?`)) {
-      onDeleteHistoryRecord(selectedRecord.id);
+    const targetTitle = selectedRecord.title || selectedRecord.timestamp;
+    if (confirm(`ยืนยันการลบประวัติการตรวจรอบ "${targetTitle}" (${selectedRecord.timestamp})?`)) {
+      const recId = selectedRecord.id;
       setSelectedRoundId('current');
+      onDeleteHistoryRecord(recId);
+      setFeedback({
+        type: 'success',
+        message: `✓ ลบประวัติการตรวจรอบ "${targetTitle}" เรียบร้อยแล้ว`,
+      });
     }
   };
 
@@ -564,10 +717,15 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
         {/* Header Toolbar */}
         <div className="p-4 border-b flex flex-wrap justify-between items-center bg-slate-50 gap-2 shrink-0">
           <div>
-            <h3 className="font-bold text-lg text-slate-800">ตัวอย่างรายงานและพิมพ์ PDF (A4 แนวนอน)</h3>
-            <p className="text-xs text-slate-500">
-              สั่งพิมพ์ผ่าน Window Print Engine ได้ทันที จัดหน้า A4 แนวนอนและซ้ำหัวตารางทุกหน้าเป๊ะ 100%
-            </p>
+            <h3 className="font-bold text-lg text-slate-800">
+              {selectedCategory === 'drug'
+                ? 'ตัวอย่างแบบฟอร์มคลังยา (8 คอลัมน์) และพิมพ์ PDF'
+                : selectedCategory === 'bag'
+                ? 'ตารางตรวจเช็คกระเป๋ายา Emergency รายสัปดาห์ (A4 แนวนอน)'
+                : selectedCategory === 'cart'
+                ? 'ตารางตรวจเช็ครถ Emergency รายสัปดาห์ (A4 แนวนอน)'
+                : 'ตัวอย่างทะเบียนครุภัณฑ์และพิมพ์ PDF (A4 แนวนอน)'}
+            </h3>
           </div>
 
           <div className="flex gap-2 items-center flex-wrap">
@@ -683,6 +841,18 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
               })}
             </select>
 
+            {selectedRecord && onDeleteHistoryRecord && (
+              <button
+                type="button"
+                onClick={handleDeleteCurrentRecord}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-300 text-xs font-bold transition cursor-pointer shadow-2xs shrink-0"
+                title="ลบประวัติการตรวจรอบนี้ออกจากระบบ"
+              >
+                <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                <span>ลบรอบนี้</span>
+              </button>
+            )}
+
             {selectedRecord && (
               <span className="bg-blue-100 text-blue-800 px-2 py-0.5 rounded text-[11px] font-medium">
                 กำลังดูประวัติรอบ {selectedRecord.timestamp}
@@ -690,22 +860,52 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
             )}
           </div>
 
-          <div className="flex items-center gap-3">
-            <span className="text-slate-500 text-xs">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-slate-500 text-xs hidden lg:inline">
               จำนวน <b>{activeItems.length}</b> รายการ
             </span>
 
-            {selectedRecord && isAdmin && onDeleteHistoryRecord && (
+            {/* Zoom Controls Toolbar */}
+            <div className="flex items-center gap-1 bg-white border border-slate-300 rounded-lg p-0.5 shadow-2xs flex-wrap">
               <button
                 type="button"
-                onClick={handleDeleteCurrentRecord}
-                className="text-rose-600 hover:text-rose-800 flex items-center gap-1 font-semibold text-xs transition cursor-pointer"
-                title="ลบประวัติรอบตรวจนี้"
+                onClick={handleZoomOut}
+                className="px-2 py-1 bg-slate-50 hover:bg-slate-200 text-slate-700 rounded font-medium flex items-center gap-1 transition cursor-pointer text-xs"
+                title="ซูมออก"
               >
-                <Trash2 className="w-3.5 h-3.5" />
-                <span>ลบรอบนี้</span>
+                <ZoomOut className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">ซูมออก</span>
               </button>
-            )}
+
+              <button
+                type="button"
+                onClick={handleResetZoom}
+                className="px-2.5 py-1 bg-slate-100 hover:bg-blue-50 hover:text-blue-700 text-slate-800 rounded font-bold transition cursor-pointer text-xs"
+                title="คลิกเพื่อรีเซ็ตขนาด 100%"
+              >
+                {Math.round(zoom * 100)}% รีเซ็ต
+              </button>
+
+              <button
+                type="button"
+                onClick={handleZoomIn}
+                className="px-2 py-1 bg-slate-50 hover:bg-slate-200 text-slate-700 rounded font-medium flex items-center gap-1 transition cursor-pointer text-xs"
+                title="ซูมเข้า"
+              >
+                <ZoomIn className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">ซูมเข้า</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleFitScreen}
+                className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded font-semibold flex items-center gap-1 transition cursor-pointer text-xs"
+                title="ปรับขนาดพอดีหน้าจอ (Fit Screen)"
+              >
+                <Maximize2 className="w-3.5 h-3.5" />
+                <span>พอดีหน้าจอ</span>
+              </button>
+            </div>
           </div>
         </div>
 
@@ -730,38 +930,69 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
           </div>
         )}
 
-        {/* Body Area - Scrollable Clean HTML Table (Instant Preview) */}
+        {/* Body Area - Scrollable Clean HTML Table with Zoom & Pan */}
         <div
-          className="preview-container flex-1 overflow-auto p-4 sm:p-6 bg-slate-100"
+          ref={previewContainerRef}
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+          onMouseLeave={handleMouseUp}
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
+          className="preview-container flex-1 overflow-auto p-4 sm:p-6 bg-slate-200/70 select-none relative"
           style={{
             overflowX: 'auto',
             overflowY: 'auto',
             WebkitOverflowScrolling: 'touch',
             touchAction: 'pan-x pan-y',
+            cursor: isDragging ? 'grabbing' : zoom > 1 ? 'grab' : 'default',
           }}
         >
-          {selectedCategory === 'drug' ? (
-            <DrugInventoryReportPreview
-              drugs={resolvedDrugs}
-              date={displayDate}
-              inspector={displayInspector}
-              clinicName={cleanClinicName}
-              subCategory={drugSubCategory}
-              onSubCategoryChange={setDrugSubCategory}
-              headerNote={drugHeaderNote}
-              onHeaderNoteChange={setDrugHeaderNote}
-            />
-          ) : (
-            <div
-              className="paper-preview sheet-preview bg-white p-6 rounded-lg shadow"
+          <div
+            ref={previewContentRef}
             style={{
+              transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+              transformOrigin: 'top left',
+              transition: isDragging ? 'none' : 'transform 0.08s ease-out',
               display: 'inline-block',
               width: 'max-content',
               minWidth: '100%',
               boxSizing: 'border-box',
-              backgroundColor: '#ffffff',
             }}
           >
+            {selectedCategory === 'drug' ? (
+              <DrugInventoryReportPreview
+                drugs={resolvedDrugs}
+                date={displayDate}
+                inspector={displayInspector}
+                clinicName={cleanClinicName}
+                subCategory={drugSubCategory}
+                onSubCategoryChange={setDrugSubCategory}
+                headerNote={drugHeaderNote}
+                onHeaderNoteChange={setDrugHeaderNote}
+              />
+            ) : selectedCategory === 'bag' || selectedCategory === 'cart' ? (
+              <EmergencyChecklistReportPreview
+                type={selectedCategory}
+                items={activeItems}
+                date={displayDate}
+                inspector={displayInspector}
+                agencyName={cleanClinicName}
+                weekItemValues={weekItemValues}
+                onWeekItemValuesChange={setWeekItemValues}
+              />
+            ) : (
+              <div
+                className="paper-preview sheet-preview bg-white p-6 rounded-lg shadow"
+                style={{
+                  display: 'inline-block',
+                  width: 'max-content',
+                  minWidth: '100%',
+                  boxSizing: 'border-box',
+                  backgroundColor: '#ffffff',
+                }}
+              >
             {/* Header Document Area */}
             <div className="text-center mb-4">
               <h2 className="text-xl font-bold text-slate-900">{mainDocHeading}</h2>
@@ -864,7 +1095,8 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
             </div>
           </div>
         )}
-      </div>
+          </div>
+        </div>
       </div>
     </div>
   );
