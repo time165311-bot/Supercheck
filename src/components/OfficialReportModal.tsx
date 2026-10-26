@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { InspectionHistoryRecord, User, DrugItem } from '../types';
 import { INITIAL_DRUGS_DATA } from '../constants/initialDrugs';
+import { sendInspectionToGas } from '../services/api';
 import {
   DrugInventoryReportPreview,
   generateDrugPrintHtml,
@@ -164,8 +165,11 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
   const [selectedCategory, setSelectedCategory] = useState<'eq' | 'bag' | 'cart' | 'drug'>('eq');
   const [selectedRoundId, setSelectedRoundId] = useState<string>('current');
   const [feedback, setFeedback] = useState<{ type: 'success' | 'info' | 'error'; message: string } | null>(null);
+  const [recordToDelete, setRecordToDelete] = useState<InspectionHistoryRecord | null>(null);
+  const [isExportingGas, setIsExportingGas] = useState<boolean>(false);
   const [drugSubCategory, setDrugSubCategory] = useState<'all' | 'monthly' | 'quarterly' | 'adhoc'>(initialDrugSubCategory);
   const [drugHeaderNote, setDrugHeaderNote] = useState<string>('(เพิ่ม Column Exp.)');
+  const [showToolbar, setShowToolbar] = useState<boolean>(true);
 
   // Zoom & Pan Engine state
   const [zoom, setZoom] = useState<number>(1.0);
@@ -293,6 +297,10 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
     }
     setSelectedRoundId('current');
     setFeedback(null);
+    setShowToolbar(true);
+    setTimeout(() => {
+      handleFitScreen();
+    }, 150);
   }, [initialCategory, initialDrugSubCategory, isOpen]);
 
   // Load drugs from prop, local storage, or initial constant
@@ -405,6 +413,16 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
     return 'ทะเบียนรายการครุภัณฑ์และอุปกรณ์';
   }, [selectedCategory, drugSubCategory, displayDate, cleanClinicName]);
 
+  // Retrieve user digital signature from profile or localStorage for auto-attaching
+  const userSignature = useMemo(() => {
+    if (currentUser?.signature) return currentUser.signature;
+    if (currentUser?.id) {
+      const s = localStorage.getItem(`user_signature_${currentUser.id}`);
+      if (s) return s;
+    }
+    return localStorage.getItem('user_signature_default') || '';
+  }, [currentUser]);
+
   if (!isOpen) return null;
 
   // Window Print Engine for A4 Landscape with repeated headers on every page
@@ -465,6 +483,7 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
         ? generateDrugPrintHtml(resolvedDrugs, {
             date: displayDate,
             inspector: displayInspector,
+            signature: userSignature,
             clinicName: cleanClinicName,
             subCategory: drugSubCategory,
             headerNote: drugHeaderNote,
@@ -473,6 +492,7 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
         ? generateEmergencyPrintHtml(selectedCategory, activeItems, {
             date: displayDate,
             inspector: displayInspector,
+            signature: userSignature,
             agencyName: cleanClinicName,
             weekItemValues,
           })
@@ -484,44 +504,46 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
           <title>${mainDocHeading} - ${cleanClinicName} (${formatThaiDate(displayDate)})</title>
           <style>
             @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;600;700&display=swap');
-
+ 
             @page {
               size: A4 landscape;
               margin: 10mm;
             }
-
+ 
             * {
               box-sizing: border-box;
               -webkit-print-color-adjust: exact !important;
               print-color-adjust: exact !important;
             }
-
+ 
             body {
               font-family: 'TH Sarabun PSK', 'Sarabun', Tahoma, sans-serif;
               margin: 0;
               padding: 0;
-              color: #000;
-              background: #fff;
+              color: #000 !important;
+              background: #fff !important;
               font-size: 10pt;
               line-height: 1.25;
             }
-
+ 
             .title-area {
               text-align: center;
               margin-bottom: 8px;
             }
-
+ 
             .title-area h2 {
               margin: 0;
               font-size: 16pt;
               font-weight: bold;
+              color: #000 !important;
             }
-
+ 
             .title-area p {
               margin: 2px 0 0 0;
               font-size: 11pt;
+              color: #000 !important;
             }
-
+ 
             .meta-header {
               display: flex;
               justify-content: space-between;
@@ -529,44 +551,49 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
               font-size: 10pt;
               font-weight: 600;
               margin-bottom: 6px;
+              color: #000 !important;
             }
-
+ 
             table {
               width: 100%;
               border-collapse: collapse;
               font-size: 9pt;
+              background-color: #fff !important;
             }
-
+ 
             /* บังคับซ้ำหัวตารางทุกหน้าอัตโนมัติ */
             thead {
               display: table-header-group !important;
             }
-
+ 
             /* ป้องกันการตัดแถวตารางขาดครึ่งหน้า */
             tr {
               page-break-inside: avoid !important;
+              background-color: #fff !important;
             }
-
+ 
             th, td {
-              border: 1px solid #000;
+              border: 1px solid #000 !important;
               padding: 4px 5px;
+              color: #000 !important;
             }
-
+ 
             th {
               background-color: #f1f5f9 !important;
               font-weight: bold;
               text-align: center;
               vertical-align: middle;
             }
-
+ 
             .signature-section {
               margin-top: 24px;
               display: flex;
               justify-content: space-around;
               page-break-inside: avoid;
               font-size: 10pt;
+              color: #000 !important;
             }
-
+ 
             .sign-col {
               text-align: center;
               line-height: 1.8;
@@ -612,11 +639,15 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
             </tbody>
           </table>
           <div class="signature-section">
-            <div class="sign-col">
+            <div class="sign-col" style="display: flex; flex-direction: column; align-items: center;">
+              <div style="height: 48px; display: flex; align-items: flex-end; justify-content: center; margin-bottom: 2px;">
+                ${userSignature ? `<img src="${userSignature}" style="max-height: 48px; max-width: 140px; object-fit: contain;" alt="ลายเซ็น" />` : ''}
+              </div>
               <p>ลงชื่อ .................................................... ผู้ตรวจสอบ</p>
               <p>(${displayInspector || '....................................................'})</p>
             </div>
-            <div class="sign-col">
+            <div class="sign-col" style="display: flex; flex-direction: column; align-items: center;">
+              <div style="height: 48px;"></div>
               <p>ลงชื่อ .................................................... หัวหน้างาน</p>
               <p>(....................................................)</p>
             </div>
@@ -665,22 +696,133 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
 
   const handleDeleteCurrentRecord = () => {
     if (!selectedRecord || !onDeleteHistoryRecord) return;
-    const targetTitle = selectedRecord.title || selectedRecord.timestamp;
-    if (confirm(`ยืนยันการลบประวัติการตรวจรอบ "${targetTitle}" (${selectedRecord.timestamp})?`)) {
-      const recId = selectedRecord.id;
-      setSelectedRoundId('current');
-      onDeleteHistoryRecord(recId);
+    setRecordToDelete(selectedRecord);
+  };
+
+  const handleConfirmDeleteCurrentRecord = () => {
+    if (!recordToDelete || !onDeleteHistoryRecord) return;
+    const recId = recordToDelete.id;
+    const targetTitle = recordToDelete.title || recordToDelete.timestamp;
+    setSelectedRoundId('current');
+    setRecordToDelete(null);
+    onDeleteHistoryRecord(recId);
+    setFeedback({
+      type: 'success',
+      message: `✓ ลบประวัติการตรวจรอบ "${targetTitle}" เรียบร้อยแล้ว`,
+    });
+  };
+
+  const handleSendReportToGas = async () => {
+    if (!apiUrl || !apiUrl.trim()) {
+      setFeedback({
+        type: 'error',
+        message: 'ยังไม่ได้ระบุ Google Apps Script Web App URL (กรุณาตั้งค่าในหน้าฟันเฟือง)',
+      });
+      return;
+    }
+    setIsExportingGas(true);
+    setFeedback({
+      type: 'info',
+      message: 'กำลังส่งข้อมูล Report เข้า Google Sheets...',
+    });
+
+    try {
+      const now = new Date();
+      const thaiYear = String(now.getFullYear() + 543);
+      const day = ('0' + now.getDate()).slice(-2);
+      const month = ('0' + (now.getMonth() + 1)).slice(-2);
+      const dateFormatted = `${day}${month}${thaiYear}`;
+
+      if (selectedCategory === 'drug') {
+        const catCode = drugSubCategory === 'quarterly' ? '3เดือน' : drugSubCategory === 'adhoc' ? 'ครั้งคราว' : 'เดือน';
+        const uniqueSheet = `คลังยา_${catCode}_${dateFormatted}`;
+        await sendInspectionToGas(apiUrl, {
+          type: 'drug',
+          category: drugSubCategory,
+          sheet: 'คลังยาและสารน้ำ',
+          sheetName: uniqueSheet,
+          title: mainDocHeading,
+          date: displayDate,
+          who: displayInspector || currentUser?.name || 'ผู้ดูแลระบบ',
+          user: currentUser?.username || 'user',
+          rows: resolvedDrugs.map((d) => ({
+            name: d.name,
+            remaining: d.remaining,
+            receivedDate: d.receivedDate,
+            receivedQty: d.receivedQty,
+            totalQty: Number(d.remaining || 0) + Number(d.receivedQty || 0),
+            minStock: d.minStock,
+            batchRequest: d.batchRequest,
+            expDate: d.expDate,
+            note: d.note,
+          })),
+        });
+      } else if (selectedCategory === 'bag' || selectedCategory === 'cart') {
+        const uniqueSheet = selectedCategory === 'bag' ? `กระเป๋า_EMER_${dateFormatted}` : `รถ_EMER_${dateFormatted}`;
+        await sendInspectionToGas(apiUrl, {
+          type: selectedCategory,
+          sheet: selectedCategory === 'bag' ? 'กระเป๋า Emergency' : 'รถ Emergency',
+          sheetName: uniqueSheet,
+          title: mainDocHeading,
+          date: displayDate,
+          who: displayInspector || currentUser?.name || 'ผู้ดูแลระบบ',
+          user: currentUser?.username || 'user',
+          rows: activeItems.map((item) => ({
+            name: item.name,
+            qty: String(item.qty || '1'),
+            exp: item.exp || item.date || '-',
+            group: item.group || '-',
+            val: item.val || (item.res && item.res.includes('ใช้งานได้') ? '✓' : '-'),
+            res: item.res,
+            weekVals: item.weekVals || weekItemValues[item.name] || {},
+          })),
+        });
+      } else {
+        const uniqueSheet = `ครุภัณฑ์_ทุกห้อง_${dateFormatted}`;
+        await sendInspectionToGas(apiUrl, {
+          type: 'eq',
+          sheet: 'ครุภัณฑ์',
+          sheetName: uniqueSheet,
+          title: mainDocHeading,
+          date: displayDate,
+          who: displayInspector || currentUser?.name || 'ผู้ดูแลระบบ',
+          user: currentUser?.username || 'user',
+          rows: activeItems.map((item, idx) => ({
+            no: String(item.no || idx + 1),
+            code: item.code || '-',
+            sap: item.sap || '-',
+            name: item.name,
+            spec: item.spec || '-',
+            source: item.source || '-',
+            date: item.date || '-',
+            qty: String(item.qty || '1'),
+            tax: String(item.tax || '7'),
+            price: String(item.price || '-'),
+            location: item.location || '-',
+            res: item.res,
+            note: item.note || '',
+          })),
+        });
+      }
+
       setFeedback({
         type: 'success',
-        message: `✓ ลบประวัติการตรวจรอบ "${targetTitle}" เรียบร้อยแล้ว`,
+        message: `✓ ส่ง Report หมวด "${mainDocHeading}" เข้า Google Sheets เรียบร้อยแล้ว`,
       });
+    } catch (err: any) {
+      setFeedback({
+        type: 'error',
+        message: 'เกิดข้อผิดพลาดในการส่งเข้า Google Sheets: ' + (err?.message || err),
+      });
+    } finally {
+      setIsExportingGas(false);
     }
   };
 
   const isAdmin = !currentUser || currentUser.role === 'admin';
 
   return (
-    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-2 sm:p-4 animate-in fade-in">
+    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex flex-col justify-start items-center p-2 sm:p-4 overflow-hidden animate-in fade-in">
       {/* Media Print Global Rules */}
       <style>{`
         @page {
@@ -704,215 +846,253 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
           -webkit-overflow-scrolling: touch !important;
           touch-action: pan-x pan-y !important;
         }
-        .paper-preview, .sheet-preview {
+        .paper-preview, .sheet-preview, .a4-page-sheet, .a4-print-container {
           display: inline-block !important;
           width: max-content !important;
           min-width: 100% !important;
           box-sizing: border-box !important;
           background-color: #ffffff !important;
+          background: #ffffff !important;
+          color: #000000 !important;
+        }
+        /* Strict isolation for report content to beat global dark: utilities */
+        .a4-page-sheet,
+        .a4-page-sheet *,
+        .a4-print-container, 
+        .a4-print-container *, 
+        .paper-preview, 
+        .paper-preview *,
+        [class*="a4-"] *,
+        .a4-page-sheet [class*="bg-"],
+        .a4-page-sheet [class*="text-"],
+        .a4-page-sheet [class*="dark:"] {
+          background-color: #ffffff !important;
+          background: #ffffff !important;
+          color: #000000 !important;
+          border-color: #cbd5e1 !important;
+          background-image: none !important;
+          color-scheme: light !important;
+          box-shadow: none !important;
+          text-shadow: none !important;
+          backdrop-filter: none !important;
+        }
+        /* Restore header and specific table colors */
+        .a4-page-sheet th,
+        .a4-page-sheet thead tr,
+        .a4-page-sheet th *,
+        .a4-print-container th, 
+        .a4-print-container thead tr,
+        .paper-preview th,
+        .paper-preview thead tr {
+          background-color: #f1f5f9 !important;
+          background: #f1f5f9 !important;
+          color: #000000 !important;
+        }
+        /* High-contrast status colors */
+        .a4-page-sheet .text-emerald-700, .a4-print-container .text-emerald-700, .paper-preview .text-emerald-700, .paper-preview .text-emerald-600 { color: #15803d !important; background-color: transparent !important; }
+        .a4-page-sheet .text-rose-700, .a4-print-container .text-rose-700, .paper-preview .text-rose-700, .paper-preview .text-rose-600 { color: #b91c1c !important; background-color: transparent !important; }
+        .a4-page-sheet .text-amber-700, .a4-print-container .text-amber-700, .paper-preview .text-amber-700, .paper-preview .text-amber-600 { color: #b45309 !important; background-color: transparent !important; }
+        
+        /* Fix for potential black banners in headers/footers */
+        .a4-page-sheet header, .a4-page-sheet footer, .a4-page-sheet section, .a4-page-sheet div[class*="bg-"] {
+          background-color: #ffffff !important;
+          background: #ffffff !important;
+        }
+        .a4-page-sheet table, .a4-page-sheet tr, .a4-page-sheet td {
+          background-color: #ffffff !important;
+          color: #000000 !important;
+          border: 1px solid #000000 !important;
+        }
+        .a4-page-sheet thead th {
+          background-color: #f1f5f9 !important;
+          color: #000000 !important;
         }
       `}</style>
 
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-6xl h-[92vh] flex flex-col overflow-hidden">
-        {/* Header Toolbar */}
-        <div className="p-4 border-b flex flex-wrap justify-between items-center bg-slate-50 gap-2 shrink-0">
-          <div>
-            <h3 className="font-bold text-lg text-slate-800">
-              {selectedCategory === 'drug'
-                ? 'ตัวอย่างแบบฟอร์มคลังยา (8 คอลัมน์) และพิมพ์ PDF'
-                : selectedCategory === 'bag'
-                ? 'ตารางตรวจเช็คกระเป๋ายา Emergency รายสัปดาห์ (A4 แนวนอน)'
-                : selectedCategory === 'cart'
-                ? 'ตารางตรวจเช็ครถ Emergency รายสัปดาห์ (A4 แนวนอน)'
-                : 'ตัวอย่างทะเบียนครุภัณฑ์และพิมพ์ PDF (A4 แนวนอน)'}
-            </h3>
-          </div>
-
-          <div className="flex gap-2 items-center flex-wrap">
-            {/* 4 Category Tabs */}
-            <div className="flex items-center bg-slate-200 p-0.5 rounded-lg text-xs font-semibold mr-1">
+      <div className="bg-white dark:bg-[#242526] rounded-2xl shadow-2xl w-full max-w-6xl max-h-[90vh] my-auto flex flex-col overflow-hidden border border-[#e4e6eb] dark:border-[#3a3b3c] relative">
+        {/* 1. Sticky Header Controls (Fixed above document, no overlap) */}
+        <div className="shrink-0 w-full bg-[#f0f2f5] dark:bg-[#18191a] border-b border-[#e4e6eb] dark:border-[#3a3b3c] z-50">
+          {!showToolbar ? (
+            <div className="p-2 flex justify-end items-center gap-3">
+              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mr-auto ml-2">A4 Document Preview</span>
               <button
                 type="button"
-                onClick={() => {
-                  setSelectedCategory('eq');
-                  setSelectedRoundId('current');
-                }}
-                className={`px-3 py-1.5 rounded-md transition cursor-pointer ${
-                  selectedCategory === 'eq' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
-                }`}
+                onClick={() => setShowToolbar(true)}
+                className="px-3 py-1.5 rounded-xl bg-accent text-white shadow-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer hover:bg-accent-hover transition-all active:scale-95"
               >
-                🏥 ครุภัณฑ์
+                <span>👁️ แสดงแผงควบคุม</span>
               </button>
               <button
-                type="button"
-                onClick={() => {
-                  setSelectedCategory('bag');
-                  setSelectedRoundId('current');
-                }}
-                className={`px-3 py-1.5 rounded-md transition cursor-pointer ${
-                  selectedCategory === 'bag' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
-                }`}
+                onClick={onClose}
+                className="w-8 h-8 rounded-full bg-[#e4e6eb] dark:bg-[#3a3b3c] hover:bg-rose-100 dark:hover:bg-rose-900/30 text-slate-600 dark:text-slate-400 hover:text-rose-600 flex items-center justify-center transition cursor-pointer"
               >
-                💼 กระเป๋า
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setSelectedCategory('cart');
-                  setSelectedRoundId('current');
-                }}
-                className={`px-3 py-1.5 rounded-md transition cursor-pointer ${
-                  selectedCategory === 'cart' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                🛒 รถ
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setSelectedCategory('drug');
-                  setSelectedRoundId('current');
-                }}
-                className={`px-3 py-1.5 rounded-md transition cursor-pointer ${
-                  selectedCategory === 'drug' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                💊 คลังยา
+                <X className="w-4 h-4" />
               </button>
             </div>
+          ) : (
+            <div className="p-2 sm:px-4 sm:py-2 flex flex-wrap items-center justify-between gap-3">
+              {/* Left: Category Tabs + Round Selector */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <div className="flex items-center bg-[#e4e6eb] dark:bg-[#3a3b3c] p-0.5 rounded-xl text-xs font-semibold">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedCategory('eq');
+                        setSelectedRoundId('current');
+                      }}
+                      className={`px-3 py-1 rounded-lg transition-all cursor-pointer whitespace-nowrap leading-normal active:scale-95 ${
+                        selectedCategory === 'eq' ? 'bg-accent text-white shadow-md font-bold' : 'text-[#65676b] dark:text-[#b0b3b8] hover:text-[#050505] dark:hover:text-white'
+                      }`}
+                    >
+                      🏥 ครุภัณฑ์
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedCategory('bag');
+                        setSelectedRoundId('current');
+                      }}
+                      className={`px-3 py-1 rounded-lg transition-all cursor-pointer whitespace-nowrap leading-normal active:scale-95 ${
+                        selectedCategory === 'bag' ? 'bg-accent text-white shadow-md font-bold' : 'text-[#65676b] dark:text-[#b0b3b8] hover:text-[#050505] dark:hover:text-white'
+                      }`}
+                    >
+                      💼 กระเป๋า
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedCategory('cart');
+                        setSelectedRoundId('current');
+                      }}
+                      className={`px-3 py-1 rounded-lg transition-all cursor-pointer whitespace-nowrap leading-normal active:scale-95 ${
+                        selectedCategory === 'cart' ? 'bg-accent text-white shadow-md font-bold' : 'text-[#65676b] dark:text-[#b0b3b8] hover:text-[#050505] dark:hover:text-white'
+                      }`}
+                    >
+                      🛒 รถ
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedCategory('drug');
+                        setSelectedRoundId('current');
+                      }}
+                      className={`px-3 py-1 rounded-lg transition-all cursor-pointer whitespace-nowrap leading-normal active:scale-95 ${
+                        selectedCategory === 'drug' ? 'bg-accent text-white shadow-md font-bold' : 'text-[#65676b] dark:text-[#b0b3b8] hover:text-[#050505] dark:hover:text-white'
+                      }`}
+                    >
+                      💊 คลังยา
+                    </button>
+                </div>
 
-            {/* Direct Google Sheet Button */}
-            {sheetUrl && sheetUrl.trim() !== '' && (
-              <a
-                href={sheetUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-300 font-medium px-3 py-2 rounded-lg flex items-center gap-1.5 text-xs transition"
-                title="เปิด Google Sheet ปัจจุบัน"
-              >
-                <FileSpreadsheet className="w-4 h-4" />
-                <span className="hidden sm:inline">เปิด Google Sheet</span>
-              </a>
-            )}
+                <select
+                  value={selectedRoundId}
+                  onChange={(e) => setSelectedRoundId(e.target.value)}
+                  className="bg-white dark:bg-[#242526] text-[#050505] dark:text-[#e4e6eb] border border-[#e4e6eb] dark:border-[#3a3b3c] rounded-xl px-3 py-1 text-xs font-bold outline-none cursor-pointer focus:ring-2 focus:ring-accent/20"
+                >
+                  <option value="current">🟢 รอบปัจจุบัน</option>
+                  {filteredHistoryRecords.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      🕒 [{r.timestamp || r.date}] {r.who || 'ไม่ระบุ'}
+                    </option>
+                  ))}
+                </select>
 
-            {/* Native Print & Save as PDF Button (A4 Landscape) */}
-            <button
-              onClick={handlePrintPdf}
-              disabled={isPrinting}
-              className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-semibold px-4 py-2 rounded-lg flex items-center gap-2 shadow transition-all cursor-pointer text-xs sm:text-sm active:scale-[0.98]"
-              title="เปิดหน้าต่างพิมพ์ทันทีเพื่อบันทึกเป็น PDF (A4 แนวนอน)"
-            >
-              <Printer className="w-4 h-4" />
-              <span>ดาวน์โหลด PDF (A4 แนวนอน)</span>
-            </button>
+                {selectedRecord && onDeleteHistoryRecord && (
+                  <button
+                    type="button"
+                    onClick={handleDeleteCurrentRecord}
+                    className="px-2.5 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold transition cursor-pointer"
+                    title="ลบประวัติรอบนี้"
+                  >
+                    <Trash2 className="w-3.5 h-3.5 inline mr-1" /> ลบรอบนี้
+                  </button>
+                )}
+              </div>
 
-            {/* Close Modal Button */}
-            <button
-              onClick={onClose}
-              className="px-3 py-2 bg-slate-200 hover:bg-slate-300 rounded-lg text-slate-700 font-bold cursor-pointer text-xs sm:text-sm"
-              title="ปิดหน้าต่าง"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
+              {/* Right: Zoom + Export + Toggle + Close */}
+              <div className="flex items-center gap-1.5 flex-wrap ml-auto">
+                <div className="flex items-center gap-0.5 bg-white dark:bg-[#242526] border border-[#e4e6eb] dark:border-[#3a3b3c] rounded-xl p-0.5 shadow-sm">
+                  <button
+                    type="button"
+                    onClick={handleZoomOut}
+                    className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-lg transition cursor-pointer"
+                    title="ซูมออก"
+                  >
+                    <ZoomOut className="w-4 h-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleResetZoom}
+                    className="px-2 py-0.5 hover:bg-blue-50 dark:hover:bg-blue-900/20 text-slate-800 dark:text-slate-200 rounded font-bold transition cursor-pointer text-[11px]"
+                    title="รีเซ็ต 100%"
+                  >
+                    {Math.round(zoom * 100)}%
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleZoomIn}
+                    className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-lg transition cursor-pointer"
+                    title="ซูมเข้า"
+                  >
+                    <ZoomIn className="w-4 h-4" />
+                  </button>
+                  <div className="w-[1px] h-4 bg-slate-200 dark:bg-slate-700 mx-1"></div>
+                  <button
+                    type="button"
+                    onClick={handleFitScreen}
+                    className="px-2.5 py-1 bg-blue-50 dark:bg-blue-950/40 text-[#1877f2] dark:text-blue-400 rounded-lg font-bold flex items-center gap-1.5 transition cursor-pointer text-[11px]"
+                    title="พอดีหน้าจอ"
+                  >
+                    <Maximize2 className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">พอดีจอ</span>
+                  </button>
+                </div>
 
-        {/* Sub-bar: Inspection Round / History Selector */}
-        <div className="bg-slate-100 border-b border-slate-200 px-4 py-2 flex flex-wrap items-center justify-between gap-2 text-xs">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="font-semibold text-slate-700 flex items-center gap-1.5">
-              <History className="w-4 h-4 text-blue-600" />
-              เลือกรอบการตรวจ:
-            </span>
-            <select
-              value={selectedRoundId}
-              onChange={(e) => setSelectedRoundId(e.target.value)}
-              className="bg-white border border-slate-300 rounded-lg px-2.5 py-1 text-xs text-slate-800 font-medium outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
-            >
-              <option value="current">🟢 รอบตรวจปัจจุบัน (ข้อมูลล่าสุด)</option>
-              {filteredHistoryRecords.map((r) => {
-                const typeLabel =
-                  r.type === 'eq' ? 'ครุภัณฑ์' : r.type === 'bag' ? 'กระเป๋า' : r.type === 'cart' ? 'รถ' : 'คลังยา';
-                return (
-                  <option key={r.id} value={r.id}>
-                    🕒 [{r.timestamp || r.date}] {typeLabel} - ผู้ตรวจ: {r.who || 'ไม่ระบุ'} ({r.rows?.length || 0} รายการ)
-                  </option>
-                );
-              })}
-            </select>
+                <button
+                  onClick={handleSendReportToGas}
+                  disabled={isExportingGas}
+                  className="bg-accent hover:bg-accent-hover text-white font-bold px-3 py-1.5 rounded-xl flex items-center gap-1.5 text-xs cursor-pointer whitespace-nowrap shadow-sm active:scale-95 transition-all"
+                  title="ส่ง Report เข้า Google Sheets"
+                >
+                  <FileSpreadsheet className="w-4 h-4 shrink-0" />
+                  <span className="hidden md:inline">ส่ง Sheets</span>
+                </button>
 
-            {selectedRecord && onDeleteHistoryRecord && (
-              <button
-                type="button"
-                onClick={handleDeleteCurrentRecord}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-300 text-xs font-bold transition cursor-pointer shadow-2xs shrink-0"
-                title="ลบประวัติการตรวจรอบนี้ออกจากระบบ"
-              >
-                <Trash2 className="w-3.5 h-3.5 text-rose-600" />
-                <span>ลบรอบนี้</span>
-              </button>
-            )}
+                <button
+                  onClick={handlePrintPdf}
+                  disabled={isPrinting}
+                  className="bg-accent hover:bg-accent-hover text-white font-bold px-3 py-1.5 rounded-xl flex items-center gap-1.5 text-xs cursor-pointer whitespace-nowrap shadow-sm active:scale-95 transition-all"
+                  title="ดาวน์โหลด PDF (A4 แนวนอน)"
+                >
+                  <Printer className="w-4 h-4 shrink-0" />
+                  <span className="hidden md:inline">PDF</span>
+                </button>
 
-            {selectedRecord && (
-              <span className="bg-blue-100 text-blue-800 px-2 py-0.5 rounded text-[11px] font-medium">
-                กำลังดูประวัติรอบ {selectedRecord.timestamp}
-              </span>
-            )}
-          </div>
+                <button
+                  type="button"
+                  onClick={() => setShowToolbar(false)}
+                  className="px-3 py-1.5 rounded-xl bg-[#e4e6eb] dark:bg-[#3a3b3c] hover:bg-[#d8dadf] dark:hover:bg-[#4e4f50] text-[#050505] dark:text-[#e4e6eb] font-bold flex items-center gap-1.5 text-xs cursor-pointer transition-colors"
+                  title="ซ่อนแผงควบคุม"
+                >
+                  <span>👁️ ซ่อน</span>
+                </button>
 
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-slate-500 text-xs hidden lg:inline">
-              จำนวน <b>{activeItems.length}</b> รายการ
-            </span>
-
-            {/* Zoom Controls Toolbar */}
-            <div className="flex items-center gap-1 bg-white border border-slate-300 rounded-lg p-0.5 shadow-2xs flex-wrap">
-              <button
-                type="button"
-                onClick={handleZoomOut}
-                className="px-2 py-1 bg-slate-50 hover:bg-slate-200 text-slate-700 rounded font-medium flex items-center gap-1 transition cursor-pointer text-xs"
-                title="ซูมออก"
-              >
-                <ZoomOut className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">ซูมออก</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={handleResetZoom}
-                className="px-2.5 py-1 bg-slate-100 hover:bg-blue-50 hover:text-blue-700 text-slate-800 rounded font-bold transition cursor-pointer text-xs"
-                title="คลิกเพื่อรีเซ็ตขนาด 100%"
-              >
-                {Math.round(zoom * 100)}% รีเซ็ต
-              </button>
-
-              <button
-                type="button"
-                onClick={handleZoomIn}
-                className="px-2 py-1 bg-slate-50 hover:bg-slate-200 text-slate-700 rounded font-medium flex items-center gap-1 transition cursor-pointer text-xs"
-                title="ซูมเข้า"
-              >
-                <ZoomIn className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">ซูมเข้า</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={handleFitScreen}
-                className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded font-semibold flex items-center gap-1 transition cursor-pointer text-xs"
-                title="ปรับขนาดพอดีหน้าจอ (Fit Screen)"
-              >
-                <Maximize2 className="w-3.5 h-3.5" />
-                <span>พอดีหน้าจอ</span>
-              </button>
+                <button
+                  onClick={onClose}
+                  className="w-8 h-8 rounded-full bg-[#e4e6eb] hover:bg-[#d8dadf] dark:bg-[#3a3b3c] dark:hover:bg-[#4e4f50] text-[#050505] dark:text-[#e4e6eb] flex items-center justify-center transition cursor-pointer shrink-0"
+                  title="ปิดหน้าต่าง"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
             </div>
-          </div>
+          )}
         </div>
 
         {/* Feedback message banner */}
         {feedback && (
           <div
-            className={`px-4 py-2 text-xs font-semibold flex items-center justify-between ${
+            className={`px-3 py-1.5 text-xs font-semibold flex items-center justify-between ${
               feedback.type === 'info'
                 ? 'bg-blue-50 text-blue-800 border-b border-blue-200'
                 : feedback.type === 'success'
@@ -940,7 +1120,7 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
           onTouchStart={handleTouchStart}
           onTouchMove={handleTouchMove}
           onTouchEnd={handleTouchEnd}
-          className="preview-container flex-1 overflow-auto p-4 sm:p-6 bg-slate-200/70 select-none relative"
+          className="preview-container flex-1 overflow-auto p-4 sm:p-12 bg-[#cbd5e1] dark:bg-black/60 select-none relative flex justify-center items-start"
           style={{
             overflowX: 'auto',
             overflowY: 'auto',
@@ -966,6 +1146,7 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
                 drugs={resolvedDrugs}
                 date={displayDate}
                 inspector={displayInspector}
+                signature={userSignature}
                 clinicName={cleanClinicName}
                 subCategory={drugSubCategory}
                 onSubCategoryChange={setDrugSubCategory}
@@ -978,49 +1159,51 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
                 items={activeItems}
                 date={displayDate}
                 inspector={displayInspector}
+                signature={userSignature}
                 agencyName={cleanClinicName}
                 weekItemValues={weekItemValues}
                 onWeekItemValuesChange={setWeekItemValues}
               />
             ) : (
               <div
-                className="paper-preview sheet-preview bg-white p-6 rounded-lg shadow"
+                className="a4-page-sheet a4-print-container paper-preview sheet-preview p-6 rounded-lg shadow"
                 style={{
                   display: 'inline-block',
                   width: 'max-content',
                   minWidth: '100%',
                   boxSizing: 'border-box',
-                  backgroundColor: '#ffffff',
+                  backgroundColor: '#ffffff !important',
+                  background: '#ffffff !important',
+                  color: '#000000 !important',
                 }}
               >
             {/* Header Document Area */}
-            <div className="text-center mb-4">
-              <h2 className="text-xl font-bold text-slate-900">{mainDocHeading}</h2>
-              <p className="text-sm text-slate-600 mt-1">ณ วันที่ {formatThaiDate(displayDate)}</p>
+            <div className="text-center mb-4" style={{ backgroundColor: '#ffffff !important', background: '#ffffff !important' }}>
+              <h2 className="text-xl font-bold" style={{ color: '#000000 !important' }}>{mainDocHeading}</h2>
+              <p className="text-sm mt-1" style={{ color: '#000000 !important' }}>ณ วันที่ {formatThaiDate(displayDate)}</p>
             </div>
 
-            <div className="flex justify-between items-center text-xs text-slate-700 font-medium mb-3">
+            <div className="flex justify-between items-center text-xs font-medium mb-3" style={{ color: '#000000 !important', backgroundColor: '#ffffff !important', background: '#ffffff !important' }}>
               <div>
-                <span className="font-semibold text-slate-900">{cleanClinicName}</span>
+                <span className="font-semibold" style={{ color: '#000000 !important' }}>{cleanClinicName}</span>
               </div>
               <div className="flex items-center gap-4">
-                <span className="flex items-center gap-1">
-                  <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                <span className="flex items-center gap-1" style={{ color: '#000000 !important' }}>
+                  <Calendar className="w-3.5 h-3.5" style={{ color: '#000000 !important' }} />
                   วัน, เดือน, ปี ที่สำรวจ: {formatThaiDate(displayDate)}
                 </span>
                 {displayInspector && (
-                  <span className="flex items-center gap-1 font-medium text-slate-800">
-                    <UserIcon className="w-3.5 h-3.5 text-slate-400" />
+                  <span className="flex items-center gap-1 font-medium" style={{ color: '#000000 !important' }}>
+                    <UserIcon className="w-3.5 h-3.5" style={{ color: '#000000 !important' }} />
                     ผู้ตรวจ: {displayInspector}
                   </span>
                 )}
               </div>
             </div>
 
-            {/* Standard 12-Column HTML Table */}
-            <table className="w-full min-w-[1050px] border-collapse border border-slate-400 text-xs">
+            <table className="w-full min-w-[1050px] border-collapse border border-slate-400 text-xs" style={{ backgroundColor: '#ffffff !important', color: '#000000 !important' }}>
               <thead>
-                <tr className="bg-slate-100 text-slate-800 font-bold text-center">
+                <tr className="font-bold text-center" style={{ backgroundColor: '#f1f5f9 !important', color: '#000000 !important' }}>
                   <th rowSpan={2} className="border border-slate-400 p-2 w-12">ลำดับที่</th>
                   <th rowSpan={2} className="border border-slate-400 p-2 w-28">หมายเลขพัสดุ</th>
                   <th rowSpan={2} className="border border-slate-400 p-2 w-28">รหัสสินทรัพย์ SAP</th>
@@ -1034,7 +1217,7 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
                   <th rowSpan={2} className="border border-slate-400 p-2 w-28">สถานที่ตั้ง ตึก / ชั้น / ห้อง</th>
                   <th colSpan={3} className="border border-slate-400 p-2">ผลการตรวจสอบพัสดุ</th>
                 </tr>
-                <tr className="bg-slate-100 text-slate-800 font-semibold text-center text-[11px]">
+                <tr className="font-semibold text-center text-[11px]" style={{ backgroundColor: '#f1f5f9 !important', color: '#000000 !important' }}>
                   <th className="border border-slate-400 p-1 w-16 text-emerald-700">พบรายการ ใช้งานได้</th>
                   <th className="border border-slate-400 p-1 w-16 text-rose-700">พบรายการ ใช้งานไม่ได้</th>
                   <th className="border border-slate-400 p-1 w-16 text-amber-700">ไม่พบรายการ</th>
@@ -1048,12 +1231,12 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
                     const isMiss = item.res ? item.res.includes('ไม่พบ') : false;
 
                     return (
-                      <tr key={idx} className="hover:bg-slate-50 text-slate-800">
+                      <tr key={idx} style={{ color: '#000000 !important' }}>
                         <td className="border border-slate-300 p-2 text-center">{idx + 1}</td>
                         <td className="border border-slate-300 p-2 text-center font-mono text-xs">{item.code || '-'}</td>
                         <td className="border border-slate-300 p-2 text-center font-mono text-xs">{item.sap || '-'}</td>
                         <td className="border border-slate-300 p-2 text-left font-normal" style={{ paddingLeft: '8px' }}>{item.name || '-'}</td>
-                        <td className="border border-slate-300 p-2 text-slate-600 text-xs">{item.spec || '-'}</td>
+                        <td className="border border-slate-300 p-2 text-xs">{item.spec || '-'}</td>
                         <td className="border border-slate-300 p-2 text-center text-xs">{item.source || '-'}</td>
                         <td className="border border-slate-300 p-2 text-center text-xs whitespace-nowrap">{formatAcquiredDate(item.date)}</td>
                         <td className="border border-slate-300 p-2 text-center">{item.qty || '1'}</td>
@@ -1083,14 +1266,22 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
             </table>
 
             {/* Signature Area */}
-            <div className="mt-8 pt-4 border-t border-slate-200 flex justify-around text-xs text-slate-700">
-              <div className="text-center space-y-2">
-                <p>ลงชื่อ .................................................... ผู้ตรวจสอบ</p>
-                <p>({displayInspector || '....................................................'})</p>
+            <div className="mt-8 pt-4 border-t border-slate-200 flex justify-around text-xs" style={{ color: '#000000 !important', backgroundColor: '#ffffff !important', background: '#ffffff !important' }}>
+              <div className="text-center flex flex-col items-center">
+                {userSignature ? (
+                  <div className="h-12 flex items-end justify-center mb-1">
+                    <img src={userSignature} alt="ลายเซ็น" className="max-h-12 max-w-[140px] object-contain" />
+                  </div>
+                ) : (
+                  <div className="h-12" />
+                )}
+                <p style={{ color: '#000000 !important' }}>ลงชื่อ .................................................... ผู้ตรวจสอบ</p>
+                <p style={{ color: '#000000 !important' }}>({displayInspector || '....................................................'})</p>
               </div>
-              <div className="text-center space-y-2">
-                <p>ลงชื่อ .................................................... หัวหน้างาน</p>
-                <p>(....................................................)</p>
+              <div className="text-center flex flex-col items-center">
+                <div className="h-12" />
+                <p style={{ color: '#000000 !important' }}>ลงชื่อ .................................................... หัวหน้างาน</p>
+                <p style={{ color: '#000000 !important' }}>(....................................................)</p>
               </div>
             </div>
           </div>
@@ -1098,6 +1289,37 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Confirmation Modal for History Deletion */}
+      {recordToDelete && (
+        <div className="fixed inset-0 z-60 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white rounded-2xl p-5 max-w-sm w-full shadow-2xl border border-slate-200 space-y-3">
+            <div className="flex items-center gap-2 text-rose-600 font-bold text-base">
+              <Trash2 className="w-5 h-5" />
+              <span>ยืนยันการลบประวัติการตรวจรอบนี้?</span>
+            </div>
+            <p className="text-xs text-slate-600 leading-relaxed">
+              คุณต้องการลบประวัติการตรวจรอบ <b>"{recordToDelete.title || recordToDelete.timestamp}"</b> วันที่ {recordToDelete.date || recordToDelete.timestamp} ออกจากระบบและเครื่องทั้งหมดหรือไม่? การดำเนินการนี้จะมีผลถาวร
+            </p>
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setRecordToDelete(null)}
+                className="px-3.5 py-1.5 rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-100 text-xs font-semibold cursor-pointer"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDeleteCurrentRecord}
+                className="px-4 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition cursor-pointer shadow-xs"
+              >
+                ยืนยันการลบ
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

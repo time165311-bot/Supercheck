@@ -241,19 +241,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/60 backdrop-blur-xs select-none" onClick={onClose}>
-      <div className="bg-white dark:bg-slate-900 rounded-3xl w-full max-w-xl max-h-[90vh] flex flex-col shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden animate-in fade-in zoom-in-95 duration-150" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs select-none leading-normal" onClick={onClose}>
+      <div className="bg-white dark:bg-[#242526] rounded-2xl md:rounded-3xl w-full max-w-xl max-h-[90vh] flex flex-col shadow-2xl border border-[#e4e6eb] dark:border-[#3a3b3c] overflow-hidden animate-in fade-in slide-in-from-bottom-8 duration-300 ease-out" onClick={(e) => e.stopPropagation()}>
         {/* Header */}
-        <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 shrink-0">
+        <div className="px-5 py-3.5 border-b border-[#e4e6eb] dark:border-[#3a3b3c] flex items-center justify-between gap-3 shrink-0">
           <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
-              <Link className="w-4 h-4" />
+            <div className="w-9 h-9 rounded-full bg-[#e7f3ff] dark:bg-[#1877f2]/20 text-[#1877f2] flex items-center justify-center">
+              <Link className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-sm font-bold text-slate-900 dark:text-white">
+              <h2 className="text-base font-bold text-[#050505] dark:text-[#e4e6eb]">
                 ตั้งค่าระบบและการเชื่อมต่อ
               </h2>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400">
+              <p className="text-[11px] text-[#65676b] dark:text-[#b0b3b8]">
                 จัดการ Web App URL, ลิ้งค์เปิด Google Sheet, และระบบธีม
               </p>
             </div>
@@ -265,10 +265,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               e.stopPropagation();
               onClose();
             }}
-            className="p-3 rounded-2xl text-slate-500 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800 transition cursor-pointer z-50 relative"
+            className="w-9 h-9 rounded-full bg-[#e4e6eb] hover:bg-[#d8dadf] dark:bg-[#3a3b3c] dark:hover:bg-[#4e4f50] text-[#050505] dark:text-[#e4e6eb] flex items-center justify-center transition cursor-pointer"
             title="ปิดหน้าต่าง"
           >
-            <X className="w-6 h-6" />
+            <X className="w-5 h-5" />
           </button>
         </div>
 
@@ -514,24 +514,28 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <button
                 type="button"
                 onClick={handleExportBackup}
-                className="px-3 py-2.5 rounded-xl font-semibold bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-100 border border-slate-200 dark:border-slate-700 shadow-xs flex items-center justify-center gap-2 transition cursor-pointer text-xs group"
-                title="ดาวน์โหลดไฟล์ .json เพื่อเก็บสำรองข้อมูลไว้ในคอมพิวเตอร์"
+                className="px-3 py-2.5 rounded-xl font-bold bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-100 border border-slate-200 dark:border-slate-700 shadow-xs flex items-center justify-center gap-2 transition cursor-pointer text-xs group"
+                title="ดาวน์โหลดไฟล์ master_app_data.json เพื่อนำไปสำรองข้อมูล หรือนำไปวางทับใน INITIAL_MASTER_DATA"
               >
                 <FolderDown className="w-4 h-4 text-emerald-600 dark:text-emerald-400 group-hover:scale-110 transition-transform" />
-                <span>📥 ส่งออกไฟล์สำรอง (Export JSON)</span>
+                <span>📤 ส่งออกข้อมูลเว็บ (Export JSON)</span>
               </button>
 
               {/* Import JSON Button */}
               <button
                 type="button"
                 onClick={handleTriggerImport}
-                className="px-3 py-2.5 rounded-xl font-semibold bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-100 border border-slate-200 dark:border-slate-700 shadow-xs flex items-center justify-center gap-2 transition cursor-pointer text-xs group"
-                title="เลือกไฟล์ .json เพื่อกู้คืนข้อมูลระบบทั้งหมดกลับมาทันที"
+                className="px-3 py-2.5 rounded-xl font-bold bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-100 border border-slate-200 dark:border-slate-700 shadow-xs flex items-center justify-center gap-2 transition cursor-pointer text-xs group"
+                title="เลือกไฟล์ master_app_data.json เพื่อกู้คืนข้อมูลระบบทั้งหมดกลับมาทันที"
               >
                 <FolderUp className="w-4 h-4 text-teal-600 dark:text-teal-400 group-hover:scale-110 transition-transform" />
-                <span>📤 นำเข้าไฟล์สำรอง (Import JSON)</span>
+                <span>📥 นำเข้าข้อมูลเว็บ (Import JSON)</span>
               </button>
             </div>
+
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed bg-white/70 dark:bg-slate-800/50 p-2.5 rounded-xl border border-slate-200/60 dark:border-slate-700/60">
+              💡 <b>Master Data Sync:</b> ไฟล์ <code className="font-mono text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 px-1 py-0.5 rounded">master_app_data.json</code> รวบรวมข้อมูลทั้งหมด (รูปโปรไฟล์, ยา, ครุภัณฑ์, กระเป๋า/รถ Emergency, และประวัติรอบตรวจ) สามารถนำเนื้อหาในไฟล์นี้ไปวางทับใน <code className="font-mono text-slate-700 dark:text-slate-300">INITIAL_MASTER_DATA</code> ในโค้ดหลัก เพื่อให้หน้า Preview ของ AI Studio ซิงค์ข้อมูลเหมือนหน้าเว็บจริง 100%
+            </p>
 
             {/* Google Sheets Bi-directional Sync Pull Button */}
             {onPullFromGoogleSheets && (
@@ -656,21 +660,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </div>
 
           {/* Submit Action */}
-          <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex items-center justify-end gap-2">
+          <div className="pt-3 border-t border-[#e4e6eb] dark:border-[#3a3b3c] flex items-center justify-end gap-2.5">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold transition cursor-pointer"
+              className="px-4 py-2 min-h-[40px] rounded-xl border border-[#e4e6eb] dark:border-[#3a3b3c] text-[#050505] dark:text-[#e4e6eb] hover:bg-[#f0f2f5] dark:hover:bg-[#3a3b3c] font-semibold transition cursor-pointer whitespace-nowrap leading-normal"
             >
               ยกเลิก
             </button>
             <button
               type="submit"
-              className="px-5 py-2 rounded-xl bg-sky-600 hover:bg-sky-700 text-white font-bold transition shadow-md flex items-center gap-1.5 cursor-pointer"
+              className="px-6 py-2 min-h-[40px] rounded-xl bg-[#1877f2] hover:bg-[#166fe5] text-white font-bold transition shadow-xs flex items-center gap-2 cursor-pointer whitespace-nowrap leading-normal active:scale-[0.98]"
             >
               {saveSuccess ? (
                 <>
-                  <CheckCircle2 className="w-4 h-4" />
+                  <CheckCircle2 className="w-4 h-4 shrink-0" />
                   <span>บันทึกแล้ว!</span>
                 </>
               ) : (

@@ -56,7 +56,7 @@ export const UncheckedRoomsNavigator: React.FC<UncheckedRoomsNavigatorProps> = (
       {/* Header and Toggle */}
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <div className="flex items-center gap-1.5">
-          <MapPin className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+          <MapPin className="w-4 h-4 text-accent" />
           <h3 className="font-bold text-neutral-800 dark:text-neutral-200 text-xs">
             ห้องที่ต้องตรวจเช็ค ({pendingRooms.length === 0 ? 'ครบทุกห้องแล้ว' : `ค้างอีก ${pendingRooms.length} ห้อง`})
           </h3>
@@ -103,12 +103,12 @@ export const UncheckedRoomsNavigator: React.FC<UncheckedRoomsNavigatorProps> = (
                 key={room.id}
                 type="button"
                 onClick={() => onSelectRoom(room.id)}
-                className={`px-3 py-1.5 rounded-xl border text-left transition flex items-center gap-1.5 cursor-pointer ios-touch text-xs ${
+                className={`px-3 py-1.5 rounded-xl border text-left transition flex items-center gap-1.5 cursor-pointer text-xs active:scale-95 ${
                   isActive
-                    ? 'ring-2 ring-blue-500 border-blue-500 bg-blue-50 dark:bg-blue-950/40 text-blue-900 dark:text-blue-100 font-semibold'
+                    ? 'ring-2 ring-accent border-accent bg-accent-light text-accent font-semibold'
                     : isCompleted
                     ? 'bg-emerald-50/70 dark:bg-emerald-950/20 border-emerald-300/80 dark:border-emerald-900/40 text-emerald-800 dark:text-emerald-300 hover:border-emerald-500'
-                    : 'bg-neutral-50 dark:bg-neutral-800/60 border-neutral-200 dark:border-neutral-700 text-neutral-800 dark:text-neutral-200 hover:border-blue-300'
+                    : 'bg-neutral-50 dark:bg-neutral-800/60 border-neutral-200 dark:border-neutral-700 text-neutral-800 dark:text-neutral-200 hover:border-accent'
                 }`}
               >
                 <span className="font-semibold">{room.n}</span>

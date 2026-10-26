@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
+import confetti from 'canvas-confetti';
 import {
   AlertTriangle,
   ArrowLeft,
@@ -33,6 +34,7 @@ import {
   UserCheck,
   Users,
   X,
+  CheckCheck,
 } from 'lucide-react';
 
 import {
@@ -49,7 +51,7 @@ import {
   ThemeMode,
   User,
 } from './types';
-import { DEFAULT_LISTS, ROOMS } from './constants/initialData';
+import { DEFAULT_LISTS, ROOMS, INITIAL_MASTER_DATA } from './constants/initialData';
 import {
   STORAGE_KEYS,
   addAuditLog,
@@ -75,6 +77,7 @@ import { SettingsModal } from './components/SettingsModal';
 import { ProfileModal } from './components/ProfileModal';
 import { BottomBar } from './components/BottomBar';
 import { OfficialReportModal } from './components/OfficialReportModal';
+import { getWeekOfMonth } from './components/EmergencyChecklistReportPreview';
 import { EquipmentDetailModal } from './components/EquipmentDetailModal';
 import { ImageModal } from './components/ImageModal';
 import { FloorMap } from './components/FloorMap';
@@ -85,6 +88,9 @@ import { UncheckedRoomsNavigator } from './components/UncheckedRoomsNavigator';
 import { SubmissionLoadingModal } from './components/SubmissionLoadingModal';
 import { QuickReplaceModal } from './components/QuickReplaceModal';
 import { GlobalScrollButtons } from './components/GlobalScrollButtons';
+import { AccountSecurityModal } from './components/AccountSecurityModal';
+import { FriendsModal } from './components/FriendsModal';
+import { fetchLiveWeather, LiveWeatherData } from './services/weatherService';
 import { checkUrlSyncPayload, fetchServerSync, pushServerSync } from './services/syncService';
 import {
   saveInspectionToFirebase,
@@ -97,6 +103,14 @@ import {
   saveSettingsToFirebase,
   syncUsersToFirebase,
 } from './services/firebase';
+
+export const ACCENT_COLORS = [
+  { id: 'blue', label: 'ฟ้า Facebook', main: '#1877f2', hover: '#166fe5', light: 'rgba(24, 119, 242, 0.1)' },
+  { id: 'emerald', label: 'เขียว Emerald', main: '#10b981', hover: '#059669', light: 'rgba(16, 185, 129, 0.1)' },
+  { id: 'purple', label: 'ม่วง Neon', main: '#8b5cf6', hover: '#7c3aed', light: 'rgba(139, 92, 246, 0.1)' },
+  { id: 'rose', label: 'ชมพู Rose', main: '#f43f5e', hover: '#e11d48', light: 'rgba(244, 63, 94, 0.1)' },
+  { id: 'gray', label: 'เทา Titanium', main: '#6b7280', hover: '#4b5563', light: 'rgba(107, 114, 128, 0.1)' },
+];
 
 // Cryptography helpers for client-side password hashing
 async function hashPassword(salt: string, pw: string): Promise<string> {
@@ -125,19 +139,70 @@ function generateSalt(): string {
     .join('');
 }
 
+const getShortGreetingMessage = () => {
+  const hour = new Date().getHours();
+  if (hour >= 5 && hour < 12) {
+    return "สวัสดีตอนเช้า";
+  } else if (hour >= 12 && hour < 17) {
+    return "สวัสดีตอนบ่าย";
+  } else if (hour >= 17 && hour < 20) {
+    return "สวัสดียามเย็น";
+  } else {
+    return "สวัสดีตอนค่ำ";
+  }
+};
+
+const getFormattedThaiDate = () => {
+  const now = new Date();
+  const thaiDays = ['วันอาทิตย์', 'วันจันทร์', 'วันอังคาร', 'วันพุธ', 'วันพฤหัสบดี', 'วันศุกร์', 'วันเสาร์'];
+  const thaiMonths = [
+    'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
+    'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'
+  ];
+  const dayName = thaiDays[now.getDay()];
+  const dateNum = now.getDate();
+  const monthName = thaiMonths[now.getMonth()];
+  const thaiYear = now.getFullYear() + 543;
+  return `${dayName}ที่ ${dateNum} ${monthName} พ.ศ. ${thaiYear}`;
+};
+
 export default function App() {
   // Theme state backed by localStorage
   const [theme, setTheme] = useLocalStorageString(
     STORAGE_KEYS.THEME,
-    'light'
+    INITIAL_MASTER_DATA?.settings?.theme || 'light'
   ) as [ThemeMode, (t: ThemeMode | ((prev: ThemeMode) => ThemeMode)) => void];
 
   // URLs
-  const [apiUrl, setApiUrl] = useLocalStorageString(STORAGE_KEYS.API_URL, '');
-  const [sheetUrl, setSheetUrl] = useLocalStorageString(STORAGE_KEYS.SHEET_URL, '');
+  const [apiUrl, setApiUrl] = useLocalStorageString(
+    STORAGE_KEYS.API_URL,
+    INITIAL_MASTER_DATA?.settings?.apiUrl || ''
+  );
+  const [sheetUrl, setSheetUrl] = useLocalStorageString(
+    STORAGE_KEYS.SHEET_URL,
+    INITIAL_MASTER_DATA?.settings?.sheetUrl || ''
+  );
+
+  // Accent Color state
+  const [accentColor, setAccentColor] = useLocalStorageString(
+    STORAGE_KEYS.ACCENT_COLOR,
+    'blue'
+  );
+
+  // Apply Accent Color to CSS Variables
+  useEffect(() => {
+    const config = ACCENT_COLORS.find(c => c.id === accentColor) || ACCENT_COLORS[0];
+    const root = document.documentElement;
+    root.style.setProperty('--app-accent', config.main);
+    root.style.setProperty('--app-accent-hover', config.hover);
+    root.style.setProperty('--app-accent-light', config.light);
+  }, [accentColor]);
 
   // Auth & Users
-  const [users, setUsers] = useLocalStorage<User[]>(STORAGE_KEYS.USERS, []);
+  const [users, setUsers] = useLocalStorage<User[]>(
+    STORAGE_KEYS.USERS,
+    () => (INITIAL_MASTER_DATA?.users && Array.isArray(INITIAL_MASTER_DATA.users) ? INITIAL_MASTER_DATA.users : [])
+  );
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [loginUsername, setLoginUsername] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
@@ -166,11 +231,11 @@ export default function App() {
   );
   const [globalChecks, setGlobalChecks] = useLocalStorage<Record<string, Record<string, CheckItemState>>>(
     STORAGE_KEYS.GLOBAL_CHECKS,
-    {}
+    () => (INITIAL_MASTER_DATA?.globalChecks || {})
   );
   const [lastSubmitted, setLastSubmitted] = useLocalStorage<Record<string, string>>(
     STORAGE_KEYS.LAST_SUBMITTED,
-    {}
+    () => (INITIAL_MASTER_DATA?.lastSubmitted || {})
   );
   const [auditLogs, setAuditLogs] = useLocalStorage<AuditLogEntry[]>(
     STORAGE_KEYS.AUDIT_LOGS,
@@ -178,10 +243,11 @@ export default function App() {
   );
 
   // Modals state
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
+  const [weather, setWeather] = useState<LiveWeatherData | null>(null);
+  const [currentTime, setCurrentTime] = useState(new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }));
   const [isPasswordForced, setIsPasswordForced] = useState(false);
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [reportModalTitle, setReportModalTitle] = useState('คลินิกงานบริการผู้ป่วยในวิสัญญี');
@@ -190,7 +256,7 @@ export default function App() {
   const [reportModalRows, setReportModalRows] = useState<any[]>([]);
   const [inspectionHistory, setInspectionHistory] = useLocalStorage<InspectionHistoryRecord[]>(
     STORAGE_KEYS.HISTORY,
-    []
+    () => (INITIAL_MASTER_DATA?.inspectionHistory || [])
   );
   const [isSyncing, setIsSyncing] = useState(false);
   const [quickReplaceTarget, setQuickReplaceTarget] = useState<{
@@ -205,6 +271,9 @@ export default function App() {
   // Check form state (for currently active screen)
   const [inspectorName, setInspectorName] = useLocalStorageString(STORAGE_KEYS.INSPECTOR, '');
   const [checkDate, setCheckDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [selectedWeek, setSelectedWeek] = useState<number>(() =>
+    getWeekOfMonth(new Date().toISOString().split('T')[0])
+  );
   const [generalNote, setGeneralNote] = useState('');
   const [submissionFeedback, setSubmissionFeedback] = useState<{ success: boolean; msg: string; rows: any[] } | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -275,9 +344,12 @@ export default function App() {
       if (sessUser) {
         const matched = uList.find((x) => x.username === sessUser && x.active);
         if (matched) {
-          setCurrentUser(matched);
+          const userAvatarKey = `user_avatar_${matched.username}`;
+          const savedAvatar = getStoredString(userAvatarKey, matched.avatar || '');
+          const finalMatched = savedAvatar ? { ...matched, avatar: savedAvatar } : matched;
+          setCurrentUser(finalMatched);
           if (!inspectorName) {
-            setInspectorName(matched.name);
+            setInspectorName(finalMatched.name);
           }
         }
       }
@@ -397,23 +469,8 @@ export default function App() {
   };
 
   useEffect(() => {
+    // Initial sync with server if available
     syncWithServer();
-
-    // Auto-sync when returning to tab/app (e.g. mobile unlock or tab switch)
-    const onVisibilityOrFocus = () => {
-      if (document.visibilityState === 'visible') {
-        syncWithServer();
-      }
-    };
-    window.addEventListener('visibilitychange', onVisibilityOrFocus);
-    window.addEventListener('focus', onVisibilityOrFocus);
-
-    // Auto-sync interval: automatically poll server every 3.5 seconds for real-time cross-device sync
-    const intervalId = setInterval(() => {
-      if (document.visibilityState === 'visible') {
-        syncWithServer();
-      }
-    }, 3500);
 
     // Subscribe to Firebase Cloud Firestore in real-time
     const unsubFirebaseHistory = subscribeInspectionHistory((records) => {
@@ -424,18 +481,40 @@ export default function App() {
     });
 
     const unsubFirebaseAudit = subscribeAuditLogs((logs) => {
-      if (logs && logs.length > 0) {
+      if (logs) {
         setAuditLogs(logs);
+        setStored(STORAGE_KEYS.AUDIT_LOGS, logs);
       }
     });
 
     return () => {
-      window.removeEventListener('visibilitychange', onVisibilityOrFocus);
-      window.removeEventListener('focus', onVisibilityOrFocus);
-      clearInterval(intervalId);
       unsubFirebaseHistory();
       unsubFirebaseAudit();
     };
+  }, []);
+
+  // Fetch real-time live weather data
+  useEffect(() => {
+    let isMounted = true;
+    async function loadRealTimeWeather() {
+      const data = await fetchLiveWeather();
+      if (isMounted) setWeather(data);
+    }
+    loadRealTimeWeather();
+    // Refresh live weather every 10 minutes
+    const weatherTimer = setInterval(loadRealTimeWeather, 10 * 60 * 1000);
+    return () => {
+      isMounted = false;
+      clearInterval(weatherTimer);
+    };
+  }, []);
+
+  // Update current time every minute
+  useEffect(() => {
+    const timeTimer = setInterval(() => {
+      setCurrentTime(new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }));
+    }, 60000);
+    return () => clearInterval(timeTimer);
   }, []);
 
   // Auto-hide navigation on scroll down, show on scroll up for wide view
@@ -543,14 +622,18 @@ export default function App() {
     setUsers(updatedUsers);
     setStored(STORAGE_KEYS.USERS, updatedUsers);
 
-    setCurrentUser(target);
+    const userAvatarKey = `user_avatar_${target.username}`;
+    const savedAvatar = getStoredString(userAvatarKey, target.avatar || '');
+    const finalTarget = savedAvatar ? { ...target, avatar: savedAvatar } : target;
+
+    setCurrentUser(finalTarget);
     setStoredString(STORAGE_KEYS.SESSION, target.username);
-    setInspectorName(target.name);
-    setStoredString(STORAGE_KEYS.INSPECTOR, target.name);
+    setInspectorName(finalTarget.name);
+    setStoredString(STORAGE_KEYS.INSPECTOR, finalTarget.name);
 
     // Audit log
     const entry = addAuditLog(
-      target,
+      finalTarget,
       'เข้าสู่ระบบ',
       `เข้าสู่ระบบด้วยบัญชี @${target.username} (${target.role})`,
       'ระบบหลัก',
@@ -584,22 +667,55 @@ export default function App() {
 
   const handleUpdateAvatar = (newAvatar: string) => {
     if (!currentUser) return;
+    try {
+      const userAvatarKey = `user_avatar_${currentUser.username}`;
+      setStoredString(userAvatarKey, newAvatar);
+    } catch (e) {}
     const updated = updateUserAvatar(currentUser.id, newAvatar);
-    if (updated) {
-      setCurrentUser(updated);
-      const updatedList = users.map((u) => (u.id === updated.id ? updated : u));
-      setUsers(updatedList);
-      pushServerSync({ users: updatedList });
-      syncUsersToFirebase(updatedList);
-      const entry = addAuditLog(
-        updated,
-        'อัปเดตรูปโปรไฟล์',
-        newAvatar ? 'เปลี่ยนรูปโปรไฟล์ใหม่' : 'ลบรูปโปรไฟล์ออก',
-        'ระบบหลัก',
-        apiUrl
-      );
-      setAuditLogs([entry, ...auditLogs]);
-    }
+    const finalUser = { ...(updated || currentUser), avatar: newAvatar };
+    setCurrentUser(finalUser);
+    const updatedList = users.map((u) => (u.id === finalUser.id ? finalUser : u));
+    setUsers(updatedList);
+    setStored(STORAGE_KEYS.USERS, updatedList);
+    pushServerSync({ users: updatedList });
+    syncUsersToFirebase(updatedList);
+    const entry = addAuditLog(
+      finalUser,
+      'อัปเดตรูปโปรไฟล์',
+      newAvatar ? 'เปลี่ยนรูปโปรไฟล์ใหม่' : 'ลบรูปโปรไฟล์ออก',
+      'ระบบหลัก',
+      apiUrl
+    );
+    setAuditLogs([entry, ...auditLogs]);
+  };
+
+  const handleUpdateSignature = (newSignature: string) => {
+    if (!currentUser) return;
+    try {
+      localStorage.setItem(`user_signature_${currentUser.id}`, newSignature);
+      localStorage.setItem('user_signature_default', newSignature);
+    } catch (e) {}
+    const finalUser = { ...currentUser, signature: newSignature };
+    setCurrentUser(finalUser);
+    const updatedList = users.map((u) => (u.id === finalUser.id ? finalUser : u));
+    setUsers(updatedList);
+    setStored(STORAGE_KEYS.USERS, updatedList);
+    pushServerSync({ users: updatedList });
+    syncUsersToFirebase(updatedList);
+  };
+
+  const handleUpdatePosition = (newPosition: string) => {
+    if (!currentUser) return;
+    try {
+      localStorage.setItem(`user_position_${currentUser.id}`, newPosition);
+    } catch (e) {}
+    const finalUser = { ...currentUser, position: newPosition };
+    setCurrentUser(finalUser);
+    const updatedList = users.map((u) => (u.id === finalUser.id ? finalUser : u));
+    setUsers(updatedList);
+    setStored(STORAGE_KEYS.USERS, updatedList);
+    pushServerSync({ users: updatedList });
+    syncUsersToFirebase(updatedList);
   };
 
   // User Management Handlers
@@ -831,12 +947,17 @@ export default function App() {
           ? '✗'
           : '';
 
-      const updatedContext: Record<string, { result: 'ปกติ' | 'ผิดปกติ' | ''; note?: string; val?: string }> = {
+      const existingWeekVals = (existing as any).weekVals || {};
+      const updatedContext: Record<string, any> = {
         ...currentContext,
         [itemKey]: {
           ...existing,
           result: nextResult,
           val: nextVal,
+          weekVals: {
+            ...existingWeekVals,
+            [selectedWeek]: nextVal,
+          },
         },
       };
 
@@ -867,12 +988,17 @@ export default function App() {
       const existing = currentContext[itemKey] || { result: '' as const };
       const nextResult: 'ปกติ' | 'ผิดปกติ' | '' = value.trim() ? (existing.result || 'ปกติ') : '';
 
-      const updatedContext: Record<string, { result: 'ปกติ' | 'ผิดปกติ' | ''; note?: string; val?: string }> = {
+      const existingWeekVals = (existing as any).weekVals || {};
+      const updatedContext: Record<string, any> = {
         ...currentContext,
         [itemKey]: {
           ...existing,
           result: nextResult,
           val: value,
+          weekVals: {
+            ...existingWeekVals,
+            [selectedWeek]: value,
+          },
         },
       };
 
@@ -889,6 +1015,72 @@ export default function App() {
 
       return newGlobalChecks;
     });
+  };
+
+  // Batch check all normal for Bag or Cart
+  const handleBatchCheckAllNormal = (catKey: 'bag' | 'cart') => {
+    const cfg = lists[catKey];
+    if (!cfg) return;
+    setGlobalChecks((prev) => {
+      const currentContext = { ...(prev[catKey] || {}) };
+      Object.entries(cfg.groups).forEach(([gName, items]) => {
+        items.forEach((item) => {
+          const itemKey = `${catKey}|${item.name}|${item.code || ''}`;
+          const existing = currentContext[itemKey] || { result: '' as const };
+          const standardQty = item.qty || '✓';
+          const existingWeekVals = (existing as any).weekVals || {};
+          currentContext[itemKey] = {
+            ...existing,
+            result: 'ปกติ',
+            val: standardQty,
+            weekVals: {
+              ...existingWeekVals,
+              [selectedWeek]: standardQty,
+            },
+          };
+        });
+      });
+      const newGlobalChecks = {
+        ...prev,
+        [catKey]: currentContext,
+      };
+      setStored(STORAGE_KEYS.GLOBAL_CHECKS, newGlobalChecks);
+      pushServerSync({ globalChecks: newGlobalChecks }).catch(() => {});
+      return newGlobalChecks;
+    });
+
+    const label = catKey === 'bag' ? 'กระเป๋า Emergency' : 'รถ Emergency';
+    setResetToast(`✓ ติ๊กเช็คปกติครบทุกรายการใน ${label} (สัปดาห์ที่ ${selectedWeek}) เรียบร้อยแล้ว`);
+    setTimeout(() => setResetToast(''), 3500);
+  };
+
+  // Batch check all normal for a specific room (Equipment)
+  const handleBatchCheckRoomNormal = (roomId: string) => {
+    const items = equipment[roomId] || [];
+    if (items.length === 0) return;
+    setGlobalChecks((prev) => {
+      const currentContext = { ...(prev[roomId] || {}) };
+      const roomObj = ROOMS.find((r) => r.id === roomId);
+      const roomName = roomObj?.n || roomId;
+      items.forEach((item) => {
+        const itemKey = `${roomName}|${item.name}|${item.code || ''}`;
+        const existing = currentContext[itemKey] || { result: '' as const };
+        currentContext[itemKey] = {
+          ...existing,
+          result: 'ปกติ',
+          val: 'ใช้งานได้',
+        };
+      });
+      const newGlobalChecks = {
+        ...prev,
+        [roomId]: currentContext,
+      };
+      setStored(STORAGE_KEYS.GLOBAL_CHECKS, newGlobalChecks);
+      pushServerSync({ globalChecks: newGlobalChecks }).catch(() => {});
+      return newGlobalChecks;
+    });
+    setResetToast(`✓ ติ๊กเช็คปกติครบทุกรายการในห้องนี้เรียบร้อยแล้ว`);
+    setTimeout(() => setResetToast(''), 3500);
   };
 
   // Update item note
@@ -1326,10 +1518,12 @@ export default function App() {
       items.forEach((o, idx) => {
         const k = `${type}|${o.name}|${o.code || ''}`;
         const ch = catChecks[k] || { result: '' };
+        const weekVals = (ch as any).weekVals || {};
+        const currentWkVal = weekVals[selectedWeek] !== undefined ? weekVals[selectedWeek] : ch.val;
         const statusText =
-          ch.result === 'ปกติ'
+          ch.result === 'ปกติ' || (currentWkVal && currentWkVal !== '✗')
             ? 'ใช้งานได้'
-            : ch.result === 'ผิดปกติ'
+            : ch.result === 'ผิดปกติ' || currentWkVal === '✗'
             ? 'ใช้งานไม่ได้'
             : 'ไม่พบรายการ';
         rows.push({
@@ -1348,7 +1542,11 @@ export default function App() {
           note: ch.note || '',
           exp: o.exp || '',
           group: gName,
-          val: ch.val || (ch.result === 'ปกติ' ? (o.qty || '✓') : ch.result === 'ผิดปกติ' ? '✗' : ''),
+          val: currentWkVal || (ch.result === 'ปกติ' ? (o.qty || '✓') : ch.result === 'ผิดปกติ' ? '✗' : ''),
+          weekVals: {
+            ...weekVals,
+            [selectedWeek]: currentWkVal || (ch.result === 'ปกติ' ? (o.qty || '✓') : ch.result === 'ผิดปกติ' ? '✗' : '-'),
+          },
         });
       });
     });
@@ -1533,6 +1731,16 @@ export default function App() {
     await new Promise((r) => setTimeout(r, 150));
     setIsSubmitting(false);
 
+    // If successfully sent and it was a 100% full completion, celebrate!
+    if (res.success) {
+      const isFull = 
+        (type === 'eq' && hospitalPct === 100) ||
+        (type === 'bag' && bagPct === 100) ||
+        (type === 'cart' && cartPct === 100);
+      
+      if (isFull) celebrateCompletion();
+    }
+
     // Record audit log
     const entry = addAuditLog(
       currentUser,
@@ -1590,8 +1798,7 @@ export default function App() {
     if (sheetUrl && sheetUrl.trim()) {
       window.open(sheetUrl.trim(), '_blank', 'noopener,noreferrer');
     } else {
-      setIsSettingsOpen(true);
-      alert('ยังไม่ได้ระบุลิ้งค์ Google Sheet\nกรุณาวาง URL ของ Google Sheet ในช่อง "ลิ้งค์เปิด Google Sheet โดยตรง" เพื่อเปิดใช้งานปุ่มนี้');
+      alert('ยังไม่ได้ระบุลิ้งค์ Google Sheet\nกรุณาวาง URL ของ Google Sheet ในช่อง "การตั้งค่า" เพื่อเปิดใช้งานปุ่มนี้');
     }
   };
 
@@ -1664,13 +1871,55 @@ export default function App() {
     setTimeout(() => setResetToast(''), 4500);
   };
 
+  const celebrateCompletion = () => {
+    confetti({
+      particleCount: 150,
+      spread: 70,
+      origin: { y: 0.6 },
+      colors: ACCENT_COLORS.map(c => c.main)
+    });
+    setResetToast('ตรวจเช็คเรียบร้อยแล้ว! 👏');
+    setTimeout(() => setResetToast(''), 3000);
+  };
+
+  // Atmospheric Style computed based on time
+  const atmosphere = useMemo(() => {
+    const hour = new Date().getHours();
+    if (hour >= 6 && hour < 12) {
+      return {
+        gradient: 'from-[#ffafbd] via-[#ffc3a0] to-[#ffafbd] dark:from-[#3a2d2d] dark:via-[#4a3b32] dark:to-[#3a2d2d]',
+        animation: 'animate-sunrise',
+        label: 'รับอรุณ / Sunrise'
+      };
+    }
+    if (hour >= 12 && hour < 18) {
+      return {
+        gradient: 'from-[#2193b0] via-[#6dd5ed] to-[#2193b0] dark:from-[#1a2a3a] dark:via-[#1e3a4a] dark:to-[#1a2a3a]',
+        animation: 'animate-drift-clouds',
+        label: 'กลางวัน / Daylight'
+      };
+    }
+    if (hour >= 18 && hour < 20) {
+      return {
+        gradient: 'from-[#834d9b] via-[#d04ed6] to-[#834d9b] dark:from-[#2d1b3d] dark:via-[#3d224d] dark:to-[#2d1b3d]',
+        animation: 'animate-twilight',
+        label: 'พลบค่ำ / Twilight'
+      };
+    }
+    return {
+      gradient: 'from-[#0f2027] via-[#203a43] to-[#2c5364] dark:from-[#050b10] dark:via-[#0a151d] dark:to-[#050b10]',
+      animation: 'animate-twinkle',
+      label: 'ราตรี / Midnight'
+    };
+  }, [currentTime]);
+
   // If not logged in, render clean modern login screen
   if (!currentUser) {
     return (
       <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col justify-center items-center p-4">
         <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl p-6 sm:p-8 shadow-xl border border-slate-200 dark:border-slate-800">
           <div className="text-center mb-6">
-            <div className="w-14 h-14 rounded-2xl bg-blue-600 border border-blue-400/40 flex items-center justify-center text-white mx-auto shadow-lg shadow-blue-600/25 text-2xl font-bold mb-3">
+            <div className="w-14 h-14 rounded-2xl bg-accent border border-white/20 flex items-center justify-center text-white mx-auto shadow-lg shadow-accent/25 text-2xl font-bold mb-3">
               <svg viewBox="0 0 24 24" fill="none" className="w-7 h-7 text-white">
                 <path
                   d="M12 3L19 7V17L12 21L5 17V7L12 3Z"
@@ -1742,7 +1991,7 @@ export default function App() {
             <button
               type="submit"
               disabled={loginLoading}
-              className="w-full py-3 rounded-xl bg-sky-600 hover:bg-sky-700 text-white font-semibold shadow-md shadow-sky-600/20 transition disabled:opacity-50 text-xs flex items-center justify-center gap-2"
+              className="w-full py-3 rounded-xl bg-accent hover:bg-accent-hover text-white font-semibold shadow-md shadow-accent/20 transition active:scale-95 disabled:opacity-50 text-xs flex items-center justify-center gap-2"
             >
               {loginLoading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Lock className="w-4 h-4" />}
               <span>เข้าสู่ระบบ</span>
@@ -1759,7 +2008,7 @@ export default function App() {
                   document.querySelector('form')?.dispatchEvent(event);
                 }, 100);
               }}
-              className="w-full py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 font-semibold transition text-xs flex items-center justify-center gap-2 cursor-pointer"
+              className="w-full py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 font-semibold transition text-xs flex items-center justify-center gap-2 cursor-pointer active:scale-95"
             >
               <span>ทางลัดเข้าสู่ระบบ (ทดสอบ)</span>
             </button>
@@ -1775,18 +2024,28 @@ export default function App() {
     );
   }
 
+  const handleToggleTheme = () => {
+    const nextTheme: ThemeMode = theme === 'dark' ? 'light' : 'dark';
+    setTheme(nextTheme);
+    setStoredString(STORAGE_KEYS.THEME, nextTheme);
+  };
+
   return (
     <div className="min-h-screen bg-neutral-50 dark:bg-black text-neutral-900 dark:text-neutral-100 pb-28 transition-colors duration-200">
       {/* Header with auto-hide */}
       <Header
         currentUser={currentUser}
+        allUsers={users}
+        theme={theme}
+        onToggleTheme={handleToggleTheme}
         onGoHome={() => {
           setCurrentView('home');
           window.scrollTo({ top: 0, behavior: 'smooth' });
         }}
-        onOpenSettings={() => setIsSettingsOpen(true)}
         onOpenNotifications={() => setIsNotificationsOpen(true)}
-        onOpenDrugInventory={() => setCurrentView('drug_check')}
+        onOpenProfile={() => setIsProfileModalOpen(true)}
+        onOpenPasswordModal={() => setIsPasswordModalOpen(true)}
+        onLogout={handleLogout}
         isSyncing={isSyncing}
         isVisible={isNavVisible}
         unreadCount={
@@ -1794,6 +2053,56 @@ export default function App() {
             ? expiredCount + warningCount + auditLogs.length
             : expiredCount + warningCount
         }
+        // New props for integrated drawer sub-views
+        apiUrl={apiUrl}
+        sheetUrl={sheetUrl}
+        accentColor={accentColor}
+        onSetAccentColor={(color) => setAccentColor(color)}
+        onSaveSettings={(newApi, newSheet, newTheme) => {
+          setApiUrl(newApi);
+          setSheetUrl(newSheet);
+          setTheme(newTheme);
+          setStoredString(STORAGE_KEYS.API_URL, newApi);
+          setStoredString(STORAGE_KEYS.SHEET_URL, newSheet);
+          setStoredString(STORAGE_KEYS.THEME, newTheme);
+          saveSettingsToFirebase({ sheetUrl: newSheet, theme: newTheme });
+        }}
+        onManualSync={syncWithServer}
+        onPullFromGoogleSheets={async () => {
+          try {
+            const res = await pullDataFromGoogleSheets(apiUrl, sheetUrl);
+            if (res.success) {
+              if (res.equipment) setEquipment(res.equipment);
+              if (res.drugs) setDrugs(res.drugs);
+              if (res.lists) setLists(res.lists);
+              return { success: true, message: 'ดึงข้อมูลสำเร็จ' };
+            }
+            return { success: false, message: res.message || 'ดึงข้อมูลไม่สำเร็จ' };
+          } catch (e: any) {
+            return { success: false, message: e.message || 'เกิดข้อผิดพลาด' };
+          }
+        }}
+        onChangePasswordSubmit={handleChangeOwnPassword}
+        onRestoreBackup={(data) => {
+          // Update all React states to reflect the restored data immediately
+          if (data.users) setUsers(data.users);
+          if (data.drugs) setDrugs(data.drugs);
+          if (data.equipment) setEquipment(data.equipment);
+          if (data.lists) setLists(data.lists);
+          if (data.globalChecks) setGlobalChecks(data.globalChecks);
+          if (data.lastSubmitted) setLastSubmitted(data.lastSubmitted);
+          if (data.inspectionHistory) setInspectionHistory(data.inspectionHistory);
+          if (data.auditLogs) setAuditLogs(data.auditLogs);
+          if (data.settings) {
+            if (data.settings.apiUrl) setApiUrl(data.settings.apiUrl);
+            if (data.settings.sheetUrl) setSheetUrl(data.settings.sheetUrl);
+            if (data.settings.theme) setTheme(data.settings.theme);
+            if (data.settings.inspectorName) setInspectorName(data.settings.inspectorName);
+          }
+          
+          // Re-sync with Firebase if necessary
+          if (data.users) syncUsersToFirebase(data.users);
+        }}
       />
 
       {/* Sticky Top Progress Bar on scroll */}
@@ -1813,7 +2122,7 @@ export default function App() {
                 ? 'กระเป๋า Emergency'
                 : 'รถ Emergency'}
             </span>
-            <div className="flex items-center gap-1.5 shrink-0 text-blue-600 dark:text-blue-400 font-bold text-xs">
+            <div className="flex items-center gap-1.5 shrink-0 text-accent font-bold text-xs">
               <span>
                 {currentView === 'eq_overview'
                   ? `${hospitalPct}%`
@@ -1834,7 +2143,7 @@ export default function App() {
           </div>
           <div className="max-w-4xl mx-auto w-full bg-neutral-100 dark:bg-neutral-800 h-1.5 rounded-full overflow-hidden mt-1.5">
             <div
-              className="bg-blue-600 dark:bg-blue-500 h-full rounded-full transition-all duration-300"
+              className="bg-accent h-full rounded-full transition-all duration-300"
               style={{
                 width: `${
                   currentView === 'eq_overview'
@@ -1852,138 +2161,159 @@ export default function App() {
       )}
 
       {/* Main Container */}
-      <main className="max-w-4xl mx-auto px-4 pt-3">
+      <main className="max-w-4xl mx-auto px-4 pt-3 transition-all duration-300">
         {/* View Routing */}
+        <div key={currentView} className="animate-in fade-in duration-300 transition-all">
         {currentView === 'home' && (
           <div className="space-y-3">
+            {/* Dynamic Atmosphere Header Card */}
+            <div className={`bg-gradient-to-br ${atmosphere.gradient} text-white rounded-3xl p-5 shadow-lg border border-white/20 dark:border-neutral-700 relative overflow-hidden transition-all duration-700`}>
+              
+              {/* Animation Layer */}
+              <div className={`pointer-events-none absolute inset-0 overflow-hidden rounded-3xl z-0 opacity-40 ${atmosphere.animation}`} />
+
+              {/* Extra Sparkles for Night */}
+              {new Date().getHours() >= 20 || new Date().getHours() < 6 ? (
+                <div className="absolute inset-0 z-0 pointer-events-none opacity-30">
+                  <div className="absolute top-4 left-10 w-1 h-1 bg-white rounded-full animate-twinkle" />
+                  <div className="absolute top-12 right-20 w-1 h-1 bg-white rounded-full animate-twinkle [animation-delay:1s]" />
+                  <div className="absolute bottom-10 left-1/2 w-1 h-1 bg-white rounded-full animate-twinkle [animation-delay:1.5s]" />
+                </div>
+              ) : null}
+
+              {/* Content Layer */}
+              <div className="relative z-10 flex items-center justify-between gap-4 w-full">
+                {/* Left: Temp & Date */}
+                <div className="flex flex-col gap-0.5">
+                  <div className="text-5xl font-bold tracking-tighter drop-shadow-sm">
+                    {weather ? `${weather.temp}°` : '29°'}
+                  </div>
+                  <div className="text-sm font-medium text-white/90 drop-shadow-sm">
+                    {getFormattedThaiDate()}
+                  </div>
+                </div>
+
+                {/* Right: Icon, Condition & Time */}
+                <div className="flex flex-col items-end gap-1">
+                  <div className="text-4xl filter drop-shadow-md">
+                    {weather ? weather.icon3D : '☀️'}
+                  </div>
+                  <div className="text-[10px] font-bold uppercase tracking-widest text-white/80">
+                    {atmosphere.label}
+                  </div>
+                  <div className="text-xs font-mono text-white/70">
+                    {currentTime}
+                  </div>
+                </div>
+              </div>
+            </div>
+
             {/* Urgent Expiration Alert Banner - ONLY shown on Home */}
             <ExpiryAlertBanner
               alerts={expiryAlerts}
               onOpenAlertDetails={() => setIsNotificationsOpen(true)}
             />
 
-            {/* Menu Cards (Apple / Samsung One UI Style) */}
-            <div className="space-y-3">
-              {/* Drug Inventory Card - Clean Minimalist Style */}
+            {/* Menu Cards (Facebook Feed Clean Style) */}
+            <div className="space-y-2.5">
+              {/* Drug Inventory Card - Facebook Clean Style */}
               <button
                 onClick={() => setCurrentView('drug_check')}
-                className="w-full text-left p-4 bg-white dark:bg-[#161822] hover:bg-neutral-50 dark:hover:bg-[#1c1f2c] rounded-2xl border border-neutral-200/70 dark:border-neutral-800 shadow-xs flex items-center gap-3.5 transition-all cursor-pointer group oneui-card"
+                className="w-full text-left p-3.5 sm:p-4 bg-white dark:bg-[#242526] hover:bg-[#f2f3f5] dark:hover:bg-[#323436] rounded-2xl border border-[#e4e6eb] dark:border-[#3a3b3c] shadow-xs flex items-center justify-between gap-3.5 transition-all cursor-pointer group active:scale-95 duration-150"
               >
-                <div className="w-12 h-12 rounded-2xl bg-neutral-100 dark:bg-neutral-800 text-neutral-800 dark:text-neutral-200 flex items-center justify-center text-2xl shrink-0 group-hover:scale-105 transition-transform">
-                  💊
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between gap-2">
-                    <h3 className="text-sm font-bold text-neutral-900 dark:text-white">
-                      ระบบตรวจเช็คคลังยาและสารน้ำ
-                    </h3>
+                <div className="flex items-center gap-3 min-w-0 flex-1">
+                  <div className="w-10 h-10 rounded-2xl bg-accent-light text-accent flex items-center justify-center text-xl shrink-0 group-hover:scale-105 transition-transform">
+                    💊
                   </div>
+                  <h3 className="text-sm font-bold text-[#050505] dark:text-[#e4e6eb] leading-normal flex-1">
+                    ระบบตรวจเช็คคลังยาและสารน้ำ
+                  </h3>
                 </div>
               </button>
 
               {/* Equipment Card */}
               <button
                 onClick={() => setCurrentView('eq_overview')}
-                className="w-full text-left p-4 bg-white dark:bg-[#161822] hover:bg-neutral-50 dark:hover:bg-[#1c1f2c] rounded-2xl border border-neutral-200/70 dark:border-neutral-800 shadow-xs flex items-center gap-3.5 transition-all cursor-pointer group oneui-card"
+                className="w-full text-left p-3.5 sm:p-4 bg-white dark:bg-[#242526] hover:bg-[#f2f3f5] dark:hover:bg-[#323436] rounded-2xl border border-[#e4e6eb] dark:border-[#3a3b3c] shadow-xs flex items-center justify-between gap-3.5 transition-all cursor-pointer group active:scale-95 duration-150"
               >
-                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-950/60 dark:to-blue-900/40 text-blue-600 dark:text-blue-400 flex items-center justify-center text-2xl shrink-0 group-hover:scale-105 transition-transform">
-                  🏥
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between gap-2">
-                    <h3 className="text-sm font-bold text-neutral-900 dark:text-white">
-                      เช็คครุภัณฑ์วิสัญญี / ห้องผ่าตัด
-                    </h3>
-                    <span className="text-xs font-bold text-blue-600 dark:text-blue-400 px-2 py-0.5 rounded-full bg-blue-50 dark:bg-blue-950/60">
-                      {hospitalPct}%
-                    </span>
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-10 h-10 rounded-2xl bg-accent-light text-accent flex items-center justify-center text-xl shrink-0 group-hover:scale-105 transition-transform">
+                    🏥
                   </div>
-                  <div className="flex items-center gap-2 mt-1 text-xs text-neutral-500 dark:text-neutral-400 flex-wrap">
-                    <span>ตรวจแล้ว {hospitalCheckedItems}/{hospitalTotalItems} รายการ</span>
-                    <span>·</span>
-                    <span>ล่าสุด: {lastSubmitted['eq_all'] || '-'}</span>
-                  </div>
+                  <h3 className="text-sm font-bold text-[#050505] dark:text-[#e4e6eb] leading-normal truncate">
+                    เช็คครุภัณฑ์วิสัญญี / ห้องผ่าตัด
+                  </h3>
                 </div>
+                <span className="text-xs font-bold text-accent px-2.5 py-1 rounded-full bg-accent-light shrink-0 whitespace-nowrap">
+                  {hospitalPct}%
+                </span>
               </button>
 
               {/* Emergency Bag Card */}
               <button
                 onClick={() => setCurrentView('bag_check')}
-                className="w-full text-left p-4 bg-white dark:bg-[#161822] hover:bg-neutral-50 dark:hover:bg-[#1c1f2c] rounded-2xl border border-neutral-200/70 dark:border-neutral-800 shadow-xs flex items-center gap-3.5 transition-all cursor-pointer group oneui-card"
+                className="w-full text-left p-3.5 sm:p-4 bg-white dark:bg-[#242526] hover:bg-[#f2f3f5] dark:hover:bg-[#323436] rounded-2xl border border-[#e4e6eb] dark:border-[#3a3b3c] shadow-xs flex items-center justify-between gap-3.5 transition-all cursor-pointer group active:scale-[0.99]"
               >
-                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-50 to-amber-100 dark:from-amber-950/60 dark:to-amber-900/40 text-amber-600 dark:text-amber-400 flex items-center justify-center text-2xl shrink-0 group-hover:scale-105 transition-transform">
-                  💼
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between gap-2">
-                    <h3 className="text-sm font-bold text-neutral-900 dark:text-white">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-10 h-10 rounded-2xl bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 flex items-center justify-center text-xl shrink-0 group-hover:scale-105 transition-transform">
+                    💼
+                  </div>
+                  <div className="flex items-center gap-2 min-w-0">
+                    <h3 className="text-sm font-bold text-[#050505] dark:text-[#e4e6eb] leading-normal truncate">
                       เช็คกระเป๋าอีเมอร์เจนซี่
                     </h3>
-                    <span className="text-xs font-bold text-amber-600 dark:text-amber-400 px-2 py-0.5 rounded-full bg-amber-50 dark:bg-amber-950/60">
-                      {bagPct}%
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2 mt-1 text-xs text-neutral-500 dark:text-neutral-400 flex-wrap">
-                    <span>ส่งข้อมูล: {lastSubmitted['bag'] || '-'}</span>
                     {expiryAlerts.filter((a) => a.category === 'bag').length > 0 && (
-                      <span className="text-rose-600 dark:text-rose-400 font-medium">
-                        · มีรายการใกล้/หมดอายุ
-                      </span>
+                      <span className="w-2 h-2 rounded-full bg-[#e41e3f] shrink-0" title="มีรายการใกล้/หมดอายุ" />
                     )}
                   </div>
                 </div>
+                <span className="text-xs font-bold text-amber-600 dark:text-amber-400 px-2.5 py-1 rounded-full bg-amber-50 dark:bg-amber-950/40 shrink-0 whitespace-nowrap">
+                  {bagPct}%
+                </span>
               </button>
 
               {/* Emergency Cart Card */}
               <button
                 onClick={() => setCurrentView('cart_check')}
-                className="w-full text-left p-4 bg-white dark:bg-[#161822] hover:bg-neutral-50 dark:hover:bg-[#1c1f2c] rounded-2xl border border-neutral-200/70 dark:border-neutral-800 shadow-xs flex items-center gap-3.5 transition-all cursor-pointer group oneui-card"
+                className="w-full text-left p-3.5 sm:p-4 bg-white dark:bg-[#242526] hover:bg-[#f2f3f5] dark:hover:bg-[#323436] rounded-2xl border border-[#e4e6eb] dark:border-[#3a3b3c] shadow-xs flex items-center justify-between gap-3.5 transition-all cursor-pointer group active:scale-[0.99]"
               >
-                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-emerald-50 to-emerald-100 dark:from-emerald-950/60 dark:to-emerald-900/40 text-emerald-600 dark:text-emerald-400 flex items-center justify-center text-2xl shrink-0 group-hover:scale-105 transition-transform">
-                  🛒
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between gap-2">
-                    <h3 className="text-sm font-bold text-neutral-900 dark:text-white">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-10 h-10 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 flex items-center justify-center text-xl shrink-0 group-hover:scale-105 transition-transform">
+                    🛒
+                  </div>
+                  <div className="flex items-center gap-2 min-w-0">
+                    <h3 className="text-sm font-bold text-[#050505] dark:text-[#e4e6eb] leading-normal truncate">
                       เช็ครถอีเมอร์เจนซี่
                     </h3>
-                    <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/60">
-                      {cartPct}%
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2 mt-1 text-xs text-neutral-500 dark:text-neutral-400 flex-wrap">
-                    <span>ส่งข้อมูล: {lastSubmitted['cart'] || '-'}</span>
                     {expiryAlerts.filter((a) => a.category === 'cart').length > 0 && (
-                      <span className="text-rose-600 dark:text-rose-400 font-medium">
-                        · มีรายการใกล้/หมดอายุ
-                      </span>
+                      <span className="w-2 h-2 rounded-full bg-[#e4e6eb] dark:bg-[#e41e3f] shrink-0" title="มีรายการใกล้/หมดอายุ" />
                     )}
                   </div>
                 </div>
+                <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 px-2.5 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/40 shrink-0 whitespace-nowrap">
+                  {cartPct}%
+                </span>
               </button>
 
-              {/* Manage Users Card */}
-              <button
-                onClick={() => setCurrentView('users')}
-                className="w-full text-left p-4 bg-white dark:bg-[#161822] hover:bg-neutral-50 dark:hover:bg-[#1c1f2c] rounded-2xl border border-neutral-200/70 dark:border-neutral-800 shadow-xs flex items-center gap-3.5 transition-all cursor-pointer group oneui-card"
-              >
-                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-purple-50 to-purple-100 dark:from-purple-950/60 dark:to-purple-900/40 text-purple-600 dark:text-purple-400 flex items-center justify-center text-2xl shrink-0 group-hover:scale-105 transition-transform">
-                  👥
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between gap-2">
-                    <h3 className="text-sm font-bold text-neutral-900 dark:text-white">
+              {/* Manage Users Card - ONLY shown if Admin */}
+              {currentUser?.role === 'admin' && (
+                <button
+                  onClick={() => setCurrentView('users')}
+                  className="w-full text-left p-3.5 sm:p-4 bg-white dark:bg-[#242526] hover:bg-[#f2f3f5] dark:hover:bg-[#323436] rounded-2xl border border-[#e4e6eb] dark:border-[#3a3b3c] shadow-xs flex items-center justify-between gap-3.5 transition-all cursor-pointer group active:scale-[0.99]"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-10 h-10 rounded-2xl bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400 flex items-center justify-center text-xl shrink-0 group-hover:scale-105 transition-transform">
+                      👥
+                    </div>
+                    <h3 className="text-sm font-bold text-[#050505] dark:text-[#e4e6eb] leading-normal truncate">
                       จัดการผู้ใช้งาน & กำหนดสิทธิ์
                     </h3>
-                    <span className="text-xs font-semibold text-neutral-500 dark:text-neutral-400 px-2 py-0.5 rounded-full bg-neutral-100 dark:bg-neutral-800">
-                      {users.length} บัญชี
-                    </span>
                   </div>
-                  <div className="text-xs text-neutral-500 dark:text-neutral-400 mt-1">
-                    รายชื่อเจ้าหน้าที่ เพิ่มผู้ใช้ หรือตั้งค่าระดับสิทธิ์การตรวจเช็ค
-                  </div>
-                </div>
-              </button>
+                  <span className="text-xs font-semibold text-[#65676b] dark:text-[#b0b3b8] px-2.5 py-1 rounded-full bg-[#f0f2f5] dark:bg-[#3a3b3c] shrink-0 whitespace-nowrap">
+                    {users.length} บัญชี
+                  </span>
+                </button>
+              )}
             </div>
           </div>
         )}
@@ -2025,13 +2355,13 @@ export default function App() {
             <div className="p-3.5 sm:p-4 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between text-xs font-bold text-slate-700 dark:text-slate-300 mb-2 gap-1.5 leading-normal">
                 <span>ความคืบหน้าการเช็คครุภัณฑ์ทั้งโรงพยาบาล</span>
-                <span className="text-sky-600 dark:text-sky-400 font-extrabold whitespace-nowrap">
+                <span className="text-accent font-extrabold whitespace-nowrap">
                   {hospitalPct}% ({hospitalCheckedItems}/{hospitalTotalItems} รายการ)
                 </span>
               </div>
               <div className="w-full bg-slate-100 dark:bg-slate-800 h-2.5 rounded-full overflow-hidden border border-slate-200 dark:border-slate-700">
                 <div
-                  className="bg-sky-500 h-full rounded-full transition-all duration-300"
+                  className="bg-accent h-full rounded-full transition-all duration-300"
                   style={{ width: `${hospitalPct}%` }}
                 />
               </div>
@@ -2077,9 +2407,9 @@ export default function App() {
               <div className="flex bg-white dark:bg-slate-900 p-1 rounded-xl border border-slate-200 dark:border-slate-800 text-xs font-semibold">
                 <button
                   onClick={() => setEqMode('explore')}
-                  className={`px-3 py-1 rounded-lg transition ${
+                  className={`px-3 py-1 rounded-lg transition active:scale-95 ${
                     eqMode === 'explore'
-                      ? 'bg-sky-500 text-white shadow-xs'
+                      ? 'bg-accent text-white shadow-xs'
                       : 'text-slate-500 dark:text-slate-400 hover:text-slate-800'
                   }`}
                 >
@@ -2087,9 +2417,9 @@ export default function App() {
                 </button>
                 <button
                   onClick={() => setEqMode('check')}
-                  className={`px-3 py-1 rounded-lg transition ${
+                  className={`px-3 py-1 rounded-lg transition active:scale-95 ${
                     eqMode === 'check'
-                      ? 'bg-sky-500 text-white shadow-xs'
+                      ? 'bg-accent text-white shadow-xs'
                       : 'text-slate-500 dark:text-slate-400 hover:text-slate-800'
                   }`}
                 >
@@ -2115,11 +2445,11 @@ export default function App() {
               <div className="w-full sm:w-60">
                 <div className="flex justify-between text-xs font-bold text-slate-600 dark:text-slate-300 mb-1">
                   <span>ความคืบหน้าห้องนี้</span>
-                  <span className="text-sky-600 dark:text-sky-400">{roomPct}%</span>
+                  <span className="text-accent">{roomPct}%</span>
                 </div>
                 <div className="w-full bg-slate-100 dark:bg-slate-800 h-2 rounded-full overflow-hidden border border-slate-200 dark:border-slate-700">
                   <div
-                    className="bg-sky-500 h-full rounded-full transition-all duration-300"
+                    className="bg-accent h-full rounded-full transition-all duration-300"
                     style={{ width: `${roomPct}%` }}
                   />
                 </div>
@@ -2145,7 +2475,7 @@ export default function App() {
               </span>
               <button
                 onClick={() => setAddingGroupIdx(addingGroupIdx === 0 ? null : 0)}
-                className="text-xs font-semibold text-sky-600 dark:text-sky-400 hover:underline flex items-center gap-1"
+                className="text-xs font-semibold text-accent hover:underline flex items-center gap-1 transition active:scale-95"
               >
                 <Plus className="w-3.5 h-3.5" />
                 <span>เพิ่มครุภัณฑ์ในห้องนี้</span>
@@ -2407,7 +2737,7 @@ export default function App() {
 
                 <button
                   onClick={() => handleSubmitInspection('eq')}
-                  className="w-full sm:w-auto px-6 py-3 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow-sm hover:shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-[0.98] ios-touch text-xs"
+                  className="w-full sm:w-auto px-6 py-3 min-h-[44px] rounded-xl bg-[#1877f2] hover:bg-[#166fe5] text-white font-semibold shadow-xs transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-[0.98] text-xs whitespace-nowrap leading-normal"
                 >
                   <Send className="w-4 h-4 transform -rotate-45" />
                   <span>บันทึกผลและส่งรายงานเข้า Google Sheets</span>
@@ -2457,16 +2787,6 @@ export default function App() {
                         <Printer className="w-3.5 h-3.5 text-neutral-600 dark:text-neutral-400" />
                         <span>แบบฟอร์มรายงาน A4</span>
                       </button>
-
-                      {sheetUrl && (
-                        <button
-                          onClick={handleOpenGoogleSheet}
-                          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-white dark:bg-neutral-900 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-900/40 text-xs font-semibold cursor-pointer shadow-2xs"
-                        >
-                          <Send className="w-3 h-3 transform -rotate-45" />
-                          <span>Google Sheet</span>
-                        </button>
-                      )}
                     </div>
                   </div>
 
@@ -2495,48 +2815,79 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* Expiration Filter Pills (Minimalist Segmented Controls) */}
+                  {/* Weekly Selection & Batch Check Toolbar (Facebook Clean UI) */}
+                  <div className="p-3.5 bg-white dark:bg-[#242526] rounded-2xl border border-[#e4e6eb] dark:border-[#3a3b3c] shadow-xs flex flex-col sm:flex-row items-center justify-between gap-3">
+                    <div className="flex items-center gap-1.5 flex-wrap w-full sm:w-auto">
+                      <span className="text-xs font-semibold text-[#65676b] dark:text-[#b0b3b8] flex items-center gap-1 mr-1">
+                        <Calendar className="w-3.5 h-3.5 text-[#1877f2]" />
+                        <span>สัปดาห์ที่ตรวจ:</span>
+                      </span>
+                      {[1, 2, 3, 4, 5].map((wk) => (
+                        <button
+                          key={wk}
+                          onClick={() => setSelectedWeek(wk)}
+                          className={`px-3.5 py-2 min-h-[36px] rounded-xl text-xs font-bold transition cursor-pointer whitespace-nowrap leading-normal ${
+                            selectedWeek === wk
+                              ? 'bg-[#1877f2] text-white shadow-xs'
+                              : 'bg-[#f0f2f5] dark:bg-[#3a3b3c] text-[#65676b] dark:text-[#b0b3b8] hover:bg-[#e4e6eb] dark:hover:bg-[#4e4f50]'
+                          }`}
+                        >
+                          สัปดาห์ที่ {wk}
+                        </button>
+                      ))}
+                    </div>
+
+                    <button
+                      onClick={() => handleBatchCheckAllNormal(categoryKey)}
+                      className="w-full sm:w-auto px-4 py-2.5 min-h-[40px] rounded-xl bg-[#00a400] hover:bg-[#008a00] text-white font-semibold text-xs flex items-center justify-center gap-2 transition cursor-pointer shadow-xs shrink-0 whitespace-nowrap leading-normal active:scale-95"
+                      title="เติมค่ามาตรฐานและสถานะปกติให้ทุกรายการในสัปดาห์ที่เลือกอัตโนมัติ"
+                    >
+                      <span>✅ ติ๊กปกติทั้งหมด (สัปดาห์ที่ {selectedWeek})</span>
+                    </button>
+                  </div>
+
+                  {/* Expiration Filter Pills */}
                   <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
-                    <span className="text-neutral-400 flex items-center gap-1 shrink-0 text-[11px] mr-1">
+                    <span className="text-[#65676b] dark:text-[#b0b3b8] flex items-center gap-1 shrink-0 text-[11px] mr-1">
                       <Filter className="w-3 h-3" />
                       กรอง:
                     </span>
                     <button
                       onClick={() => setExpFilter('all')}
-                      className={`px-3 py-1 rounded-lg font-medium shrink-0 transition cursor-pointer ${
+                      className={`px-3.5 py-1.5 min-h-[32px] rounded-xl font-medium shrink-0 transition cursor-pointer whitespace-nowrap leading-normal ${
                         expFilter === 'all'
-                          ? 'bg-neutral-900 text-white dark:bg-white dark:text-black font-semibold'
-                          : 'bg-white dark:bg-neutral-900 text-neutral-600 dark:text-neutral-400 border border-neutral-200 dark:border-neutral-800 hover:bg-neutral-100 dark:hover:bg-neutral-800'
+                          ? 'bg-[#1877f2] text-white font-semibold shadow-xs'
+                          : 'bg-white dark:bg-[#242526] text-[#65676b] dark:text-[#b0b3b8] border border-[#e4e6eb] dark:border-[#3a3b3c] hover:bg-[#f0f2f5] dark:hover:bg-[#3a3b3c]'
                       }`}
                     >
                       ทั้งหมด ({catTotal})
                     </button>
                     <button
                       onClick={() => setExpFilter('expired')}
-                      className={`px-3 py-1 rounded-lg font-medium shrink-0 transition cursor-pointer ${
+                      className={`px-3.5 py-1.5 min-h-[32px] rounded-xl font-medium shrink-0 transition cursor-pointer whitespace-nowrap leading-normal ${
                         expFilter === 'expired'
-                          ? 'bg-rose-600 text-white font-semibold'
-                          : 'bg-white dark:bg-neutral-900 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-950 hover:bg-rose-50 dark:hover:bg-rose-950/20'
+                          ? 'bg-[#e41e3f] text-white font-semibold shadow-xs'
+                          : 'bg-white dark:bg-[#242526] text-[#e41e3f] border border-rose-200 dark:border-rose-950 hover:bg-rose-50 dark:hover:bg-rose-950/20'
                       }`}
                     >
                       หมดอายุแล้ว
                     </button>
                     <button
                       onClick={() => setExpFilter('warning')}
-                      className={`px-3 py-1 rounded-lg font-medium shrink-0 transition cursor-pointer ${
+                      className={`px-3.5 py-1.5 min-h-[32px] rounded-xl font-medium shrink-0 transition cursor-pointer whitespace-nowrap leading-normal ${
                         expFilter === 'warning'
-                          ? 'bg-amber-600 text-white font-semibold'
-                          : 'bg-white dark:bg-neutral-900 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-950 hover:bg-amber-50 dark:hover:bg-amber-950/20'
+                          ? 'bg-amber-600 text-white font-semibold shadow-xs'
+                          : 'bg-white dark:bg-[#242526] text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-950 hover:bg-amber-50 dark:hover:bg-amber-950/20'
                       }`}
                     >
                       ใกล้หมดอายุ (&le; 30 วัน)
                     </button>
                     <button
                       onClick={() => setExpFilter('good')}
-                      className={`px-3 py-1 rounded-lg font-medium shrink-0 transition cursor-pointer ${
+                      className={`px-3.5 py-1.5 min-h-[32px] rounded-xl font-medium shrink-0 transition cursor-pointer whitespace-nowrap leading-normal ${
                         expFilter === 'good'
-                          ? 'bg-emerald-600 text-white font-semibold'
-                          : 'bg-white dark:bg-neutral-900 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-950 hover:bg-emerald-50 dark:hover:bg-emerald-950/20'
+                          ? 'bg-[#00a400] text-white font-semibold shadow-xs'
+                          : 'bg-white dark:bg-[#242526] text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-950 hover:bg-emerald-50 dark:hover:bg-emerald-950/20'
                       }`}
                     >
                       ปกติ
@@ -2631,7 +2982,7 @@ export default function App() {
                               </button>
                               <button
                                 onClick={() => handleAddItem(groupName, false, categoryKey)}
-                                className="px-4 py-1 rounded-xl bg-neutral-900 text-white dark:bg-white dark:text-black font-semibold text-xs cursor-pointer"
+                                className="px-4 py-1 rounded-xl bg-neutral-900 text-white dark:bg-slate-800 dark:text-white font-semibold text-xs cursor-pointer"
                               >
                                 บันทึกรายการ
                               </button>
@@ -2853,7 +3204,7 @@ export default function App() {
 
                       <button
                         onClick={() => handleSubmitInspection(categoryKey)}
-                        className="w-full sm:w-auto px-6 py-3 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow-sm hover:shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-[0.98] ios-touch text-xs"
+                        className="w-full sm:w-auto px-6 py-3 min-h-[44px] rounded-xl bg-[#1877f2] hover:bg-[#166fe5] text-white font-semibold shadow-xs transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-[0.98] text-xs whitespace-nowrap leading-normal"
                       >
                         <Send className="w-4 h-4 transform -rotate-45" />
                         <span>บันทึกผลและส่งเข้า Google Sheet</span>
@@ -2887,6 +3238,7 @@ export default function App() {
             onBack={() => setCurrentView('home')}
             sheetUrl={sheetUrl}
             apiUrl={apiUrl}
+            onCelebrate={celebrateCompletion}
             onOpenPreview={(category) => handleOpenPrintReport('drug', category)}
             drugs={drugs}
             onDrugsChange={(updatedDrugs) => {
@@ -2895,6 +3247,7 @@ export default function App() {
             }}
           />
         )}
+        </div>
       </main>
 
       {/* Bottom Navigation Bar with auto-hide on scroll */}
@@ -2912,18 +3265,20 @@ export default function App() {
           else handleOpenPrintReport('eq');
         }}
         onOpenGoogleSheet={handleOpenGoogleSheet}
-        onOpenProfile={() => setIsProfileModalOpen(true)}
-        onOpenDrugInventory={() => setCurrentView('drug_check')}
         sheetUrl={sheetUrl}
         isVisible={isNavVisible}
       />
 
       {/* Profile Modal */}
+      {/* Profile Modal is currently a modal, but user wants unified slide. 
+          For now I'll keep it or move it later if requested. */}
       <ProfileModal
         isOpen={isProfileModalOpen}
         currentUser={currentUser}
         onClose={() => setIsProfileModalOpen(false)}
         onUpdateAvatar={handleUpdateAvatar}
+        onUpdateSignature={handleUpdateSignature}
+        onUpdatePosition={handleUpdatePosition}
         onOpenPasswordModal={() => {
           setIsPasswordForced(false);
           setIsPasswordModalOpen(true);
@@ -2931,57 +3286,6 @@ export default function App() {
         onLogout={handleLogout}
       />
 
-      {/* Settings Modal */}
-      <SettingsModal
-        isOpen={isSettingsOpen}
-        currentUser={currentUser}
-        onClose={() => setIsSettingsOpen(false)}
-        apiUrl={apiUrl}
-        sheetUrl={sheetUrl}
-        theme={theme}
-        onSave={(newApi, newSheet, newTheme) => {
-          setApiUrl(newApi);
-          setSheetUrl(newSheet);
-          setTheme(newTheme);
-          setStoredString(STORAGE_KEYS.API_URL, newApi);
-          setStoredString(STORAGE_KEYS.SHEET_URL, newSheet);
-          setStoredString(STORAGE_KEYS.THEME, newTheme);
-          const entry = addAuditLog(
-            currentUser,
-            'ตั้งค่าระบบ',
-            'อัปเดตการตั้งค่า Google Apps Script Web App URL และ Google Sheet URL',
-            'ระบบหลัก',
-            newApi
-          );
-          const nextLogs = [entry, ...auditLogs];
-          setAuditLogs(nextLogs);
-
-          // Push settings to server for automatic cross-device sync
-          pushServerSync({
-            apiUrl: newApi,
-            sheetUrl: newSheet,
-            theme: newTheme,
-            users,
-            equipment,
-            lists,
-            drugs,
-            globalChecks,
-            lastSubmitted,
-            auditLogs: nextLogs,
-          });
-
-          // Save settings to Firebase Cloud Firestore
-          saveSettingsToFirebase({ sheetUrl: newSheet, theme: newTheme });
-        }}
-        onOpenPasswordModal={() => {
-          setIsPasswordForced(false);
-          setIsPasswordModalOpen(true);
-        }}
-        onLogout={handleLogout}
-        onManualSync={syncWithServer}
-        onPullFromGoogleSheets={handlePullFromGoogleSheets}
-        onRestoreBackup={handleRestoreBackup}
-      />
 
       {/* Submission Loading & Percent Progress Modal */}
       <SubmissionLoadingModal
@@ -3044,6 +3348,8 @@ export default function App() {
         onClose={() => setIsPasswordModalOpen(false)}
         onSubmit={handleChangeOwnPassword}
       />
+
+
 
       {/* Official 14-Column Report Modal (Exact Google Sheet View & Instant Print) */}
       <OfficialReportModal

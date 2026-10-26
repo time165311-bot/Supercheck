@@ -40,15 +40,30 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
   const [activeTab, setActiveTab] = useState<'alerts' | 'history'>('alerts');
   const [searchFilter, setSearchFilter] = useState('');
   const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [logToDelete, setLogToDelete] = useState<AuditLogEntry | null>(null);
+  const [alertToDelete, setAlertToDelete] = useState<ExpiryAlertItem | null>(null);
+  const [dismissedAlertKeys, setDismissedAlertKeys] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('anesthesia_dismissed_alerts');
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      return [];
+    }
+  });
   const [dismissingIds, setDismissingIds] = useState<string[]>([]);
   const [swipingId, setSwipingId] = useState<string | null>(null);
   const [swipeOffset, setSwipeOffset] = useState<number>(0);
   const touchStartXRef = React.useRef<number>(0);
 
-  if (!isOpen) return null;
+  const getAlertKey = (alert: ExpiryAlertItem) =>
+    `${alert.category}_${alert.groupName || ''}_${alert.item.name}_${alert.item.exp || ''}`;
 
-  const expiredCount = expiryAlerts.filter((a) => a.status === 'expired').length;
-  const warningCount = expiryAlerts.filter((a) => a.status === 'warning').length;
+  const visibleAlerts = expiryAlerts.filter(
+    (a) => !dismissedAlertKeys.includes(getAlertKey(a))
+  );
+
+  const expiredCount = visibleAlerts.filter((a) => a.status === 'expired').length;
+  const warningCount = visibleAlerts.filter((a) => a.status === 'warning').length;
 
   const filteredLogs = auditLogs.filter((log) => {
     if (dismissingIds.includes(log.id)) return false;
@@ -64,26 +79,36 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
   });
 
   const handleDismissSingle = (logId: string) => {
-    setDismissingIds((prev) => [...prev, logId]);
-    setTimeout(() => {
-      if (onDeleteSingleLog) {
-        onDeleteSingleLog(logId);
-      }
-      setDismissingIds((prev) => prev.filter((id) => id !== logId));
-    }, 320);
+    if (onDeleteSingleLog) {
+      onDeleteSingleLog(logId);
+    }
   };
 
   const handleConfirmClearAll = () => {
-    // Samsung-style cascade slide-out animation for all logs
-    const allIds = auditLogs.map((l) => l.id);
-    setDismissingIds(allIds);
-    setTimeout(() => {
-      if (onClearLogs) {
-        onClearLogs();
-      }
-      setDismissingIds([]);
-      setShowClearConfirm(false);
-    }, 350);
+    setShowClearConfirm(false);
+    if (onClearLogs) {
+      onClearLogs();
+    }
+  };
+
+  const handleConfirmDeleteSingleLog = () => {
+    if (!logToDelete) return;
+    const id = logToDelete.id;
+    setLogToDelete(null);
+    if (onDeleteSingleLog) {
+      onDeleteSingleLog(id);
+    }
+  };
+
+  const handleConfirmDeleteAlert = () => {
+    if (!alertToDelete) return;
+    const key = getAlertKey(alertToDelete);
+    const updated = [...dismissedAlertKeys, key];
+    setDismissedAlertKeys(updated);
+    try {
+      localStorage.setItem('anesthesia_dismissed_alerts', JSON.stringify(updated));
+    } catch (e) {}
+    setAlertToDelete(null);
   };
 
   // Touch Swipe handlers for Samsung-like swipe to dismiss
@@ -109,39 +134,44 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
     setSwipeOffset(0);
   };
 
+  if (!isOpen) return null;
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/60 backdrop-blur-xs select-none">
-      <div className="bg-white dark:bg-slate-900 rounded-3xl w-full max-w-xl max-h-[85vh] flex flex-col shadow-xl border border-slate-200 dark:border-slate-800 overflow-hidden animate-in fade-in zoom-in-95 duration-150 relative">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs select-none leading-normal">
+      <div className="bg-white dark:bg-[#242526] rounded-2xl md:rounded-3xl w-full max-w-xl max-h-[88vh] flex flex-col shadow-2xl border border-[#e4e6eb] dark:border-[#3a3b3c] overflow-hidden animate-in fade-in zoom-in-95 duration-150 relative">
         {/* Header */}
-        <div className="px-5 py-3.5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 shrink-0">
-          <div className="flex items-center gap-2">
-            <Bell className="w-4 h-4 text-slate-700 dark:text-slate-300" />
-            <h2 className="text-sm font-bold text-slate-900 dark:text-white">
+        <div className="px-5 py-3.5 border-b border-[#e4e6eb] dark:border-[#3a3b3c] flex items-center justify-between gap-3 shrink-0">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-full bg-[#e7f3ff] dark:bg-[#1877f2]/20 text-[#1877f2] flex items-center justify-center">
+              <Bell className="w-5 h-5" />
+            </div>
+            <h2 className="text-base font-bold text-[#050505] dark:text-[#e4e6eb]">
               {isAdmin ? 'การแจ้งเตือนและประวัติ (Admin)' : 'รายการยา/เวชภัณฑ์หมดอายุและใกล้หมด'}
             </h2>
           </div>
           <button
             onClick={onClose}
-            className="p-1 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition cursor-pointer"
+            className="w-9 h-9 rounded-full bg-[#e4e6eb] hover:bg-[#d8dadf] dark:bg-[#3a3b3c] dark:hover:bg-[#4e4f50] text-[#050505] dark:text-[#e4e6eb] flex items-center justify-center transition cursor-pointer"
+            title="ปิดหน้าต่าง"
           >
-            <X className="w-4 h-4" />
+            <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Tab Switcher */}
         {isAdmin ? (
-          <div className="flex border-b border-slate-200 dark:border-slate-800 px-5 gap-6 shrink-0 bg-slate-50/50 dark:bg-slate-900/50 text-xs">
+          <div className="flex border-b border-[#e4e6eb] dark:border-[#3a3b3c] px-4 gap-2 shrink-0 bg-[#f0f2f5] dark:bg-[#18191a] text-xs">
             <button
               onClick={() => setActiveTab('alerts')}
-              className={`py-2.5 font-semibold border-b-2 flex items-center gap-1.5 transition-all cursor-pointer ${
+              className={`py-2.5 px-3 font-bold border-b-2 flex items-center gap-1.5 transition-all cursor-pointer ${
                 activeTab === 'alerts'
-                  ? 'border-sky-600 text-sky-600 dark:border-sky-400 dark:text-sky-400'
-                  : 'border-transparent text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'
+                  ? 'border-[#1877f2] text-[#1877f2] dark:text-[#2d88ff]'
+                  : 'border-transparent text-[#65676b] hover:text-[#050505] dark:text-[#b0b3b8] dark:hover:text-white'
               }`}
             >
               <span>ของหมดอายุ</span>
               {expiryAlerts.length > 0 && (
-                <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold">
+                <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-[#e4e6eb] dark:bg-[#3a3b3c] text-[#050505] dark:text-[#e4e6eb] font-bold">
                   {expiryAlerts.length}
                 </span>
               )}
@@ -149,17 +179,17 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
 
             <button
               onClick={() => setActiveTab('history')}
-              className={`py-2.5 font-semibold border-b-2 flex items-center gap-1.5 transition-all cursor-pointer ${
+              className={`py-2.5 px-3 font-bold border-b-2 flex items-center gap-1.5 transition-all cursor-pointer ${
                 activeTab === 'history'
-                  ? 'border-sky-600 text-sky-600 dark:border-sky-400 dark:text-sky-400'
-                  : 'border-transparent text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'
+                  ? 'border-[#1877f2] text-[#1877f2] dark:text-[#2d88ff]'
+                  : 'border-transparent text-[#65676b] hover:text-[#050505] dark:text-[#b0b3b8] dark:hover:text-white'
               }`}
             >
               <span>ประวัติการทำงาน ({auditLogs.length})</span>
             </button>
           </div>
         ) : (
-          <div className="flex border-b border-slate-200 dark:border-slate-800 px-5 py-2 shrink-0 bg-slate-50/50 dark:bg-slate-900/50 text-xs text-slate-500 dark:text-slate-400 font-semibold">
+          <div className="flex border-b border-[#e4e6eb] dark:border-[#3a3b3c] px-5 py-2 shrink-0 bg-[#f0f2f5] dark:bg-[#18191a] text-xs text-[#65676b] dark:text-[#b0b3b8] font-semibold">
             <span>รายการเตือนยา/เวชภัณฑ์ในรถและกระเป๋า Emer ({expiryAlerts.length} รายการ)</span>
           </div>
         )}
@@ -175,7 +205,7 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
                 <span className="text-[11px] text-slate-400">รถ & กระเป๋า Emer</span>
               </div>
 
-              {expiryAlerts.length === 0 ? (
+              {visibleAlerts.length === 0 ? (
                 <div className="p-8 text-center bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800">
                   <CheckCircle2 className="w-8 h-8 text-emerald-500 mx-auto mb-1.5 opacity-80" />
                   <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">
@@ -187,7 +217,7 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
                 </div>
               ) : (
                 <div className="divide-y divide-slate-100 dark:divide-slate-800 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden bg-white dark:bg-slate-900">
-                  {expiryAlerts.map((alert, idx) => {
+                  {visibleAlerts.map((alert, idx) => {
                     const isExpired = alert.status === 'expired';
                     return (
                       <div
@@ -241,6 +271,15 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
                           >
                             <span>ตรวจ</span>
                             <ArrowRight className="w-3 h-3" />
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => setAlertToDelete(alert)}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition cursor-pointer"
+                            title="ลบการแจ้งเตือนนี้"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
                           </button>
                         </div>
                       </div>
@@ -300,7 +339,7 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
                       onClick={handleConfirmClearAll}
                       className="px-3 py-1 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition cursor-pointer shadow-xs"
                     >
-                      ยืนยันลบจนหมด
+                      ยืนยันการลบ
                     </button>
                   </div>
                 </div>
@@ -309,7 +348,7 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
               {/* Helper text for Samsung swipe gesture */}
               {filteredLogs.length > 0 && (
                 <div className="text-[10px] text-slate-400 dark:text-slate-500 mb-1.5 flex items-center justify-between px-1">
-                  <span>📱 เลื่อนสไลด์ปัดรายการออกเพื่อลบ (Swipe to delete)</span>
+                  <span>📱 เลื่อนสไลด์ปัดรายการออกเพื่อลบ หรือกดปุ่มถังขยะ</span>
                   <span>{filteredLogs.length} รายการ</span>
                 </div>
               )}
@@ -366,14 +405,15 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
                             <span className="text-[10px] text-slate-500 font-medium px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800">
                               {log.action}
                             </span>
-                            {/* Quick Delete button */}
+                            {/* Explicit Delete button with confirmation modal */}
                             <button
                               type="button"
-                              onClick={() => handleDismissSingle(log.id)}
+                              onClick={() => setLogToDelete(log)}
                               title="ลบรายการนี้"
-                              className="opacity-0 group-hover:opacity-100 focus:opacity-100 p-1 text-slate-400 hover:text-rose-600 rounded transition cursor-pointer"
+                              className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded transition cursor-pointer flex items-center gap-0.5"
                             >
-                              <X className="w-3.5 h-3.5" />
+                              <Trash2 className="w-3.5 h-3.5" />
+                              <span className="text-[10px]">ลบ</span>
                             </button>
                           </div>
                         </div>
@@ -395,6 +435,68 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
           )}
         </div>
       </div>
+
+      {/* Confirmation Modal for Single Log Deletion */}
+      {logToDelete && (
+        <div className="fixed inset-0 z-60 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl p-5 max-w-sm w-full shadow-2xl border border-slate-200 dark:border-slate-800 space-y-3">
+            <div className="flex items-center gap-2 text-rose-600 font-bold text-sm">
+              <Trash2 className="w-4 h-4" />
+              <span>ยืนยันการลบประวัติการทำงานนี้?</span>
+            </div>
+            <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+              คุณต้องการลบรายการ "{logToDelete.action} - {logToDelete.name}" (@{logToDelete.user}) ออกจากระบบอย่างถาวรหรือไม่?
+            </p>
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setLogToDelete(null)}
+                className="px-3 py-1.5 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-xs font-semibold cursor-pointer"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDeleteSingleLog}
+                className="px-3.5 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition cursor-pointer shadow-xs"
+              >
+                ยืนยันการลบ
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation Modal for Alert Deletion */}
+      {alertToDelete && (
+        <div className="fixed inset-0 z-60 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl p-5 max-w-sm w-full shadow-2xl border border-slate-200 dark:border-slate-800 space-y-3">
+            <div className="flex items-center gap-2 text-rose-600 font-bold text-sm">
+              <Trash2 className="w-4 h-4" />
+              <span>ยืนยันการลบการแจ้งเตือนนี้?</span>
+            </div>
+            <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+              คุณต้องการลบการแจ้งเตือน "{alertToDelete.item.name}" (หมดอายุ: {alertToDelete.item.exp || '-'}) ออกจากรายการแจ้งเตือนหรือไม่?
+            </p>
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setAlertToDelete(null)}
+                className="px-3 py-1.5 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-xs font-semibold cursor-pointer"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDeleteAlert}
+                className="px-3.5 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition cursor-pointer shadow-xs"
+              >
+                ยืนยันการลบ
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

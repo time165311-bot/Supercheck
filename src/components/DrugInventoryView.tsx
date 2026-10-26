@@ -23,6 +23,11 @@ import {
   Table as TableIcon,
   Pencil,
   Send,
+  CheckCheck,
+  Camera,
+  Barcode,
+  ZoomIn,
+  Package,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
@@ -30,6 +35,7 @@ import 'jspdf-autotable';
 import { DrugCategory, DrugItem, User } from '../types';
 import { INITIAL_DRUGS_DATA } from '../constants/initialDrugs';
 import { sendInspectionToGas } from '../services/api';
+import { fileToBase64 } from '../services/media';
 
 interface DrugInventoryViewProps {
   currentUser: User | null;
@@ -39,6 +45,7 @@ interface DrugInventoryViewProps {
   onOpenPreview?: (category: DrugCategory) => void;
   drugs?: DrugItem[];
   onDrugsChange?: (drugs: DrugItem[]) => void;
+  onCelebrate?: () => void;
 }
 
 export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
@@ -49,6 +56,7 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
   onOpenPreview,
   drugs: externalDrugs,
   onDrugsChange,
+  onCelebrate,
 }) => {
   const [activeTab, setActiveTab] = useState<DrugCategory>('monthly');
   const [drugs, setDrugs] = useState<DrugItem[]>(() => {
@@ -111,6 +119,26 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
   const [editUnit, setEditUnit] = useState<string>('');
   const [editExpDate, setEditExpDate] = useState<string>('');
   const [editNote, setEditNote] = useState<string>('');
+  const [newBarcode, setNewBarcode] = useState<string>('');
+  const [newImg, setNewImg] = useState<string>('');
+  const [editBarcode, setEditBarcode] = useState<string>('');
+  const [editImg, setEditImg] = useState<string>('');
+
+  // Zoomed Image Lightbox State
+  const [zoomedImage, setZoomedImage] = useState<{ url: string; title: string } | null>(null);
+
+  // Drug image upload to base64 helper
+  const handleDrugImageUpload = async (drugId: string, file: File) => {
+    try {
+      const base64 = await fileToBase64(file, { maxWidth: 600, maxHeight: 600, quality: 0.85 });
+      handleUpdateField(drugId, 'img', base64);
+      setSaveSuccessMsg('✓ บันทึกรูปภาพยาเรียบร้อยแล้ว');
+      setTimeout(() => setSaveSuccessMsg(''), 2500);
+    } catch (err) {
+      console.error('Failed to process drug image', err);
+      alert('ไม่สามารถอัปโหลดรูปภาพได้ กรุณาลองใหม่อีกครั้ง');
+    }
+  };
 
   // Persist to localStorage on change and notify parent
   useEffect(() => {
@@ -290,6 +318,8 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
     }
   };
 
+
+
   const [isSyncingGas, setIsSyncingGas] = useState(false);
 
   // Send Report to Google Sheets and auto-open the Sheet
@@ -337,10 +367,8 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
           note: d.note,
         })),
       });
-      setSaveSuccessMsg(`✓ ส่ง Report "${catName}" เข้า Google Sheet เรียบร้อยแล้ว`);
-      if (sheetUrl) {
-        window.open(sheetUrl, '_blank');
-      }
+      setSaveSuccessMsg(`✓ ส่ง Report "${catName}" เข้า Google Sheets เรียบร้อยแล้ว`);
+      if (onCelebrate) onCelebrate();
       setTimeout(() => setSaveSuccessMsg(''), 4500);
     } catch (e: any) {
       alert('เกิดข้อผิดพลาดในการส่งข้อมูล: ' + (e.message || 'กรุณาลองใหม่อีกครั้ง'));
@@ -381,6 +409,8 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
       unit: newUnit.trim() || undefined,
       expDate: newExpDate,
       note: newNote.trim(),
+      barcode: newBarcode.trim() || undefined,
+      img: newImg || undefined,
     };
 
     setDrugs((prev) => [newItem, ...prev]);
@@ -394,6 +424,8 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
     setNewUnit('');
     setNewExpDate('');
     setNewNote('');
+    setNewBarcode('');
+    setNewImg('');
     setSaveSuccessMsg(`✓ เพิ่มรายการ "${newItem.name}" เรียบร้อยแล้ว`);
     setTimeout(() => setSaveSuccessMsg(''), 3000);
   };
@@ -410,6 +442,8 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
     setEditUnit(item.unit || '');
     setEditExpDate(item.expDate || '');
     setEditNote(item.note || '');
+    setEditBarcode(item.barcode || '');
+    setEditImg(item.img || '');
   };
 
   const handleSaveEditDrug = (e: React.FormEvent) => {
@@ -435,6 +469,8 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
             unit: editUnit.trim() || undefined,
             expDate: editExpDate,
             note: editNote.trim(),
+            barcode: editBarcode.trim() || undefined,
+            img: editImg || undefined,
           };
         }
         return d;
@@ -458,40 +494,40 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
 
   return (
     <div className="max-w-6xl mx-auto px-3 sm:px-4 py-4 sm:py-6 space-y-4 sm:space-y-5 animate-in fade-in">
-      {/* Top Navigation / Back & Actions Header */}
-      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 sm:gap-4 bg-white dark:bg-[#161822] p-4 sm:p-5 rounded-3xl border border-neutral-200 dark:border-neutral-800 shadow-sm">
+      {/* Top Navigation / Back & Actions Header (Facebook Clean UI) */}
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 sm:gap-4 bg-white dark:bg-[#242526] p-4 sm:p-5 rounded-2xl border border-[#e4e6eb] dark:border-[#3a3b3c] shadow-xs">
         <div className="flex items-center gap-2.5 sm:gap-3">
           <button
             type="button"
             onClick={onBack}
-            className="p-2 sm:p-2.5 rounded-2xl bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-200 transition cursor-pointer flex items-center gap-1.5 text-xs font-semibold shrink-0"
+            className="px-3.5 py-2.5 min-h-[40px] rounded-xl bg-[#e4e6eb] hover:bg-[#d8dadf] dark:bg-[#3a3b3c] dark:hover:bg-[#4e4f50] text-[#050505] dark:text-[#e4e6eb] transition cursor-pointer flex items-center gap-2 text-xs font-semibold shrink-0 whitespace-nowrap leading-normal active:scale-95"
           >
             <ArrowLeft className="w-4 h-4" />
             <span className="hidden xs:inline">กลับหน้าหลัก</span>
           </button>
           <div>
-            <h1 className="text-base sm:text-lg font-bold text-neutral-900 dark:text-white tracking-tight">
+            <h1 className="text-base sm:text-lg font-bold text-[#050505] dark:text-[#e4e6eb] tracking-tight leading-snug">
               ระบบตรวจเช็คคลังยาและสารน้ำ
             </h1>
           </div>
         </div>
 
-        {/* Action Buttons: Add Drug, Save, Sync to Gas */}
+        {/* Action Buttons: Add Drug, Save, Sync to Gas, Print A4 */}
         <div className="flex items-center gap-2 flex-wrap justify-end">
           <button
             type="button"
             onClick={() => setShowAddModal(true)}
-            className="flex-1 sm:flex-initial px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer shadow-xs"
+            className="flex-1 sm:flex-initial px-4 py-2.5 min-h-[40px] rounded-xl bg-accent hover:bg-accent-hover text-white font-semibold text-xs flex items-center justify-center gap-2 transition cursor-pointer shadow-xs whitespace-nowrap leading-normal active:scale-95"
             title="เพิ่มรายการยาหรือสารน้ำใหม่"
           >
             <Plus className="w-4 h-4" />
-            <span>➕ เพิ่มรายการยาใหม่</span>
+            <span>เพิ่มรายการยาใหม่</span>
           </button>
 
           <button
             type="button"
             onClick={handleSaveData}
-            className="flex-1 sm:flex-initial px-3.5 py-2 rounded-xl bg-neutral-900 hover:bg-neutral-800 dark:bg-white dark:hover:bg-neutral-200 text-white dark:text-neutral-900 font-semibold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer shadow-xs"
+            className="flex-1 sm:flex-initial px-4 py-2.5 min-h-[40px] rounded-xl bg-[#e4e6eb] hover:bg-[#d8dadf] dark:bg-[#3a3b3c] dark:hover:bg-[#4e4f50] text-[#050505] dark:text-[#e4e6eb] font-semibold text-xs flex items-center justify-center gap-2 transition cursor-pointer shadow-xs whitespace-nowrap leading-normal active:scale-95"
             title="บันทึกข้อมูลเฉพาะภายในแอป (ไม่ส่งไปยัง Google Sheets)"
           >
             <Save className="w-4 h-4" />
@@ -504,7 +540,7 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
               type="button"
               disabled={isSyncingGas}
               onClick={handleSyncToGas}
-              className="flex-1 sm:flex-initial px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer shadow-xs disabled:opacity-50"
+              className="flex-1 sm:flex-initial px-4 py-2.5 min-h-[40px] rounded-xl bg-accent hover:bg-accent-hover text-white font-semibold text-xs flex items-center justify-center gap-2 transition cursor-pointer shadow-xs disabled:opacity-50 whitespace-nowrap leading-normal active:scale-95"
               title="ส่ง Report ข้อมูลหมวดนี้เข้า Google Sheets และเปิดหน้าชีตทันที"
             >
               <Send className="w-4 h-4" />
@@ -517,10 +553,10 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
             <button
               type="button"
               onClick={() => onOpenPreview(activeTab)}
-              className="flex-1 sm:flex-initial px-3.5 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-semibold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer shadow-xs"
+              className="flex-1 sm:flex-initial px-4 py-2.5 min-h-[40px] rounded-xl bg-[#e4e6eb] hover:bg-[#d8dadf] dark:bg-[#3a3b3c] dark:hover:bg-[#4e4f50] text-[#050505] dark:text-[#e4e6eb] font-semibold text-xs flex items-center justify-center gap-2 transition cursor-pointer shadow-xs whitespace-nowrap leading-normal active:scale-95"
               title="ดูพรีวิวแบบฟอร์ม A4 และดาวน์โหลด PDF"
             >
-              <Printer className="w-4 h-4" />
+              <Printer className="w-4 h-4 text-accent" />
               <span>พรีวิว & พิมพ์ A4</span>
             </button>
           )}
@@ -534,80 +570,56 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
         </div>
       )}
 
-      {/* Top Tabs Bar inside page (3 Categories) - Responsive and never cut off */}
-      <div className="bg-white dark:bg-[#161822] p-2.5 sm:p-3 rounded-2xl border border-neutral-200 dark:border-neutral-800 shadow-xs flex flex-col gap-3">
+      {/* Top Tabs Bar inside page (3 Categories) - Facebook Clean UI */}
+      <div className="bg-white dark:bg-[#242526] p-2.5 sm:p-3 rounded-2xl border border-[#e4e6eb] dark:border-[#3a3b3c] shadow-xs flex flex-col gap-3">
         <div className="flex flex-wrap sm:flex-nowrap gap-2 w-full overflow-x-auto pb-1 sm:pb-0">
           <button
             type="button"
             onClick={() => setActiveTab('monthly')}
-            className={`flex-1 min-w-[150px] px-3.5 py-2.5 rounded-xl transition flex items-center justify-center gap-2 text-xs font-bold cursor-pointer whitespace-nowrap ${
+            className={`flex-1 min-w-[140px] px-4 py-2.5 min-h-[40px] rounded-xl transition flex items-center justify-center gap-2 text-xs font-bold cursor-pointer whitespace-nowrap leading-normal active:scale-95 ${
               activeTab === 'monthly'
-                ? 'bg-neutral-900 text-white dark:bg-white dark:text-neutral-900 shadow-xs'
-                : 'text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 bg-neutral-50 dark:bg-neutral-900/50'
+                ? 'bg-accent text-white shadow-xs'
+                : 'text-[#65676b] dark:text-[#b0b3b8] hover:bg-[#e4e6eb] dark:hover:bg-[#4e4f50] bg-[#f0f2f5] dark:bg-[#3a3b3c]'
             }`}
           >
             <span>📅 ยาในคลังเดือน</span>
-            <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${activeTab === 'monthly' ? 'bg-neutral-700 text-white dark:bg-neutral-200 dark:text-neutral-900' : 'bg-neutral-200 dark:bg-neutral-700 text-neutral-700 dark:text-neutral-300'}`}>
-              {monthlyCount}
-            </span>
-            {lowStockMonthly > 0 && (
-              <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-rose-500 text-white font-bold">
-                ⚠️ {lowStockMonthly}
-              </span>
-            )}
           </button>
 
           <button
             type="button"
             onClick={() => setActiveTab('quarterly')}
-            className={`flex-1 min-w-[150px] px-3.5 py-2.5 rounded-xl transition flex items-center justify-center gap-2 text-xs font-bold cursor-pointer whitespace-nowrap ${
+            className={`flex-1 min-w-[140px] px-4 py-2.5 min-h-[40px] rounded-xl transition flex items-center justify-center gap-2 text-xs font-bold cursor-pointer whitespace-nowrap leading-normal active:scale-95 ${
               activeTab === 'quarterly'
-                ? 'bg-neutral-900 text-white dark:bg-white dark:text-neutral-900 shadow-xs'
-                : 'text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 bg-neutral-50 dark:bg-neutral-900/50'
+                ? 'bg-accent text-white shadow-xs'
+                : 'text-[#65676b] dark:text-[#b0b3b8] hover:bg-[#e4e6eb] dark:hover:bg-[#4e4f50] bg-[#f0f2f5] dark:bg-[#3a3b3c]'
             }`}
           >
             <span>📦 ยาเบิกทุก 3 เดือน</span>
-            <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${activeTab === 'quarterly' ? 'bg-neutral-700 text-white dark:bg-neutral-200 dark:text-neutral-900' : 'bg-neutral-200 dark:bg-neutral-700 text-neutral-700 dark:text-neutral-300'}`}>
-              {quarterlyCount}
-            </span>
-            {lowStockQuarterly > 0 && (
-              <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-rose-500 text-white font-bold">
-                ⚠️ {lowStockQuarterly}
-              </span>
-            )}
           </button>
 
           <button
             type="button"
             onClick={() => setActiveTab('adhoc')}
-            className={`flex-1 min-w-[180px] px-3.5 py-2.5 rounded-xl transition flex items-center justify-center gap-2 text-xs font-bold cursor-pointer whitespace-nowrap ${
+            className={`flex-1 min-w-[170px] px-4 py-2.5 min-h-[40px] rounded-xl transition flex items-center justify-center gap-2 text-xs font-bold cursor-pointer whitespace-nowrap leading-normal active:scale-95 ${
               activeTab === 'adhoc'
-                ? 'bg-neutral-900 text-white dark:bg-white dark:text-neutral-900 shadow-xs'
-                : 'text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 bg-neutral-50 dark:bg-neutral-900/50'
+                ? 'bg-accent text-white shadow-xs'
+                : 'text-[#65676b] dark:text-[#b0b3b8] hover:bg-[#e4e6eb] dark:hover:bg-[#4e4f50] bg-[#f0f2f5] dark:bg-[#3a3b3c]'
             }`}
           >
-            <span>⚡ ยาเบิกเป็นครั้งๆ / ยาตามงบประมาณ</span>
-            <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${activeTab === 'adhoc' ? 'bg-neutral-700 text-white dark:bg-neutral-200 dark:text-neutral-900' : 'bg-neutral-200 dark:bg-neutral-700 text-neutral-700 dark:text-neutral-300'}`}>
-              {adhocCount}
-            </span>
-            {lowStockAdhoc > 0 && (
-              <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-rose-500 text-white font-bold">
-                ⚠️ {lowStockAdhoc}
-              </span>
-            )}
+            <span>⚡ ยาเบิกเป็นครั้งๆ / งบประมาณ</span>
           </button>
         </div>
 
         {/* Search & Quick Filter Chips */}
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 pt-2 border-t border-neutral-100 dark:border-neutral-800/80">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 pt-2 border-t border-[#e4e6eb] dark:border-[#3a3b3c]">
           <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 text-xs">
             <button
               type="button"
               onClick={() => setStatusFilter('all')}
-              className={`px-3 py-1.5 rounded-xl font-semibold cursor-pointer whitespace-nowrap transition ${
+              className={`px-3.5 py-2 min-h-[36px] rounded-xl font-semibold cursor-pointer whitespace-nowrap leading-normal transition active:scale-95 ${
                 statusFilter === 'all'
-                  ? 'bg-neutral-900 text-white dark:bg-white dark:text-neutral-900 shadow-2xs'
-                  : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-200'
+                  ? 'bg-accent text-white shadow-xs'
+                  : 'bg-[#f0f2f5] dark:bg-[#3a3b3c] text-[#65676b] dark:text-[#b0b3b8] hover:bg-[#e4e6eb] dark:hover:bg-[#4e4f50]'
               }`}
             >
               🌟 ทั้งหมด ({sortedTabDrugs.length})
@@ -615,9 +627,9 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
             <button
               type="button"
               onClick={() => setStatusFilter('low')}
-              className={`px-3 py-1.5 rounded-xl font-semibold cursor-pointer whitespace-nowrap transition flex items-center gap-1 ${
+              className={`px-3.5 py-2 min-h-[36px] rounded-xl font-semibold cursor-pointer whitespace-nowrap leading-normal transition flex items-center gap-1.5 ${
                 statusFilter === 'low'
-                  ? 'bg-rose-600 text-white shadow-2xs'
+                  ? 'bg-[#e41e3f] text-white shadow-xs'
                   : 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 hover:bg-rose-100'
               }`}
             >
@@ -627,9 +639,9 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
             <button
               type="button"
               onClick={() => setStatusFilter('expiring')}
-              className={`px-3 py-1.5 rounded-xl font-semibold cursor-pointer whitespace-nowrap transition flex items-center gap-1 ${
+              className={`px-3.5 py-2 min-h-[36px] rounded-xl font-semibold cursor-pointer whitespace-nowrap leading-normal transition flex items-center gap-1.5 ${
                 statusFilter === 'expiring'
-                  ? 'bg-amber-600 text-white shadow-2xs'
+                  ? 'bg-amber-600 text-white shadow-xs'
                   : 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 hover:bg-amber-100'
               }`}
             >
@@ -639,10 +651,10 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
             <button
               type="button"
               onClick={() => setStatusFilter('expired')}
-              className={`px-3 py-1.5 rounded-xl font-semibold cursor-pointer whitespace-nowrap transition flex items-center gap-1 ${
+              className={`px-3.5 py-2 min-h-[36px] rounded-xl font-semibold cursor-pointer whitespace-nowrap leading-normal transition flex items-center gap-1.5 ${
                 statusFilter === 'expired'
-                  ? 'bg-rose-700 text-white shadow-2xs'
-                  : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-200'
+                  ? 'bg-rose-700 text-white shadow-xs'
+                  : 'bg-[#f0f2f5] dark:bg-[#3a3b3c] text-[#65676b] dark:text-[#b0b3b8] hover:bg-[#e4e6eb]'
               }`}
             >
               <span>หมดอายุ ({expiredCount})</span>
@@ -650,26 +662,26 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
           </div>
 
           <div className="relative flex-1 sm:max-w-xs">
-            <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-neutral-400" />
+            <Search className="w-3.5 h-3.5 absolute left-3 top-3 text-[#65676b] dark:text-[#b0b3b8]" />
             <input
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               placeholder="ค้นหาชื่อยา, สารน้ำ, หรือหมายเหตุ..."
-              className="w-full pl-8 pr-3 py-1.5 bg-neutral-100 dark:bg-neutral-800 text-neutral-800 dark:text-neutral-100 rounded-xl text-xs outline-none focus:ring-1 focus:ring-neutral-400 border border-transparent"
+              className="w-full pl-9 pr-3 py-2 bg-[#f0f2f5] dark:bg-[#3a3b3c] text-[#050505] dark:text-[#e4e6eb] rounded-xl text-xs outline-none focus:ring-2 focus:ring-accent/40 border border-transparent leading-normal placeholder-[#65676b] dark:placeholder-[#b0b3b8]"
             />
           </div>
         </div>
       </div>
 
       {/* Main Content Area */}
-      <div className="bg-white dark:bg-[#161822] text-neutral-900 dark:text-neutral-100 p-3 sm:p-5 rounded-3xl shadow-sm border border-neutral-200 dark:border-neutral-800">
-        <div className="mb-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-1 pb-3 border-b border-neutral-200/70 dark:border-neutral-800">
+      <div className="bg-white dark:bg-[#242526] text-[#050505] dark:text-[#e4e6eb] p-3.5 sm:p-5 rounded-2xl shadow-xs border border-[#e4e6eb] dark:border-[#3a3b3c]">
+        <div className="mb-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-1 pb-3 border-b border-[#e4e6eb] dark:border-[#3a3b3c]">
           <div>
-            <h2 className="text-sm sm:text-base font-bold text-neutral-900 dark:text-white">
+            <h2 className="text-sm sm:text-base font-bold text-[#050505] dark:text-[#e4e6eb] leading-snug">
               แบบฟอร์มตรวจสอบและเบิกจ่ายคลังยาและสารน้ำ
             </h2>
-            <p className="text-xs text-neutral-500 dark:text-neutral-400">
+            <p className="text-xs text-[#65676b] dark:text-[#b0b3b8] leading-normal">
               หมวดหมู่:{' '}
               {activeTab === 'monthly'
                 ? 'ยาในคลังเดือน'
@@ -679,17 +691,17 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-[11px] text-neutral-400 font-medium hidden sm:inline">
+            <span className="text-[11px] text-[#65676b] dark:text-[#b0b3b8] font-medium hidden sm:inline leading-normal">
               ข้อมูล ณ {new Date().toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' })}
             </span>
-            <div className="flex items-center bg-neutral-100 dark:bg-neutral-800 p-0.5 rounded-xl border border-neutral-200 dark:border-neutral-700 text-xs">
+            <div className="flex items-center bg-[#f0f2f5] dark:bg-[#3a3b3c] p-0.5 rounded-xl border border-[#e4e6eb] dark:border-[#3a3b3c] text-xs">
               <button
                 type="button"
                 onClick={() => setViewMode('table')}
-                className={`px-2.5 py-1 rounded-lg font-semibold flex items-center gap-1.5 transition cursor-pointer ${
+                className={`px-3 py-1.5 rounded-lg font-semibold flex items-center gap-1.5 transition cursor-pointer leading-normal active:scale-95 ${
                   viewMode === 'table'
-                    ? 'bg-white dark:bg-neutral-900 text-blue-600 dark:text-blue-400 shadow-2xs'
-                    : 'text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-white'
+                    ? 'bg-white dark:bg-[#242526] text-accent shadow-xs'
+                    : 'text-[#65676b] hover:text-[#050505] dark:text-[#b0b3b8] dark:hover:text-white'
                 }`}
                 title="ตาราง 8 คอลัมน์ (มี Sticky ตรึงชื่อยา)"
               >
@@ -699,12 +711,12 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
               <button
                 type="button"
                 onClick={() => setViewMode('card')}
-                className={`px-2.5 py-1 rounded-lg font-semibold flex items-center gap-1.5 transition cursor-pointer ${
+                className={`px-3 py-1.5 rounded-lg font-semibold flex items-center gap-1.5 transition cursor-pointer leading-normal active:scale-95 ${
                   viewMode === 'card'
-                    ? 'bg-white dark:bg-neutral-900 text-blue-600 dark:text-blue-400 shadow-2xs'
-                    : 'text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-white'
+                    ? 'bg-white dark:bg-[#242526] text-accent shadow-xs'
+                    : 'text-[#65676b] hover:text-[#050505] dark:text-[#b0b3b8] dark:hover:text-white'
                 }`}
-                title="มุมมองการ์ดสรุป"
+                title="มุมมองการ์ดยาแนวนอน (สไตล์การ์ดภาพ & สเต็ปเปอร์)"
               >
                 <LayoutGrid className="w-3.5 h-3.5" />
                 <span>การ์ด</span>
@@ -966,10 +978,13 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
             </table>
           </div>
         ) : (
-          /* 2. Compact Card View (Clean & Interactive on Mobile) */
-          <div className="space-y-3">
+          /* 2. Horizontal Clean Card View (Facebook Style Minimal & High Contrast) */
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 sm:gap-3.5">
             {displayedDrugs.length === 0 ? (
-              <div className="p-8 text-center text-xs text-neutral-400">
+              <div className="col-span-full p-12 text-center text-xs text-[#65676b] dark:text-[#b0b3b8] bg-[#f0f2f5]/60 dark:bg-[#18191a]/40 rounded-2xl border border-dashed border-[#e4e6eb] dark:border-gray-800">
+                <div className="w-12 h-12 rounded-2xl bg-[#e4e6eb] dark:bg-[#3a3b3c] flex items-center justify-center mx-auto mb-2 text-[#65676b] dark:text-[#b0b3b8]">
+                  <Package className="w-6 h-6" />
+                </div>
                 ไม่พบรายการยาหรือสารน้ำในหมวดนี้
               </div>
             ) : (
@@ -983,130 +998,164 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
                 return (
                   <div
                     key={item.id}
-                    className={`p-3.5 rounded-2xl border transition-all ${
+                    className={`rounded-2xl border transition-all duration-150 p-3 sm:p-3.5 bg-white dark:bg-[#242526] shadow-xs flex flex-row items-start gap-3 sm:gap-3.5 active:scale-95 ${
                       isExpired
-                        ? 'border-rose-200 dark:border-rose-900/40 bg-rose-50/15 dark:bg-rose-950/10'
-                        : isLowStock
-                        ? 'border-amber-200 dark:border-amber-900/40 bg-amber-50/15 dark:bg-amber-950/10'
+                        ? 'border-rose-400 dark:border-rose-800/80 ring-1 ring-rose-500/20'
                         : isExpiringSoon
-                        ? 'border-orange-200 dark:border-orange-900/40 bg-orange-50/10 dark:bg-orange-950/5'
-                        : 'border-neutral-200 dark:border-neutral-800 bg-neutral-50/30 dark:bg-neutral-900/30'
+                        ? 'border-amber-400 dark:border-amber-800/80 ring-1 ring-amber-500/20'
+                        : isLowStock
+                        ? 'border-orange-400 dark:border-orange-800/80'
+                        : 'border-[#e4e6eb] dark:border-gray-800'
                     }`}
                   >
-                    <div className="flex items-start justify-between gap-2 mb-2">
-                      <div className="flex items-center gap-2 flex-1 min-w-0">
-                        <span className="text-xs font-bold text-neutral-400 shrink-0">#{idx + 1}</span>
-                        <h4 className="text-xs sm:text-sm font-bold text-neutral-900 dark:text-white truncate">
-                          {item.name}
-                          {item.unit && (
-                            <span className="text-[11px] font-normal text-neutral-500 dark:text-neutral-400 ml-1.5">
-                              ({item.unit})
+                    {/* Left: Compact Thumbnail Image / Photo Trigger (Square, always on left) */}
+                    <div className="relative shrink-0 w-20 h-20 sm:w-22 sm:h-22 rounded-xl overflow-hidden bg-[#f0f2f5] dark:bg-[#3a3b3c] border border-[#e4e6eb] dark:border-gray-800 flex items-center justify-center group/thumb">
+                      {item.img ? (
+                        <>
+                          <img
+                            src={item.img}
+                            alt={item.name}
+                            onClick={() => setZoomedImage({ url: item.img!, title: item.name })}
+                            className="w-full h-full object-cover cursor-zoom-in group-hover/thumb:scale-105 transition-transform duration-200"
+                          />
+                          {/* Zoom Button */}
+                          <button
+                            type="button"
+                            onClick={() => setZoomedImage({ url: item.img!, title: item.name })}
+                            className="absolute top-1 left-1 p-1 rounded-md bg-black/60 hover:bg-black/80 text-white backdrop-blur-xs transition cursor-pointer"
+                            title="แตะเพื่อดูรูปขนาดเต็ม"
+                          >
+                            <ZoomIn className="w-2.5 h-2.5" />
+                          </button>
+                          {/* Change Image Button */}
+                          <label
+                            htmlFor={`drug-img-${item.id}`}
+                            className="absolute bottom-1 right-1 p-1 rounded-md bg-black/60 hover:bg-black/85 text-white backdrop-blur-xs transition cursor-pointer shadow-xs"
+                            title="เปลี่ยนรูปภาพยา"
+                          >
+                            <Camera className="w-3 h-3" />
+                          </label>
+                        </>
+                      ) : (
+                        <label
+                          htmlFor={`drug-img-${item.id}`}
+                          className="w-full h-full flex flex-col items-center justify-center p-1 text-center cursor-pointer hover:bg-[#e4e6eb] dark:hover:bg-[#4e4f50] transition text-[#65676b] dark:text-gray-300"
+                        >
+                          <Camera className="w-5 h-5 mb-0.5 text-[#1877f2] dark:text-blue-400" />
+                          <span className="text-[10px] font-medium leading-tight">
+                            เพิ่มรูป
+                          </span>
+                        </label>
+                      )}
+                      <input
+                        id={`drug-img-${item.id}`}
+                        type="file"
+                        accept="image/*"
+                        capture="environment"
+                        className="hidden"
+                        onChange={(e) => {
+                          const f = e.target.files?.[0];
+                          if (f) handleDrugImageUpload(item.id, f);
+                        }}
+                      />
+                    </div>
+
+                    {/* Right: Clean Facebook Style Drug Info (No Bulky Nested Layers) */}
+                    <div className="flex-1 min-w-0 flex flex-col gap-2">
+                      {/* Line 1: EXP Badge + Category Badge + Action Buttons */}
+                      <div className="flex items-center justify-between gap-1.5 flex-wrap">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          {/* Expiration status badge */}
+                          <span
+                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold font-mono border ${
+                              isExpired
+                                ? 'bg-rose-100 text-rose-700 dark:bg-rose-950/80 dark:text-rose-300 border-rose-300 dark:border-rose-800'
+                                : isExpiringSoon
+                                ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/80 dark:text-amber-300 border-amber-300 dark:border-amber-800'
+                                : expInfo.status === 'ok'
+                                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800'
+                                : 'bg-[#f0f2f5] text-[#65676b] dark:bg-[#3a3b3c] dark:text-gray-300 border-[#e4e6eb] dark:border-gray-700'
+                            }`}
+                          >
+                            {isExpired ? (
+                              <AlertTriangle className="w-3 h-3 text-rose-600 dark:text-rose-400 shrink-0" />
+                            ) : isExpiringSoon ? (
+                              <Clock className="w-3 h-3 text-amber-600 dark:text-amber-400 shrink-0" />
+                            ) : (
+                              <Calendar className="w-3 h-3 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                            )}
+                            <span>EXP: {item.expDate || 'ไม่ระบุ'}</span>
+                          </span>
+
+                          {/* Low Stock Badge */}
+                          {isLowStock && (
+                            <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-rose-50 text-rose-600 dark:bg-rose-950/70 dark:text-rose-300 border border-rose-200 dark:border-rose-800 whitespace-nowrap">
+                              ต่ำกว่าเกณฑ์
                             </span>
                           )}
-                        </h4>
+                        </div>
+
+                        {/* Action icons */}
+                        <div className="flex items-center gap-1 shrink-0 ml-auto">
+                          <button
+                            type="button"
+                            onClick={() => handleOpenEditDrug(item)}
+                            className="p-1 rounded-lg text-[#65676b] dark:text-gray-400 hover:text-[#1877f2] dark:hover:text-blue-400 hover:bg-[#f0f2f5] dark:hover:bg-[#3a3b3c] transition cursor-pointer"
+                            title="แก้ไขข้อมูลยา"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setItemToDelete(item)}
+                            className="p-1 rounded-lg text-[#65676b] dark:text-gray-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/50 transition cursor-pointer"
+                            title="ลบรายการ"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        {isLowStock && (
-                          <span className="text-[10px] px-1.5 py-0.2 rounded-md font-medium bg-amber-100/70 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300 border border-amber-200/50 dark:border-amber-800/40 whitespace-nowrap">
-                            สต็อกต่ำ
+
+                      {/* Line 2: Drug Name & Consolidated Status (Facebook Style) */}
+                      <div className="mt-0.5">
+                        <div className="flex items-baseline gap-1.5">
+                          <span className="text-[11px] font-bold text-[#65676b] dark:text-gray-400 shrink-0">
+                            #{idx + 1}
                           </span>
-                        )}
-                        {isExpired && (
-                          <span className="text-[10px] px-1.5 py-0.2 rounded-md font-medium bg-rose-100/70 dark:bg-rose-900/40 text-rose-800 dark:text-rose-300 border border-rose-200/50 dark:border-rose-800/40 whitespace-nowrap">
-                            หมดอายุ
+                          <h4 className="text-sm sm:text-base font-bold text-[#050505] dark:text-white leading-tight">
+                            {item.name}
+                            {item.unit && (
+                              <span className="text-[11px] font-normal text-[#65676b] dark:text-gray-400 ml-1">
+                                ({item.unit})
+                              </span>
+                            )}
+                          </h4>
+                        </div>
+                        
+                        {/* Consolidated Status Line: Remaining | EXP */}
+                        <div className="flex items-center gap-2 mt-1.5 text-[11px] font-medium text-[#65676b] dark:text-gray-400 whitespace-nowrap overflow-hidden">
+                          <span className="flex items-center gap-1 shrink-0">
+                            <Package className="w-3 h-3 text-[#1877f2] dark:text-blue-400" />
+                            <span>คงเหลือ:</span>
+                            <span className={`font-bold ${isLowStock ? 'text-rose-600 dark:text-rose-400' : 'text-[#050505] dark:text-white'}`}>
+                              {item.remaining}
+                            </span>
                           </span>
+                          
+                          <span className="text-[#ccd0d5] dark:text-[#3e4042]">|</span>
+                          
+                          <span className="flex items-center gap-1 truncate">
+                            <Calendar className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                            <span>EXP: {item.expDate || 'ไม่ระบุ'}</span>
+                          </span>
+                        </div>
+
+                        {item.barcode && (
+                          <div className="flex items-center gap-1 text-[10px] text-[#65676b] dark:text-gray-500 font-mono mt-1.5 opacity-80">
+                            <Barcode className="w-2.5 h-2.5" />
+                            <span>{item.barcode}</span>
+                          </div>
                         )}
-                        <button
-                          type="button"
-                          onClick={() => handleOpenEditDrug(item)}
-                          className="p-1 rounded-lg text-neutral-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/50 transition cursor-pointer"
-                          title="แก้ไขข้อมูลยา"
-                        >
-                          <Pencil className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setItemToDelete(item)}
-                          className="p-1 rounded-lg text-neutral-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/50 transition cursor-pointer"
-                          title="ลบรายการ"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Compact Grid of Values */}
-                    <div className="grid grid-cols-3 gap-2 text-xs mb-2">
-                      <div className="bg-white dark:bg-neutral-800/80 p-2 rounded-xl border border-neutral-200 dark:border-neutral-700 text-center">
-                        <span className="block text-[10px] text-neutral-400 font-medium">คงเหลือ</span>
-                        <input
-                          type="number"
-                          min="0"
-                          value={item.remaining}
-                          onChange={(e) =>
-                            handleUpdateField(item.id, 'remaining', Number(e.target.value) || 0)
-                          }
-                          className={`w-full text-center font-bold text-xs outline-none bg-transparent ${
-                            isLowStock ? 'text-amber-800 dark:text-amber-300' : 'text-neutral-900 dark:text-white'
-                          }`}
-                        />
-                      </div>
-
-                      <div className="bg-white dark:bg-neutral-800/80 p-2 rounded-xl border border-neutral-200 dark:border-neutral-700 text-center">
-                        <span className="block text-[10px] text-neutral-400 font-medium">จำนวนรับ</span>
-                        <input
-                          type="number"
-                          min="0"
-                          value={item.receivedQty}
-                          onChange={(e) =>
-                            handleUpdateField(item.id, 'receivedQty', Number(e.target.value) || 0)
-                          }
-                          className="w-full text-center font-bold text-xs outline-none bg-transparent text-neutral-900 dark:text-white"
-                        />
-                      </div>
-
-                      <div className="bg-emerald-50 dark:bg-emerald-950/30 p-2 rounded-xl border border-emerald-200 dark:border-emerald-800/50 text-center">
-                        <span className="block text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">รวม</span>
-                        <span className="font-extrabold text-xs text-emerald-700 dark:text-emerald-300">{totalQty}</span>
-                      </div>
-                    </div>
-
-                    {/* Details row: Min, Batch, Received Date */}
-                    <div className="grid grid-cols-3 gap-2 text-[11px] text-neutral-500 dark:text-neutral-400 mb-2">
-                      <div className="flex flex-col bg-white dark:bg-neutral-800/50 p-2 rounded-lg border border-neutral-200 dark:border-neutral-700 text-center">
-                        <span className="text-[10px] text-neutral-400">ยอดต่ำสุด</span>
-                        <span className="font-bold text-neutral-800 dark:text-neutral-200">{item.minStock}</span>
-                      </div>
-                      <div className="flex flex-col bg-white dark:bg-neutral-800/50 p-2 rounded-lg border border-neutral-200 dark:border-neutral-700 text-center">
-                        <span className="text-[10px] text-neutral-400">เบิกครั้งละ</span>
-                        <span className="font-medium text-neutral-800 dark:text-neutral-200 truncate">{item.batchRequest || '-'}</span>
-                      </div>
-                      <div className="flex flex-col bg-white dark:bg-neutral-800/50 p-2 rounded-lg border border-neutral-200 dark:border-neutral-700 text-center">
-                        <span className="text-[10px] text-neutral-400">วันที่รับ</span>
-                        <span className="font-medium text-neutral-800 dark:text-neutral-200 truncate">{item.receivedDate || '-'}</span>
-                      </div>
-                    </div>
-
-                    {/* Interactive Date Picker for Exp Date & Editable Note on Mobile */}
-                    <div className="pt-2 border-t border-neutral-200/60 dark:border-neutral-800/80 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 text-xs">
-                      <div className="flex items-center gap-1.5 bg-white dark:bg-neutral-800/80 px-2.5 py-1 rounded-xl border border-neutral-200 dark:border-neutral-700">
-                        <span className="text-[11px] text-neutral-400 font-medium shrink-0">วันหมดอายุ:</span>
-                        <input
-                          type="date"
-                          value={item.expDate || ''}
-                          onChange={(e) => handleUpdateField(item.id, 'expDate', e.target.value)}
-                          className="bg-transparent text-neutral-800 dark:text-neutral-200 outline-none text-xs font-mono cursor-pointer flex-1"
-                          title="แตะเพื่อเลือกวันหมดอายุ"
-                        />
-                      </div>
-                      <div className="flex-1">
-                        <input
-                          type="text"
-                          value={item.note || ''}
-                          onChange={(e) => handleUpdateField(item.id, 'note', e.target.value)}
-                          placeholder="หมายเหตุเพิ่มเติม..."
-                          className="w-full px-2.5 py-1 text-xs bg-white dark:bg-neutral-800/80 border border-neutral-200 dark:border-neutral-700 rounded-xl outline-none text-neutral-800 dark:text-neutral-200"
-                        />
                       </div>
                     </div>
                   </div>
@@ -1242,6 +1291,60 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
                 />
               </div>
 
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-neutral-700 dark:text-neutral-300 mb-1">
+                    รหัสบาร์โค้ด / รหัสยา
+                  </label>
+                  <div className="relative">
+                    <Barcode className="w-3.5 h-3.5 absolute left-3 top-3 text-neutral-400" />
+                    <input
+                      type="text"
+                      value={newBarcode}
+                      onChange={(e) => setNewBarcode(e.target.value)}
+                      placeholder="เช่น 8850029012345"
+                      className="w-full pl-8 pr-3 py-2 rounded-xl bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 outline-none border border-neutral-300 dark:border-neutral-700 focus:border-blue-500 font-mono text-xs"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block font-semibold text-neutral-700 dark:text-neutral-300 mb-1">
+                    รูปภาพยา / สารน้ำ
+                  </label>
+                  <div className="flex items-center gap-2">
+                    {newImg ? (
+                      <div className="relative w-10 h-10 rounded-lg overflow-hidden border border-neutral-300 dark:border-neutral-700 shrink-0">
+                        <img src={newImg} alt="preview" className="w-full h-full object-cover" />
+                        <button
+                          type="button"
+                          onClick={() => setNewImg('')}
+                          className="absolute -top-1 -right-1 bg-rose-500 text-white rounded-full p-0.5"
+                        >
+                          <X className="w-2.5 h-2.5" />
+                        </button>
+                      </div>
+                    ) : null}
+                    <label className="flex-1 py-2 px-3 rounded-xl bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 border border-dashed border-neutral-300 dark:border-neutral-700 hover:bg-neutral-200 dark:hover:bg-neutral-700 flex items-center justify-center gap-1.5 cursor-pointer text-xs transition">
+                      <Camera className="w-3.5 h-3.5" />
+                      <span>{newImg ? 'เปลี่ยนรูปภาพ' : 'เลือก / ถ่ายรูป'}</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        capture="environment"
+                        className="hidden"
+                        onChange={async (e) => {
+                          const f = e.target.files?.[0];
+                          if (f) {
+                            const b64 = await fileToBase64(f, { maxWidth: 600, maxHeight: 600 });
+                            setNewImg(b64);
+                          }
+                        }}
+                      />
+                    </label>
+                  </div>
+                </div>
+              </div>
+
               <div>
                 <label className="block font-semibold text-neutral-700 dark:text-neutral-300 mb-1">
                   หมายเหตุ
@@ -1294,72 +1397,65 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
             </div>
 
             <form onSubmit={handleSaveEditDrug} className="space-y-3 text-xs">
-              <div>
-                <label className="block font-semibold text-neutral-700 dark:text-neutral-300 mb-1">
-                  ชื่อยา / สารน้ำ <span className="text-rose-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={editDrugName}
-                  onChange={(e) => setEditDrugName(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 outline-none border border-neutral-300 dark:border-neutral-700 focus:border-blue-500 font-medium"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-4">
                 <div>
                   <label className="block font-semibold text-neutral-700 dark:text-neutral-300 mb-1">
-                    หมวดหมู่
-                  </label>
-                  <select
-                    value={editCategory}
-                    onChange={(e) => setEditCategory(e.target.value as DrugCategory)}
-                    className="w-full px-3 py-2 rounded-xl bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 outline-none border border-neutral-300 dark:border-neutral-700 focus:border-blue-500 font-medium"
-                  >
-                    <option value="monthly">📅 ยาในคลังเดือน</option>
-                    <option value="quarterly">📦 ยาเบิกทุก 3 เดือน</option>
-                    <option value="adhoc">⚡ ยาเบิกเป็นครั้งๆ / ตามงบประมาณ</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block font-semibold text-neutral-700 dark:text-neutral-300 mb-1">
-                    หน่วยนับ (เช่น หลอด, ขวด, amp)
+                    ชื่อยา / สารน้ำ <span className="text-rose-500">*</span>
                   </label>
                   <input
                     type="text"
-                    value={editUnit}
-                    onChange={(e) => setEditUnit(e.target.value)}
-                    placeholder="เช่น หลอด, ขวด, amp"
-                    className="w-full px-3 py-2 rounded-xl bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 outline-none border border-neutral-300 dark:border-neutral-700 focus:border-blue-500"
+                    required
+                    value={editDrugName}
+                    onChange={(e) => setEditDrugName(e.target.value)}
+                    className="w-full px-4 py-3 rounded-2xl bg-neutral-50 dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 outline-none border border-neutral-200 dark:border-neutral-700 focus:border-blue-500 font-medium"
                   />
                 </div>
-              </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-semibold text-neutral-700 dark:text-neutral-300 mb-1">
-                    คงเหลือ
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={editRemaining}
-                    onChange={(e) => setEditRemaining(Number(e.target.value) || 0)}
-                    className="w-full px-3 py-2 rounded-xl bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 outline-none border border-neutral-300 dark:border-neutral-700 focus:border-blue-500 font-bold"
-                  />
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-semibold text-neutral-700 dark:text-neutral-300 mb-1">หมวดหมู่</label>
+                    <select
+                      value={editCategory}
+                      onChange={(e) => setEditCategory(e.target.value as DrugCategory)}
+                      className="w-full px-4 py-3 rounded-2xl bg-neutral-50 dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 outline-none border border-neutral-200 dark:border-neutral-700 focus:border-blue-500 font-medium"
+                    >
+                      <option value="monthly">📅 ยาในคลังเดือน</option>
+                      <option value="quarterly">📦 ยาเบิกทุก 3 เดือน</option>
+                      <option value="adhoc">⚡ ยาเบิกเป็นครั้งๆ / ตามงบประมาณ</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-neutral-700 dark:text-neutral-300 mb-1">หน่วยนับ</label>
+                    <input
+                      type="text"
+                      value={editUnit}
+                      onChange={(e) => setEditUnit(e.target.value)}
+                      className="w-full px-4 py-3 rounded-2xl bg-neutral-50 dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 outline-none border border-neutral-200 dark:border-neutral-700 focus:border-blue-500"
+                    />
+                  </div>
                 </div>
-                <div>
-                  <label className="block font-semibold text-neutral-700 dark:text-neutral-300 mb-1">
-                    ยอดต่ำสุด (Min Stock)
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={editMinStock}
-                    onChange={(e) => setEditMinStock(Number(e.target.value) || 0)}
-                    className="w-full px-3 py-2 rounded-xl bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 outline-none border border-neutral-300 dark:border-neutral-700 focus:border-blue-500"
-                  />
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-semibold text-neutral-700 dark:text-neutral-300 mb-1">คงเหลือ</label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={editRemaining}
+                      onChange={(e) => setEditRemaining(Number(e.target.value) || 0)}
+                      className="w-full px-4 py-3 rounded-2xl bg-neutral-50 dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 outline-none border border-neutral-200 dark:border-neutral-700 focus:border-blue-500 font-bold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-neutral-700 dark:text-neutral-300 mb-1">ยอดต่ำสุด (Min)</label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={editMinStock}
+                      onChange={(e) => setEditMinStock(Number(e.target.value) || 0)}
+                      className="w-full px-4 py-3 rounded-2xl bg-neutral-50 dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 outline-none border border-neutral-200 dark:border-neutral-700 focus:border-blue-500"
+                    />
+                  </div>
                 </div>
               </div>
 
@@ -1412,6 +1508,60 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
                     onChange={(e) => setEditExpDate(e.target.value)}
                     className="w-full px-3 py-2 rounded-xl bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 outline-none border border-neutral-300 dark:border-neutral-700 focus:border-blue-500"
                   />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-neutral-700 dark:text-neutral-300 mb-1">
+                    รหัสบาร์โค้ด / รหัสยา
+                  </label>
+                  <div className="relative">
+                    <Barcode className="w-3.5 h-3.5 absolute left-3 top-3 text-neutral-400" />
+                    <input
+                      type="text"
+                      value={editBarcode}
+                      onChange={(e) => setEditBarcode(e.target.value)}
+                      placeholder="เช่น 8850029012345"
+                      className="w-full pl-8 pr-3 py-2 rounded-xl bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 outline-none border border-neutral-300 dark:border-neutral-700 focus:border-blue-500 font-mono text-xs"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block font-semibold text-neutral-700 dark:text-neutral-300 mb-1">
+                    รูปภาพยา / สารน้ำ
+                  </label>
+                  <div className="flex items-center gap-2">
+                    {editImg ? (
+                      <div className="relative w-10 h-10 rounded-lg overflow-hidden border border-neutral-300 dark:border-neutral-700 shrink-0">
+                        <img src={editImg} alt="preview" className="w-full h-full object-cover" />
+                        <button
+                          type="button"
+                          onClick={() => setEditImg('')}
+                          className="absolute -top-1 -right-1 bg-rose-500 text-white rounded-full p-0.5 cursor-pointer"
+                        >
+                          <X className="w-2.5 h-2.5" />
+                        </button>
+                      </div>
+                    ) : null}
+                    <label className="flex-1 py-2 px-3 rounded-xl bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 border border-dashed border-neutral-300 dark:border-neutral-700 hover:bg-neutral-200 dark:hover:bg-neutral-700 flex items-center justify-center gap-1.5 cursor-pointer text-xs transition">
+                      <Camera className="w-3.5 h-3.5" />
+                      <span>{editImg ? 'เปลี่ยนรูปภาพ' : 'เลือก / ถ่ายรูป'}</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        capture="environment"
+                        className="hidden"
+                        onChange={async (e) => {
+                          const f = e.target.files?.[0];
+                          if (f) {
+                            const b64 = await fileToBase64(f, { maxWidth: 600, maxHeight: 600 });
+                            setEditImg(b64);
+                          }
+                        }}
+                      />
+                    </label>
+                  </div>
                 </div>
               </div>
 
@@ -1479,6 +1629,49 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
               >
                 <Trash2 className="w-3.5 h-3.5" />
                 <span>ยืนยันลบ</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Tap-to-Zoom Lightbox Modal (BEEP Style Image Viewer) */}
+      {zoomedImage && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in cursor-zoom-out"
+          onClick={() => setZoomedImage(null)}
+        >
+          <div
+            className="relative max-w-lg w-full bg-white dark:bg-neutral-900 rounded-3xl overflow-hidden shadow-2xl border border-neutral-200 dark:border-neutral-800 p-4 cursor-default"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between pb-3 mb-2 border-b border-neutral-100 dark:border-neutral-800">
+              <h3 className="font-bold text-sm text-neutral-900 dark:text-white truncate flex items-center gap-1.5">
+                <Camera className="w-4 h-4 text-blue-500" />
+                <span>{zoomedImage.title}</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setZoomedImage(null)}
+                className="p-1 rounded-full text-neutral-400 hover:text-neutral-700 dark:hover:text-white cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="flex items-center justify-center max-h-[68vh] overflow-hidden rounded-2xl bg-neutral-100 dark:bg-neutral-950 p-2">
+              <img
+                src={zoomedImage.url}
+                alt={zoomedImage.title}
+                className="max-h-[64vh] w-auto max-w-full rounded-xl object-contain shadow-md"
+              />
+            </div>
+            <div className="pt-3 flex items-center justify-end">
+              <button
+                type="button"
+                onClick={() => setZoomedImage(null)}
+                className="px-4 py-2 rounded-xl bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-300 text-xs font-semibold cursor-pointer transition"
+              >
+                ปิด
               </button>
             </div>
           </div>

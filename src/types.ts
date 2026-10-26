@@ -5,6 +5,8 @@ export interface User {
   username: string;
   name: string;
   role: Role;
+  position?: string; // e.g. 'วิสัญญีแพทย์' | 'พยาบาลวิสัญญี' | 'เจ้าหน้าที่'
+  signature?: string; // Base64 data URL for digital signature
   active: boolean;
   salt: string;
   hash: string;
@@ -12,6 +14,7 @@ export interface User {
   created: string;
   last: string;
   avatar?: string;
+  ringColor?: string;
 }
 
 export interface EquipmentItem {
@@ -36,6 +39,7 @@ export interface CheckItemState {
   result: 'ปกติ' | 'ผิดปกติ' | '';
   note?: string;
   val?: string; // numeric count or custom reading, e.g. "1400/1700 PSI", "2"
+  weekVals?: { [week: number]: string };
 }
 
 export interface CheckItemRow extends EquipmentItem {
@@ -133,4 +137,6 @@ export interface DrugItem {
   unit?: string;           // หน่วยนับ เช่น amp, vial, box, ขวด, หลอด
   expDate: string;         // วันหมดอายุ (YYYY-MM-DD)
   note: string;            // หมายเหตุ
+  img?: string;            // รูปภาพยา/สารน้ำ (Base64 หรือ URL)
+  barcode?: string;        // รหัสบาร์โค้ด / รหัสยา
 }

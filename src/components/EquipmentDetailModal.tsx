@@ -61,7 +61,7 @@ export const EquipmentDetailModal: React.FC<EquipmentDetailModalProps> = ({
         {/* Header */}
         <div className="p-5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 shrink-0">
           <div className="flex items-center gap-2.5">
-            <div className="p-2.5 rounded-2xl bg-sky-50 dark:bg-sky-950/60 text-sky-600 dark:text-sky-400">
+            <div className="p-2.5 rounded-2xl bg-accent-light text-accent">
               <FileText className="w-5 h-5" />
             </div>
             <div>
@@ -116,7 +116,7 @@ export const EquipmentDetailModal: React.FC<EquipmentDetailModalProps> = ({
         <div className="p-4 bg-slate-50 dark:bg-slate-800/50 border-t border-slate-200 dark:border-slate-800 flex justify-end shrink-0">
           <button
             onClick={onClose}
-            className="px-5 py-2 rounded-xl text-xs font-semibold bg-sky-600 hover:bg-sky-700 text-white transition"
+            className="px-5 py-2 rounded-xl text-xs font-semibold bg-accent hover:bg-accent-hover text-white transition active:scale-95"
           >
             ปิดหน้าต่าง
           </button>

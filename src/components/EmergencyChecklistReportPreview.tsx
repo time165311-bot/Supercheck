@@ -60,6 +60,7 @@ export interface EmergencyChecklistReportPreviewProps {
   onWeekDatesChange?: (dates: { [key: number]: string }) => void;
   weekItemValues?: { [itemKey: string]: { [week: number]: string } };
   onWeekItemValuesChange?: (values: { [itemKey: string]: { [week: number]: string } }) => void;
+  signature?: string;
 }
 
 export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportPreviewProps> = ({
@@ -67,6 +68,7 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
   items = [],
   date: surveyDate = '',
   inspector = '',
+  signature = '',
   agencyName = 'คลินิกงานบริการผู้ป่วยในวิสัญญี',
   activeWeek: propActiveWeek,
   onActiveWeekChange,
@@ -140,16 +142,64 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
 
   return (
     <div
-      className="paper-preview sheet-preview bg-white p-6 rounded-lg shadow text-slate-900"
+      className="a4-page-sheet a4-print-container paper-preview sheet-preview isolate !bg-white !text-black p-6 rounded-lg shadow"
       style={{
         display: 'inline-block',
         width: 'max-content',
         minWidth: '100%',
         boxSizing: 'border-box',
-        backgroundColor: '#ffffff',
+        backgroundColor: '#ffffff !important',
+        background: '#ffffff !important',
+        color: '#000000 !important',
         fontFamily: "'TH Sarabun PSK', 'Sarabun', Tahoma, sans-serif",
       }}
     >
+      <style>{`
+        .a4-page-sheet,
+        .a4-page-sheet *,
+        .a4-print-container, 
+        .a4-print-container *, 
+        .a4-print-container table, 
+        .a4-print-container thead, 
+        .a4-print-container tbody, 
+        .a4-print-container tfoot,
+        .a4-print-container tr, 
+        .a4-print-container th, 
+        .a4-print-container td, 
+        .a4-print-container p, 
+        .a4-print-container span, 
+        .a4-print-container div,
+        .a4-print-container input {
+          background-color: #ffffff !important;
+          color: #000000 !important;
+          border-color: #cbd5e1 !important;
+          background-image: none !important;
+          color-scheme: light !important;
+        }
+        .a4-page-sheet th,
+        .a4-print-container th, 
+        .a4-print-container .bg-slate-100,
+        .a4-print-container thead tr,
+        .a4-print-container .bg-slate-50,
+        .a4-print-container tfoot tr {
+          background-color: #f1f5f9 !important;
+          color: #000000 !important;
+        }
+        /* Specifically target icons if any */
+        .a4-page-sheet svg,
+        .a4-print-container svg {
+          color: #000000 !important;
+        }
+        /* Fix for input placeholders and text */
+        .a4-page-sheet input::placeholder,
+        .a4-print-container input::placeholder {
+          color: #94a3b8 !important;
+        }
+        .a4-page-sheet input,
+        .a4-print-container input {
+          color: #000000 !important;
+        }
+      `}</style>
       {/* Week Selector & Quick Toolbar */}
       <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-200 flex-wrap gap-2 text-xs">
         <div className="flex items-center gap-1.5 flex-wrap">
@@ -184,46 +234,47 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
       </div>
 
       {/* 1. Header Layout */}
-      <div className="text-center mb-4">
-        <h2 className="text-2xl font-bold text-slate-900 tracking-wide" style={{ fontSize: '18pt' }}>
+      <div className="text-center mb-4" style={{ backgroundColor: '#ffffff !important', background: '#ffffff !important' }}>
+        <h2 className="text-2xl font-bold tracking-wide" style={{ fontSize: '18pt', color: '#000000 !important' }}>
           {headingTitle}
         </h2>
         {type === 'bag' && (
-          <p className="text-sm font-semibold text-slate-700 mt-1 flex items-center justify-center gap-1.5" style={{ fontSize: '12pt' }}>
-            <Building2 className="w-4 h-4 text-slate-500" />
+          <p className="text-sm font-semibold mt-1 flex items-center justify-center gap-1.5" style={{ fontSize: '12pt', color: '#000000 !important' }}>
+            <Building2 className="w-4 h-4" style={{ color: '#000000 !important' }} />
             หน่วยงาน: {agencyName}
           </p>
         )}
       </div>
 
-      <div className="flex justify-between items-center text-sm text-slate-700 font-medium mb-3" style={{ fontSize: '11pt' }}>
+      <div className="flex justify-between items-center text-sm font-medium mb-3" style={{ fontSize: '11pt', color: '#000000 !important', backgroundColor: '#ffffff !important', background: '#ffffff !important' }}>
         <div>
-          <span>{agencyName}</span>
+          <span style={{ color: '#000000 !important' }}>{agencyName}</span>
         </div>
         <div className="flex items-center gap-4">
-          <span className="flex items-center gap-1">
-            <Calendar className="w-4 h-4 text-slate-400" />
+          <span className="flex items-center gap-1" style={{ color: '#000000 !important' }}>
+            <Calendar className="w-4 h-4" style={{ color: '#000000 !important' }} />
             วัน, เดือน, ปี ที่สำรวจ: {formatThaiDate(surveyDate)}
           </span>
           {inspector && (
-            <span className="flex items-center gap-1 font-medium text-slate-800">
-              <UserIcon className="w-4 h-4 text-slate-400" />
+            <span className="flex items-center gap-1 font-medium" style={{ color: '#000000 !important' }}>
+              <UserIcon className="w-4 h-4" style={{ color: '#000000 !important' }} />
               ผู้ตรวจ: {inspector}
             </span>
           )}
         </div>
       </div>
 
-      {/* 2. Standard 8-Column Table Grid */}
       <table
-        className="w-full border-collapse border border-slate-400 text-slate-900"
+        className="w-full border-collapse border border-slate-400"
         style={{
           minWidth: '850px',
           fontSize: '12pt',
+          color: '#000000 !important',
+          backgroundColor: '#ffffff !important'
         }}
       >
         <thead>
-          <tr className="bg-slate-100 text-slate-900 font-bold text-center" style={{ fontSize: '12pt' }}>
+          <tr className="font-bold text-center" style={{ fontSize: '12pt', backgroundColor: '#f1f5f9 !important', color: '#000000 !important' }}>
             {/* Col 1: รายการ (280px, left) */}
             <th
               rowSpan={2}
@@ -262,7 +313,7 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
             </th>
           </tr>
           {/* Header Row 2: ระบุวันที่ตรวจ (DD/MM/YY) */}
-          <tr className="bg-slate-100 text-slate-700 text-center text-xs" style={{ fontSize: '10pt' }}>
+          <tr className="text-center text-xs" style={{ fontSize: '10pt', backgroundColor: '#f1f5f9 !important', color: '#000000 !important' }}>
             {[1, 2, 3, 4, 5].map((w) => {
               const wkDate = resolvedWeekDates[w] || (currentWeek === w ? shortDate : '');
               return (
@@ -289,11 +340,11 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
           {Object.entries(groupedItems).map(([gName, groupRows], gIdx) => (
             <React.Fragment key={gName || gIdx}>
               {/* Category / Sub-section Banner Row */}
-              <tr className="bg-slate-100 font-bold text-slate-900">
+              <tr className="font-bold" style={{ backgroundColor: '#f1f5f9 !important', color: '#000000 !important' }}>
                 <td
                   colSpan={8}
-                  className="border border-slate-300 p-1.5 pl-3 text-left font-bold bg-slate-100 text-slate-800"
-                  style={{ textAlign: 'left', paddingLeft: '12px' }}
+                  className="border border-slate-300 p-1.5 pl-3 text-left font-bold"
+                  style={{ textAlign: 'left', paddingLeft: '12px', backgroundColor: '#f1f5f9 !important', color: '#000000 !important' }}
                 >
                   📁 {gName}
                 </td>
@@ -384,47 +435,59 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
             </React.Fragment>
           ))}
         </tbody>
-        {/* 3. Footer Layout: ผู้ตรวจสอบ 1 & 2 */}
         <tfoot>
-          <tr className="bg-slate-50 font-semibold text-slate-800" style={{ fontSize: '11pt' }}>
+          <tr className="font-semibold" style={{ fontSize: '11pt', color: '#000000 !important', backgroundColor: '#ffffff !important' }}>
             <td
               colSpan={2}
-              className="border border-slate-400 p-2 text-center font-bold bg-slate-100"
-              style={{ textAlign: 'center', verticalAlign: 'middle' }}
+              className="border border-slate-400 p-2 text-center font-bold"
+              style={{ textAlign: 'center', verticalAlign: 'middle', backgroundColor: '#f1f5f9 !important', color: '#000000 !important' }}
             >
               ผู้ตรวจสอบ 1 (ผู้ตรวจเช็ค)
             </td>
             {[1, 2, 3, 4, 5].map((w) => (
               <td
                 key={w}
-                className={`border border-slate-400 p-2 text-center text-xs ${
-                  currentWeek === w ? 'bg-blue-50/80 font-bold text-blue-900' : ''
+                className={`border border-slate-400 p-1.5 text-center text-xs ${
+                  currentWeek === w ? 'font-bold' : ''
                 }`}
-                style={{ textAlign: 'center', verticalAlign: 'middle', fontSize: '10pt' }}
+                style={{ textAlign: 'center', verticalAlign: 'middle', fontSize: '10pt', backgroundColor: currentWeek === w ? '#f1f5f9 !important' : '#ffffff !important', color: '#000000 !important' }}
               >
-                {currentWeek === w && inspector ? inspector : '....................'}
+                {currentWeek === w ? (
+                  <div className="flex flex-col items-center justify-center min-h-[36px]">
+                    {signature && (
+                      <img
+                        src={signature}
+                        alt="ลายเซ็น"
+                        className="max-h-7 max-w-[65px] object-contain mb-0.5"
+                      />
+                    )}
+                    <span style={{ color: '#000000 !important' }}>{inspector || '....................'}</span>
+                  </div>
+                ) : (
+                  '....................'
+                )}
               </td>
             ))}
-            <td className="border border-slate-400 p-2 text-center text-slate-400">-</td>
+            <td className="border border-slate-400 p-2 text-center" style={{ color: '#000000 !important' }}>-</td>
           </tr>
-          <tr className="bg-slate-50 font-semibold text-slate-800" style={{ fontSize: '11pt' }}>
+          <tr className="font-semibold" style={{ fontSize: '11pt', color: '#000000 !important', backgroundColor: '#ffffff !important' }}>
             <td
               colSpan={2}
-              className="border border-slate-400 p-2 text-center font-bold bg-slate-100"
-              style={{ textAlign: 'center', verticalAlign: 'middle' }}
+              className="border border-slate-400 p-2 text-center font-bold"
+              style={{ textAlign: 'center', verticalAlign: 'middle', backgroundColor: '#f1f5f9 !important', color: '#000000 !important' }}
             >
               ผู้ตรวจสอบ 2 (หัวหน้างาน/ผู้รับรอง)
             </td>
             {[1, 2, 3, 4, 5].map((w) => (
               <td
                 key={w}
-                className="border border-slate-400 p-2 text-center text-xs text-slate-500"
-                style={{ textAlign: 'center', verticalAlign: 'middle', fontSize: '10pt' }}
+                className="border border-slate-400 p-2 text-center text-xs"
+                style={{ textAlign: 'center', verticalAlign: 'middle', fontSize: '10pt', color: '#000000 !important' }}
               >
                 ....................
               </td>
             ))}
-            <td className="border border-slate-400 p-2 text-center text-slate-400">-</td>
+            <td className="border border-slate-400 p-2 text-center" style={{ color: '#000000 !important' }}>-</td>
           </tr>
         </tfoot>
       </table>
@@ -448,11 +511,13 @@ export function generateEmergencyPrintHtml(
     activeWeek?: number;
     weekDates?: { [key: number]: string };
     weekItemValues?: { [itemKey: string]: { [week: number]: string } };
+    signature?: string;
   } = {}
 ): string {
   const {
     date = '',
     inspector = '',
+    signature = '',
     agencyName = 'คลินิกงานบริการผู้ป่วยในวิสัญญี',
     activeWeek = getWeekOfMonth(date),
     weekDates = {},
@@ -556,8 +621,14 @@ export function generateEmergencyPrintHtml(
 
   const inspector1Cells = [1, 2, 3, 4, 5]
     .map((w) => {
-      const val = activeWeek === w && inspector ? inspector : '....................';
-      return `<td style="text-align: center; border: 1px solid #000; font-size: 9.5pt;">${val}</td>`;
+      const isTarget = activeWeek === w;
+      if (isTarget && (signature || inspector)) {
+        return `<td style="text-align: center; border: 1px solid #000; font-size: 9pt; vertical-align: middle; padding: 2px;">
+          ${signature ? `<img src="${signature}" style="max-height: 24px; max-width: 65px; object-fit: contain; display: block; margin: 0 auto 1px auto;" alt="ลายเซ็น" />` : ''}
+          <span>${inspector || ''}</span>
+        </td>`;
+      }
+      return `<td style="text-align: center; border: 1px solid #000; font-size: 9.5pt;">....................</td>`;
     })
     .join('');
 

@@ -77,12 +77,14 @@ export interface DrugInventoryReportPreviewProps {
   headerNote?: string;
   onHeaderNoteChange?: (note: string) => void;
   editableNote?: boolean;
+  signature?: string;
 }
 
 export const DrugInventoryReportPreview: React.FC<DrugInventoryReportPreviewProps> = ({
   drugs = [],
   date: surveyDate = '',
   inspector = '',
+  signature = '',
   clinicName = 'คลินิกงานบริการผู้ป่วยในวิสัญญี',
   subCategory = 'monthly',
   onSubCategoryChange,
@@ -100,16 +102,51 @@ export const DrugInventoryReportPreview: React.FC<DrugInventoryReportPreviewProp
 
   return (
     <div
-      className="paper-preview sheet-preview bg-white p-6 rounded-lg shadow text-slate-900"
+      className="a4-page-sheet a4-print-container paper-preview sheet-preview isolate !bg-white !text-black p-6 rounded-lg shadow"
       style={{
         display: 'inline-block',
         width: 'max-content',
         minWidth: '100%',
         boxSizing: 'border-box',
-        backgroundColor: '#ffffff',
+        backgroundColor: '#ffffff !important',
+        background: '#ffffff !important',
+        color: '#000000 !important',
         fontFamily: "'TH Sarabun PSK', 'Sarabun', Tahoma, sans-serif",
       }}
     >
+      <style>{`
+        .a4-page-sheet,
+        .a4-page-sheet *,
+        .a4-print-container, 
+        .a4-print-container *, 
+        .a4-print-container table, 
+        .a4-print-container thead, 
+        .a4-print-container tbody, 
+        .a4-print-container tr, 
+        .a4-print-container th, 
+        .a4-print-container td, 
+        .a4-print-container p, 
+        .a4-print-container span, 
+        .a4-print-container div {
+          background-color: #ffffff !important;
+          color: #000000 !important;
+          border-color: #cbd5e1 !important;
+          background-image: none !important;
+          color-scheme: light !important;
+        }
+        .a4-page-sheet th,
+        .a4-print-container th, 
+        .a4-print-container .bg-slate-100,
+        .a4-print-container thead tr {
+          background-color: #f1f5f9 !important;
+          color: #000000 !important;
+        }
+        /* Specifically target icons if any */
+        .a4-page-sheet svg,
+        .a4-print-container svg {
+          color: #000000 !important;
+        }
+      `}</style>
       {/* Sub-category selector pills for Drug Preview */}
       {onSubCategoryChange && (
         <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-200 flex-wrap gap-2 text-xs">
@@ -185,29 +222,29 @@ export const DrugInventoryReportPreview: React.FC<DrugInventoryReportPreviewProp
       )}
 
       {/* 1. Header Layout */}
-      <div className="text-center mb-4">
-        <h2 className="text-2xl font-bold text-slate-900 tracking-wide" style={{ fontSize: '18pt' }}>
+      <div className="text-center mb-4" style={{ backgroundColor: '#ffffff !important', background: '#ffffff !important' }}>
+        <h2 className="text-2xl font-bold tracking-wide" style={{ fontSize: '18pt', color: '#000000 !important' }}>
           {mainHeading}
         </h2>
         {headerNote && (
-          <p className="text-sm font-semibold text-amber-800 mt-0.5" style={{ fontSize: '11pt' }}>
+          <p className="text-sm font-semibold mt-0.5" style={{ fontSize: '11pt', color: '#b45309 !important' }}>
             {headerNote}
           </p>
         )}
       </div>
 
-      <div className="flex justify-between items-center text-sm text-slate-700 font-medium mb-3" style={{ fontSize: '11pt' }}>
+      <div className="flex justify-between items-center text-sm font-medium mb-3" style={{ fontSize: '11pt', color: '#000000 !important', backgroundColor: '#ffffff !important', background: '#ffffff !important' }}>
         <div>
-          <span className="font-semibold text-slate-900">{clinicName}</span>
+          <span className="font-semibold" style={{ color: '#000000 !important' }}>{clinicName}</span>
         </div>
         <div className="flex items-center gap-4">
-          <span className="flex items-center gap-1">
-            <Calendar className="w-4 h-4 text-slate-400" />
+          <span className="flex items-center gap-1" style={{ color: '#000000 !important' }}>
+            <Calendar className="w-4 h-4" style={{ color: '#000000 !important' }} />
             วัน, เดือน, ปี ที่สำรวจ: {formatThaiDate(surveyDate)}
           </span>
           {inspector && (
-            <span className="flex items-center gap-1 font-medium text-slate-800">
-              <UserIcon className="w-4 h-4 text-slate-400" />
+            <span className="flex items-center gap-1 font-medium" style={{ color: '#000000 !important' }}>
+              <UserIcon className="w-4 h-4" style={{ color: '#000000 !important' }} />
               ผู้ตรวจ: {inspector}
             </span>
           )}
@@ -216,14 +253,16 @@ export const DrugInventoryReportPreview: React.FC<DrugInventoryReportPreviewProp
 
       {/* 2. Standard 8-Column Table Grid */}
       <table
-        className="w-full border-collapse border border-slate-400 text-slate-900"
+        className="w-full border-collapse border border-slate-400"
         style={{
           minWidth: '820px',
           fontSize: '12pt',
+          color: '#000000 !important',
+          backgroundColor: '#ffffff !important'
         }}
       >
         <thead>
-          <tr className="bg-slate-100 text-slate-900 font-bold text-center" style={{ fontSize: '12pt' }}>
+          <tr className="font-bold text-center" style={{ fontSize: '12pt', backgroundColor: '#f1f5f9 !important', color: '#000000 !important' }}>
             {/* Col 1: ชนิดยา/สารน้ำ (200px, header center, data left) */}
             <th
               className="border border-slate-400 p-2"
@@ -372,14 +411,22 @@ export const DrugInventoryReportPreview: React.FC<DrugInventoryReportPreviewProp
       </table>
 
       {/* Signature Area */}
-      <div className="mt-8 pt-4 border-t border-slate-200 flex justify-around text-sm text-slate-700" style={{ fontSize: '11pt' }}>
-        <div className="text-center space-y-2">
-          <p>ลงชื่อ .................................................... ผู้ตรวจสอบ</p>
-          <p>({inspector || '....................................................'})</p>
+      <div className="mt-8 pt-4 border-t border-slate-200 flex justify-around text-sm" style={{ fontSize: '11pt', color: '#000000 !important', backgroundColor: '#ffffff !important', background: '#ffffff !important' }}>
+        <div className="text-center flex flex-col items-center">
+          {signature ? (
+            <div className="h-12 flex items-end justify-center mb-1">
+              <img src={signature} alt="ลายเซ็น" className="max-h-12 max-w-[140px] object-contain" />
+            </div>
+          ) : (
+            <div className="h-12" />
+          )}
+          <p style={{ color: '#000000 !important' }}>ลงชื่อ .................................................... ผู้ตรวจสอบ</p>
+          <p style={{ color: '#000000 !important' }}>({inspector || '....................................................'})</p>
         </div>
-        <div className="text-center space-y-2">
-          <p>ลงชื่อ .................................................... หัวหน้างาน</p>
-          <p>(....................................................)</p>
+        <div className="text-center flex flex-col items-center">
+          <div className="h-12" />
+          <p style={{ color: '#000000 !important' }}>ลงชื่อ .................................................... หัวหน้างาน</p>
+          <p style={{ color: '#000000 !important' }}>(....................................................)</p>
         </div>
       </div>
     </div>
@@ -394,11 +441,13 @@ export function generateDrugPrintHtml(
     clinicName?: string;
     subCategory?: 'all' | DrugCategory;
     headerNote?: string;
+    signature?: string;
   } = {}
 ): string {
   const {
     date = '',
     inspector = '',
+    signature = '',
     clinicName = 'คลินิกงานบริการผู้ป่วยในวิสัญญี',
     subCategory = 'monthly',
     headerNote = '(เพิ่ม Column Exp.)',
@@ -571,11 +620,15 @@ export function generateDrugPrintHtml(
           </tbody>
         </table>
         <div class="signature-section">
-          <div class="sign-col">
+          <div class="sign-col" style="display: flex; flex-direction: column; align-items: center;">
+            <div style="height: 48px; display: flex; align-items: flex-end; justify-content: center; margin-bottom: 2px;">
+              ${signature ? `<img src="${signature}" style="max-height: 48px; max-width: 140px; object-fit: contain;" alt="ลายเซ็น" />` : ''}
+            </div>
             <p>ลงชื่อ .................................................... ผู้ตรวจสอบ</p>
             <p>(${inspector || '....................................................'})</p>
           </div>
-          <div class="sign-col">
+          <div class="sign-col" style="display: flex; flex-direction: column; align-items: center;">
+            <div style="height: 48px;"></div>
             <p>ลงชื่อ .................................................... หัวหน้างาน</p>
             <p>(....................................................)</p>
           </div>

@@ -228,7 +228,7 @@ export const FloorMap: React.FC<FloorMapProps> = ({
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             placeholder="ค้นหาเลขครุภัณฑ์, SAP, หรือชื่อเครื่อง..."
-            className="w-full pl-9 pr-3 py-2 bg-neutral-100 dark:bg-neutral-800 text-neutral-800 dark:text-neutral-100 rounded-xl border border-transparent focus:border-blue-500 focus:bg-white dark:focus:bg-neutral-900 text-xs outline-none focus:ring-2 focus:ring-blue-500/20 transition font-sans"
+            className="w-full pl-9 pr-3 py-2 bg-neutral-100 dark:bg-neutral-800 text-neutral-800 dark:text-neutral-100 rounded-xl border border-transparent focus:border-accent focus:bg-white dark:focus:bg-neutral-900 text-xs outline-none focus:ring-2 focus:ring-accent/20 transition font-sans"
           />
         </div>
 
@@ -261,7 +261,7 @@ export const FloorMap: React.FC<FloorMapProps> = ({
               type="button"
               onClick={handleResetZoom}
               title="รีเซ็ตตำแหน่งและขนาดกลับสู่ 100%"
-              className="p-1.5 rounded-lg text-blue-600 hover:text-blue-800 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/60 transition cursor-pointer flex items-center gap-1 text-[11px] font-semibold"
+              className="p-1.5 rounded-lg text-accent hover:text-accent-hover dark:text-accent hover:bg-accent-light dark:hover:bg-accent/20 transition cursor-pointer flex items-center gap-1 text-[11px] font-semibold active:scale-95"
             >
               <RotateCcw className="w-3 h-3" />
               <span className="hidden sm:inline">รีเซ็ต</span>
@@ -294,7 +294,7 @@ export const FloorMap: React.FC<FloorMapProps> = ({
                     {m.item.name}
                   </div>
                 </div>
-                <span className="text-xs font-semibold text-sky-600 dark:text-sky-400 shrink-0">
+                <span className="text-xs font-semibold text-accent shrink-0">
                   📍 {m.room.n}
                 </span>
               </button>
@@ -306,7 +306,7 @@ export const FloorMap: React.FC<FloorMapProps> = ({
       {/* Map Drag & Zoom Indicator & Helper */}
       <div className="flex items-center justify-between text-[11px] text-neutral-500 dark:text-neutral-400 px-1">
         <span>💡 ใช้นิ้วหรือเมาส์ลากเลื่อนผังได้โดยตรง | จีบนิ้วเข้า-ออกเพื่อซูมอิสระ</span>
-        <span className="text-blue-600 dark:text-blue-400 font-semibold font-mono">
+        <span className="text-accent font-semibold font-mono">
           {Math.round(zoomScale * 100)}%
         </span>
       </div>

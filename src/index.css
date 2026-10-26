@@ -4,119 +4,152 @@
 
 @layer base {
   :root {
-    --font-sans: 'Prompt', 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-    --font-sarabun: 'Sarabun', sans-serif;
-    --apple-blue: #0071e3;
-    --apple-blue-hover: #0077ed;
-    --apple-green: #34c759;
-    --samsung-blue: #2355ff;
+    --font-sans: 'Prompt', 'Noto Sans Thai', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    --fb-blue: #1877f2;
+    --fb-blue-hover: #166fe5;
+    --fb-bg: #f0f2f5;
+    --fb-card: #ffffff;
+    --fb-border: #e4e6eb;
+    --fb-text: #050505;
+    --fb-text-sub: #65676b;
+    
+    /* Dynamic Accent Color Variable */
+    --app-accent: #1877f2;
+    --app-accent-hover: #166fe5;
+    --app-accent-light: rgba(24, 119, 242, 0.1);
   }
 
   body {
     font-family: var(--font-sans);
-    letter-spacing: -0.012em;
+    line-height: 1.5;
+    letter-spacing: -0.01em;
     -webkit-tap-highlight-color: transparent;
     -webkit-font-smoothing: antialiased;
+    background-color: #f0f2f5;
+    color: #050505;
+  }
+
+  /* Prevent Thai text overlap and clipping across all headings, buttons, and inputs */
+  button, input, select, textarea, h1, h2, h3, h4, h5, h6, p, span {
+    line-height: normal;
   }
 }
 
-/* Apple iOS & Samsung One UI Minimalist Tokens */
-.ios-glass {
-  background: rgba(255, 255, 255, 0.85);
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
+/* Global Accent Color Utility Classes */
+.bg-accent { background-color: var(--app-accent) !important; }
+.text-accent { color: var(--app-accent) !important; }
+.border-accent { border-color: var(--app-accent) !important; }
+.hover-bg-accent:hover { background-color: var(--app-accent-hover) !important; }
+.accent-ring { ring-color: var(--app-accent) !important; }
+.bg-accent-light { background-color: var(--app-accent-light) !important; }
+
+/* Facebook Light & Dark UI Overrides */
+[data-theme="light"],
+[data-theme="light"] body {
+  background-color: #f0f2f5 !important;
+  color: #050505 !important;
 }
 
-[data-theme="dark"] .ios-glass {
-  background: rgba(18, 18, 20, 0.85);
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-}
-
-/* One UI Smooth Touch Feel */
-.oneui-card {
-  transition: transform 0.18s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.18s cubic-bezier(0.16, 1, 0.3, 1);
-}
-.oneui-card:active {
-  transform: scale(0.985);
-}
-
-.ios-touch {
-  transition: transform 0.15s cubic-bezier(0.2, 0, 0, 1), opacity 0.15s ease;
-}
-.ios-touch:active {
-  transform: scale(0.97);
-  opacity: 0.9;
-}
-
-/* True Neutral Monochrome Dark Mode Overrides (Pure Black, Gray, White only - Zero blue tint) */
 [data-theme="dark"],
 [data-theme="dark"] body {
-  background-color: #000000 !important;
-  color: #f5f5f5 !important;
+  background-color: #18191a !important;
+  color: #e4e6eb !important;
   color-scheme: dark;
 }
 
-[data-theme="dark"] .bg-slate-950,
-[data-theme="dark"] .dark\:bg-slate-950 {
-  background-color: #000000 !important;
+/* Facebook Dark Mode Panels & Cards */
+[data-theme="dark"] .bg-white,
+[data-theme="dark"] .dark\:bg-neutral-900,
+[data-theme="dark"] .dark\:bg-slate-900,
+[data-theme="dark"] .dark\:bg-\[\#161822\],
+[data-theme="dark"] .dark\:bg-\[\#1a1d2d\],
+[data-theme="dark"] .dark\:bg-\[\#15171e\] {
+  background-color: #242526 !important;
 }
 
-[data-theme="dark"] .bg-slate-900,
-[data-theme="dark"] .dark\:bg-slate-900 {
-  background-color: #0a0a0a !important;
+/* Facebook Dark Secondary Backgrounds (Pills, inputs, hover states) */
+[data-theme="dark"] .dark\:bg-neutral-800,
+[data-theme="dark"] .dark\:bg-slate-800,
+[data-theme="dark"] .dark\:bg-slate-800\/60,
+[data-theme="dark"] .dark\:bg-slate-800\/80,
+[data-theme="dark"] .dark\:bg-neutral-800\/80,
+[data-theme="dark"] .dark\:bg-neutral-800\/50,
+[data-theme="dark"] .dark\:bg-neutral-900\/60 {
+  background-color: #3a3b3c !important;
 }
 
-[data-theme="dark"] .bg-slate-800,
-[data-theme="dark"] .dark\:bg-slate-800 {
-  background-color: #141414 !important;
-}
-
-[data-theme="dark"] .bg-slate-800\/60,
-[data-theme="dark"] .dark\:bg-slate-800\/60 {
-  background-color: rgba(20, 20, 20, 0.6) !important;
-}
-
-[data-theme="dark"] .bg-slate-800\/80,
-[data-theme="dark"] .dark\:bg-slate-800\/80 {
-  background-color: rgba(20, 20, 20, 0.8) !important;
-}
-
-[data-theme="dark"] .border-slate-800,
-[data-theme="dark"] .dark\:border-slate-800 {
-  border-color: #222222 !important;
-}
-
-[data-theme="dark"] .border-slate-700,
+/* Facebook Dark Borders */
+[data-theme="dark"] .border-neutral-200,
+[data-theme="dark"] .border-slate-200,
+[data-theme="dark"] .dark\:border-neutral-800,
+[data-theme="dark"] .dark\:border-neutral-700,
+[data-theme="dark"] .dark\:border-slate-800,
 [data-theme="dark"] .dark\:border-slate-700 {
-  border-color: #2e2e2e !important;
+  border-color: #3a3b3c !important;
 }
 
-[data-theme="dark"] .text-slate-100,
-[data-theme="dark"] .dark\:text-slate-100,
-[data-theme="dark"] .text-white,
-[data-theme="dark"] .dark\:text-white {
-  color: #ffffff !important;
+/* Facebook Dark Text */
+[data-theme="dark"] .text-neutral-900,
+[data-theme="dark"] .text-slate-900,
+[data-theme="dark"] .dark\:text-white,
+[data-theme="dark"] .dark\:text-neutral-100 {
+  color: #e4e6eb !important;
 }
 
-[data-theme="dark"] .text-slate-200,
-[data-theme="dark"] .dark\:text-slate-200 {
-  color: #e5e5e5 !important;
-}
-
-[data-theme="dark"] .text-slate-300,
-[data-theme="dark"] .dark\:text-slate-300 {
-  color: #d4d4d4 !important;
-}
-
-[data-theme="dark"] .text-slate-400,
-[data-theme="dark"] .dark\:text-slate-400 {
-  color: #999999 !important;
-}
-
+[data-theme="dark"] .text-neutral-500,
+[data-theme="dark"] .text-neutral-600,
 [data-theme="dark"] .text-slate-500,
-[data-theme="dark"] .dark\:text-slate-500 {
-  color: #707070 !important;
+[data-theme="dark"] .text-slate-600,
+[data-theme="dark"] .dark\:text-neutral-400,
+[data-theme="dark"] .dark\:text-neutral-300,
+[data-theme="dark"] .dark\:text-slate-400,
+[data-theme="dark"] .dark\:text-slate-300 {
+  color: #b0b3b8 !important;
+}
+
+/* Facebook Style Touch & Interactive classes */
+.fb-touch {
+  transition: transform 0.12s ease, background-color 0.12s ease, opacity 0.12s ease;
+}
+.fb-touch:active {
+  transform: scale(0.97);
+}
+
+.fb-card {
+  background-color: #ffffff;
+  border: 1px solid #e4e6eb;
+  border-radius: 1rem;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+[data-theme="dark"] .fb-card {
+  background-color: #242526;
+  border-color: #3a3b3c;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+/* Facebook Primary Button */
+.fb-btn-primary {
+  background-color: #1877f2;
+  color: #ffffff;
+}
+.fb-btn-primary:hover {
+  background-color: #166fe5;
+}
+
+/* Facebook Secondary Button */
+.fb-btn-secondary {
+  background-color: #e4e6eb;
+  color: #050505;
+}
+.fb-btn-secondary:hover {
+  background-color: #d8dadf;
+}
+[data-theme="dark"] .fb-btn-secondary {
+  background-color: #3a3b3c;
+  color: #e4e6eb;
+}
+[data-theme="dark"] .fb-btn-secondary:hover {
+  background-color: #4e4f50;
 }
 
 /* Custom scrollbars */
@@ -154,3 +187,112 @@
   background: rgba(100, 116, 139, 0.8);
 }
 
+/* Weather background animation keyframes */
+@keyframes rainDrop {
+  0% {
+    transform: translateY(-20px) scaleY(1);
+    opacity: 0;
+  }
+  30% {
+    opacity: 0.7;
+  }
+  100% {
+    transform: translateY(120px) scaleY(1.2);
+    opacity: 0;
+  }
+}
+
+@keyframes driftClouds {
+  0% {
+    transform: translateX(-30%);
+  }
+  50% {
+    transform: translateX(30%);
+  }
+  100% {
+    transform: translateX(-30%);
+  }
+}
+
+@keyframes sunbeamPulse {
+  0%, 100% {
+    opacity: 0.25;
+    transform: scale(0.95) rotate(0deg);
+  }
+  50% {
+    opacity: 0.55;
+    transform: scale(1.1) rotate(15deg);
+  }
+}
+
+@keyframes lightningFlash {
+  0%, 92%, 100% {
+    opacity: 0;
+  }
+  93%, 95% {
+    opacity: 0.7;
+  }
+  94% {
+    opacity: 0.1;
+  }
+}
+
+@keyframes twinkleStar {
+  0%, 100% {
+    opacity: 0.3;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 0.9;
+    transform: scale(1.2);
+  }
+}
+
+@keyframes fogFloat {
+  0%, 100% {
+    transform: translateX(-15px) translateY(0);
+    opacity: 0.3;
+  }
+  50% {
+    transform: translateX(15px) translateY(-5px);
+    opacity: 0.5;
+  }
+}
+
+.animate-rain-drop {
+  animation: rainDrop 1.2s infinite linear;
+}
+
+.animate-drift-clouds {
+  animation: driftClouds 25s ease-in-out infinite;
+}
+
+.animate-sunbeam {
+  animation: sunbeamPulse 6s ease-in-out infinite;
+}
+
+.animate-lightning {
+  animation: lightningFlash 4s infinite;
+}
+
+.animate-twinkle {
+  animation: twinkleStar 2.5s ease-in-out infinite;
+}
+
+@keyframes twilightGlow {
+  0%, 100% { opacity: 0.4; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(1.1); }
+}
+
+@keyframes sunrisePulse {
+  0%, 100% { transform: translateY(0) scale(1); opacity: 0.5; }
+  50% { transform: translateY(-10px) scale(1.05); opacity: 0.8; }
+}
+
+.animate-twilight {
+  animation: twilightGlow 10s ease-in-out infinite;
+}
+
+.animate-sunrise {
+  animation: sunrisePulse 8s ease-in-out infinite;
+}

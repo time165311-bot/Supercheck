@@ -61,19 +61,19 @@ export const PasswordModal: React.FC<PasswordModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs select-none">
-      <div className="bg-white dark:bg-slate-900 rounded-3xl w-full max-w-md p-6 shadow-2xl border border-slate-200 dark:border-slate-800">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs select-none leading-normal">
+      <div className="bg-white dark:bg-[#242526] rounded-2xl md:rounded-3xl w-full max-w-md p-6 shadow-2xl border border-[#e4e6eb] dark:border-[#3a3b3c] animate-in fade-in slide-in-from-bottom-8 duration-300 ease-out">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2.5">
-            <div className="p-2.5 bg-sky-50 dark:bg-sky-950/60 text-sky-600 dark:text-sky-400 rounded-2xl">
+            <div className="w-10 h-10 rounded-full bg-[#e7f3ff] dark:bg-[#1877f2]/20 text-[#1877f2] flex items-center justify-center">
               <Key className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-base font-bold text-slate-900 dark:text-white">
+              <h3 className="text-base font-bold text-[#050505] dark:text-[#e4e6eb]">
                 เปลี่ยนรหัสผ่าน
               </h3>
               {forced && (
-                <p className="text-xs text-amber-600 dark:text-amber-400 font-medium">
+                <p className="text-xs text-amber-600 dark:text-amber-400 font-semibold">
                   กรุณาตั้งรหัสผ่านใหม่ของคุณเองก่อนเริ่มใช้งาน
                 </p>
               )}
@@ -81,8 +81,10 @@ export const PasswordModal: React.FC<PasswordModalProps> = ({
           </div>
           {!forced && (
             <button
+              type="button"
               onClick={onClose}
-              className="p-1.5 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+              className="w-9 h-9 rounded-full bg-[#e4e6eb] hover:bg-[#d8dadf] dark:bg-[#3a3b3c] dark:hover:bg-[#4e4f50] text-[#050505] dark:text-[#e4e6eb] flex items-center justify-center transition cursor-pointer"
+              title="ปิดหน้าต่าง"
             >
               <X className="w-5 h-5" />
             </button>
@@ -91,7 +93,7 @@ export const PasswordModal: React.FC<PasswordModalProps> = ({
 
         <form onSubmit={handleSubmit} className="space-y-3.5 text-xs">
           <div>
-            <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+            <label className="block font-semibold text-[#050505] dark:text-[#e4e6eb] mb-1">
               รหัสผ่านเดิม
             </label>
             <div className="relative">
@@ -99,14 +101,14 @@ export const PasswordModal: React.FC<PasswordModalProps> = ({
                 type={showOldPw ? 'text' : 'password'}
                 value={oldPw}
                 onChange={(e) => setOldPw(e.target.value)}
-                className="w-full pl-3 pr-10 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 outline-none focus:ring-2 focus:ring-sky-500 text-xs"
+                className="w-full pl-3.5 pr-10 py-2.5 rounded-xl bg-[#f0f2f5] dark:bg-[#18191a] border border-[#e4e6eb] dark:border-[#3a3b3c] text-[#050505] dark:text-[#e4e6eb] outline-none focus:ring-2 focus:ring-[#1877f2] text-xs"
                 placeholder="รหัสผ่านปัจจุบัน"
               />
               <button
                 type="button"
                 onClick={() => setShowOldPw(!showOldPw)}
                 tabIndex={-1}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition cursor-pointer"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-[#65676b] dark:text-[#b0b3b8] hover:text-[#050505] transition cursor-pointer"
                 title={showOldPw ? 'ซ่อนรหัสผ่าน' : 'แสดงรหัสผ่าน'}
               >
                 {showOldPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -115,7 +117,7 @@ export const PasswordModal: React.FC<PasswordModalProps> = ({
           </div>
 
           <div>
-            <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+            <label className="block font-semibold text-[#050505] dark:text-[#e4e6eb] mb-1">
               รหัสผ่านใหม่ (อย่างน้อย 6 ตัวอักษร)
             </label>
             <div className="relative">
@@ -123,14 +125,14 @@ export const PasswordModal: React.FC<PasswordModalProps> = ({
                 type={showNewPw ? 'text' : 'password'}
                 value={newPw}
                 onChange={(e) => setNewPw(e.target.value)}
-                className="w-full pl-3 pr-10 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 outline-none focus:ring-2 focus:ring-sky-500 text-xs"
+                className="w-full pl-3.5 pr-10 py-2.5 rounded-xl bg-[#f0f2f5] dark:bg-[#18191a] border border-[#e4e6eb] dark:border-[#3a3b3c] text-[#050505] dark:text-[#e4e6eb] outline-none focus:ring-2 focus:ring-[#1877f2] text-xs"
                 placeholder="รหัสผ่านใหม่"
               />
               <button
                 type="button"
                 onClick={() => setShowNewPw(!showNewPw)}
                 tabIndex={-1}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition cursor-pointer"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-[#65676b] dark:text-[#b0b3b8] hover:text-[#050505] transition cursor-pointer"
                 title={showNewPw ? 'ซ่อนรหัสผ่าน' : 'แสดงรหัสผ่าน'}
               >
                 {showNewPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -139,7 +141,7 @@ export const PasswordModal: React.FC<PasswordModalProps> = ({
           </div>
 
           <div>
-            <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+            <label className="block font-semibold text-[#050505] dark:text-[#e4e6eb] mb-1">
               ยืนยันรหัสผ่านใหม่
             </label>
             <div className="relative">
@@ -147,14 +149,14 @@ export const PasswordModal: React.FC<PasswordModalProps> = ({
                 type={showConfirmPw ? 'text' : 'password'}
                 value={confirmPw}
                 onChange={(e) => setConfirmPw(e.target.value)}
-                className="w-full pl-3 pr-10 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 outline-none focus:ring-2 focus:ring-sky-500 text-xs"
+                className="w-full pl-3.5 pr-10 py-2.5 rounded-xl bg-[#f0f2f5] dark:bg-[#18191a] border border-[#e4e6eb] dark:border-[#3a3b3c] text-[#050505] dark:text-[#e4e6eb] outline-none focus:ring-2 focus:ring-[#1877f2] text-xs"
                 placeholder="กรอกรหัสผ่านใหม่อีกครั้ง"
               />
               <button
                 type="button"
                 onClick={() => setShowConfirmPw(!showConfirmPw)}
                 tabIndex={-1}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition cursor-pointer"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-[#65676b] dark:text-[#b0b3b8] hover:text-[#050505] transition cursor-pointer"
                 title={showConfirmPw ? 'ซ่อนรหัสผ่าน' : 'แสดงรหัสผ่าน'}
               >
                 {showConfirmPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -163,7 +165,7 @@ export const PasswordModal: React.FC<PasswordModalProps> = ({
           </div>
 
           {error && (
-            <p className="text-red-500 dark:text-red-400 text-xs font-medium pt-1">
+            <p className="text-red-500 text-xs font-bold pt-1">
               {error}
             </p>
           )}
@@ -173,7 +175,7 @@ export const PasswordModal: React.FC<PasswordModalProps> = ({
               <button
                 type="button"
                 onClick={onClose}
-                className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-medium transition"
+                className="px-4 py-2 rounded-xl bg-[#e4e6eb] hover:bg-[#d8dadf] dark:bg-[#3a3b3c] dark:hover:bg-[#4e4f50] text-[#050505] dark:text-[#e4e6eb] font-bold transition cursor-pointer"
               >
                 ยกเลิก
               </button>
@@ -181,7 +183,7 @@ export const PasswordModal: React.FC<PasswordModalProps> = ({
             <button
               type="submit"
               disabled={loading}
-              className="px-5 py-2 rounded-xl bg-sky-600 hover:bg-sky-700 text-white font-semibold transition disabled:opacity-50"
+              className="px-5 py-2 rounded-xl bg-[#1877f2] hover:bg-[#166fe5] text-white font-bold transition shadow-xs cursor-pointer disabled:opacity-50"
             >
               {loading ? 'กำลังบันทึก...' : 'บันทึกรหัสผ่านใหม่'}
             </button>

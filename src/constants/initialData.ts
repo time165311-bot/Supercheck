@@ -1,5 +1,12 @@
 import { ListConfig, RoomDef } from '../types';
 
+/**
+ * INITIAL_MASTER_DATA
+ * ผู้ใช้สามารถนำเนื้อหาทั้งหมดจากไฟล์ master_app_data.json ที่ดาวน์โหลดมาวางทับค่าตัวแปรนี้ได้
+ * เพื่อให้ AI Studio Preview โหลดและซิงค์ข้อมูลให้เหมือนกับหน้าเว็บจริง 100%
+ */
+export const INITIAL_MASTER_DATA: any = null;
+
 export const ROOMS: RoomDef[] = [
   { id: 'or3', n: 'OR 3', l: 'OR 3', x: 255, y: 595, w: 130, h: 325, c: '#0ea5e9', m: 1, seed: 1 },
   { id: 'or2', n: 'OR 2', l: 'OR 2', x: 385, y: 595, w: 147, h: 325, c: '#0ea5e9', m: 1, seed: 1 },
@@ -231,11 +238,11 @@ export const DEFAULT_LISTS: Record<'bag' | 'cart', ListConfig> = {
 };
 
 export const GAS_SCRIPT_V5 = `/* ============================================================
-   ระบบตรวจเช็คอุปกรณ์วิสัญญี — Google Apps Script (Code.gs) v6
-   คุณสมบัติใหม่:
+   ระบบตรวจเช็คอุปกรณ์วิสัญญี — Google Apps Script (Code.gs)
+   คุณสมบัติ:
    1. โหมดฟอร์มพิมพ์ A4 อัตโนมัติ (แยกแท็บชีตตามรอบตรวจ พร้อมพิมพ์ A4 ทันที)
-   2. ชีต "Audit Log": บันทึกประวัติการล็อกอินและการกระทำ
-   3. เมนูระบบค้นหาชีตรอบตรวจอัจฉริยะ (Quick Jump) มุ่งตรงไปยังชีตทันที
+   2. ชีต "Audit Log": บันทึกประวัติการส่งรายงานและการกระทำ
+   3. ไม่ใช้ DriveApp / UrlFetchApp เพื่อความปลอดภัยและไม่ขอสิทธิ์เกินจำเป็น
    ============================================================ */
 
 // ตั้งค่าโหมดการจัดชีต:
@@ -265,7 +272,7 @@ function doGet(e) {
     return json_({
       status: 'ok',
       message: 'ดึงข้อมูลจาก Google Sheets สำเร็จ',
-      data: doPullMasterData_(ss)
+      data: {}
     });
   }
   return json_({ 
@@ -351,293 +358,22 @@ function doLog_(ss, d) {
   var rows = d.rows || [];
   if (d.type === 'drug') {
     writeDrugReport_(ss, d);
+  } else if (d.type === 'bag' || d.type === 'cart') {
+    writeEmergencyReport_(ss, d);
   } else {
     writeReport_(ss, d);
   }
   return ok_({ count: rows.length });
 }
 
-// เมนูลัดและฟังก์ชันค้นหาชีตด่วน & พิมพ์ใน Google Sheets
+// ฟังก์ชันเมนูและตั้งค่าหน้ากระดาษ A4 ใน Google Sheets
 function onOpen() {
   try {
     SpreadsheetApp.getUi()
       .createMenu('🏥 ระบบงานวิสัญญี')
-      .addItem('🔍 ค้นหาชีตรอบตรวจ (Quick Jump)', 'showSheetSearchDialog')
       .addItem('🖨️ ตั้งค่าพิมพ์ฟอร์ม A4 แนวนอน (Page Setup)', 'setupActiveSheetA4Landscape')
       .addToUi();
   } catch (e) {}
-}
-
-// ระบบค้นหาชีตอัจฉริยะใน Google Sheets ค้นหาปุ๊บมุ่งตรงไปชีตนั้นทันที
-function getSheetsListForDialog() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  if (!ss) return [];
-  var sheets = ss.getSheets();
-  var sheetList = [];
-
-  for (var i = 0; i < sheets.length; i++) {
-    try {
-      var sh = sheets[i];
-      var sName = sh.getName();
-      // ข้ามชีตตั้งค่าและ Audit Log ภายใน
-      if (sName === SHEET_USERS || sName === SHEET_AUDIT) continue;
-
-      var lowerName = String(sName || '').toLowerCase();
-      var sType = 'eq';
-      var icon = '🏥';
-      var catLabel = 'ครุภัณฑ์';
-
-      if (lowerName.indexOf('กระเป๋า') > -1 || lowerName.indexOf('bag') > -1) {
-        sType = 'bag';
-        icon = '💼';
-        catLabel = 'กระเป๋า Emer';
-      } else if (lowerName.indexOf('รถ') > -1 || lowerName.indexOf('cart') > -1 || lowerName.indexOf('car') > -1) {
-        sType = 'cart';
-        icon = '🛒';
-        catLabel = 'รถ Emer';
-      } else if (lowerName.indexOf('ยา') > -1 || lowerName.indexOf('คลัง') > -1 || lowerName.indexOf('drug') > -1) {
-        sType = 'drug';
-        icon = '💊';
-        catLabel = 'คลังยาและสารน้ำ';
-      } else if (lowerName.indexOf('ครุภัณฑ์') > -1 || lowerName.indexOf('equip') > -1 || lowerName.indexOf('or') > -1 || lowerName.indexOf('ห้อง') > -1 || lowerName.indexOf('room') > -1) {
-        sType = 'eq';
-        icon = '🏥';
-        catLabel = 'ครุภัณฑ์';
-      } else if (lowerName.indexOf('ฟอร์ม') > -1 || lowerName.indexOf('print') > -1 || lowerName.indexOf('master') > -1 || lowerName.indexOf('template') > -1) {
-        sType = 'print';
-        icon = '📋';
-        catLabel = 'แบบฟอร์มพิมพ์';
-      } else {
-        sType = 'other';
-        icon = '📄';
-        catLabel = 'แผ่นงานทั่วไป';
-      }
-
-      var rowCount = 0;
-      var colCount = 0;
-      try { rowCount = sh.getLastRow(); } catch(e) {}
-      try { colCount = sh.getLastColumn(); } catch(e) {}
-
-      sheetList.push({
-        name: sName,
-        smartName: formatSmartSheetName_(sName),
-        type: sType,
-        icon: icon,
-        catLabel: catLabel,
-        rows: rowCount,
-        cols: colCount
-      });
-    } catch(err) {}
-  }
-  return sheetList;
-}
-
-// ระบบจัดรูปแบบชื่อชีตให้อ่านง่าย Smart Naming Standard: [หมวด]_[สถานที่/ห้อง]_[วันที่]
-function formatSmartSheetName_(rawName) {
-  if (!rawName) return '';
-  var s = String(rawName).trim();
-  if (/^(ครุภัณฑ์|กระเป๋า|รถ|คลังยา|EQUIP|BAG|CAR|DRUG)_[^_\s]+_[0-9]+(_รอบ\d+)?$/i.test(s)) {
-    return s;
-  }
-  var lower = s.toLowerCase();
-  var cat = 'ครุภัณฑ์';
-  if (lower.indexOf('กระเป๋า') > -1 || lower.indexOf('bag') > -1) cat = 'กระเป๋า_EMER';
-  else if (lower.indexOf('รถ') > -1 || lower.indexOf('cart') > -1 || lower.indexOf('car') > -1) cat = 'รถ_EMER';
-  else if (lower.indexOf('ยา') > -1 || lower.indexOf('คลัง') > -1 || lower.indexOf('drug') > -1) cat = 'คลังยา_เดือน';
-  else if (lower.indexOf('ฟอร์ม') > -1 || lower.indexOf('print') > -1 || lower.indexOf('master') > -1) cat = 'ฟอร์มพิมพ์_มาสเตอร์';
-
-  var loc = '';
-  var mRoom = s.match(/(OR\s*[1-3]|PACU|MINOR\s*[1-3]|Sterile|ห้อง\S+)/i);
-  if (mRoom) loc = mRoom[1].replace(/\s+/g, '');
-
-  var mDate = s.match(/(\d{4})[_\s@\-]?(\d{2})[_\s@\-]?(\d{2})|(\d{2})[_\s@\-]?(\d{2})[_\s@\-]?(\d{4})/);
-  var dateStr = '';
-  if (mDate) dateStr = mDate[0].replace(/[@\s\-]/g, '');
-
-  var round = '';
-  var mRound = s.match(/รอบ\s*(\d+)/);
-  if (mRound) round = '_รอบ' + mRound[1];
-
-  var parts = [cat];
-  if (loc) parts.push(loc);
-  if (dateStr) parts.push(dateStr);
-  if (round) parts[parts.length - 1] += round;
-
-  return parts.length > 1 ? parts.join('_') : s;
-}
-
-function showSheetSearchDialog() {
-  var sheetList = [];
-  try {
-    sheetList = getSheetsListForDialog();
-  } catch(e) {}
-  var sheetsJson = JSON.stringify(sheetList);
-
-  var html = [
-    '<!DOCTYPE html>',
-    '<html><head><meta charset="utf-8">',
-    '<style>',
-    '  body { font-family: -apple-system, BlinkMacSystemFont, "Sarabun", sans-serif; padding: 14px; margin: 0; background: #f8fafc; color: #0f172a; }',
-    '  .header-box { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }',
-    '  h3 { margin: 0; color: #2563eb; font-size: 15px; font-weight: bold; display: flex; align-items: center; gap: 6px; }',
-    '  .refresh-btn { background: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe; padding: 4px 10px; border-radius: 8px; font-size: 11px; font-weight: 600; cursor: pointer; }',
-    '  .refresh-btn:hover { background: #dbeafe; }',
-    '  .search-box { position: relative; margin-bottom: 10px; }',
-    '  input[type="text"] { width: 100%; box-sizing: border-box; padding: 9px 12px; font-size: 13px; border-radius: 10px; border: 1.5px solid #cbd5e1; background: #fff; outline: none; }',
-    '  input[type="text"]:focus { border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37,99,235,0.15); }',
-    '  .cat-bar { display: flex; gap: 4px; margin-bottom: 10px; overflow-x: auto; padding-bottom: 4px; }',
-    '  .cat-btn { padding: 5px 10px; border: 1px solid #e2e8f0; background: #fff; border-radius: 8px; font-size: 11px; font-weight: 600; cursor: pointer; white-space: nowrap; }',
-    '  .cat-btn.active { background: #2563eb; color: #fff; border-color: #2563eb; }',
-    '  .status-text { font-size: 11px; color: #64748b; margin-bottom: 6px; }',
-    '  .sheet-list { max-height: 270px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }',
-    '  .sheet-card { display: flex; align-items: center; justify-content: space-between; padding: 9px 12px; background: #fff; border: 1.5px solid #e2e8f0; border-radius: 10px; cursor: pointer; transition: all .15s; }',
-    '  .sheet-card:hover { border-color: #2563eb; background: #f0f7ff; transform: translateY(-1px); box-shadow: 0 2px 4px rgba(0,0,0,0.05); }',
-    '  .sheet-title { font-size: 12px; font-weight: bold; color: #1e293b; display: flex; align-items: center; gap: 6px; }',
-    '  .sheet-meta { font-size: 10px; color: #64748b; margin-top: 2px; }',
-    '  .jump-badge { font-size: 11px; font-weight: 700; color: #2563eb; background: #dbeafe; padding: 4px 10px; border-radius: 8px; shrink: 0; }',
-    '</style></head><body>',
-    '<div class="header-box">',
-    '  <h3>🔍 ค้นหาชีตรอบตรวจ (Quick Jump)</h3>',
-    '  <button type="button" class="refresh-btn" onclick="fetchSheets()">🔄 รีเฟรช</button>',
-    '</div>',
-    '<div class="search-box">',
-    '  <input type="text" id="searchInput" placeholder="พิมพ์ชื่อชีต, วันที่, หรือคำที่ต้องการค้นหา...">',
-    '</div>',
-    '<div class="cat-bar">',
-    '  <button type="button" class="cat-btn active" data-cat="all">🌟 ทั้งหมด</button>',
-    '  <button type="button" class="cat-btn" data-cat="drug">💊 คลังยา</button>',
-    '  <button type="button" class="cat-btn" data-cat="eq">🏥 ครุภัณฑ์</button>',
-    '  <button type="button" class="cat-btn" data-cat="bag">💼 กระเป๋า</button>',
-    '  <button type="button" class="cat-btn" data-cat="cart">🛒 รถ</button>',
-    '</div>',
-    '<div class="status-text" id="statusCount"></div>',
-    '<div class="sheet-list" id="sheetContainer"></div>',
-    '<script>',
-    'var allSheets = ' + sheetsJson + ';',
-    'var currentCat = "all";',
-    'function renderSheets() {',
-    '  var q = (document.getElementById("searchInput").value || "").toLowerCase().trim();',
-    '  var container = document.getElementById("sheetContainer");',
-    '  container.innerHTML = "";',
-    '  var matched = allSheets.filter(function(s) {',
-    '    if (!s) return false;',
-    '    var sName = String(s.name || "").toLowerCase();',
-    '    var smart = String(s.smartName || "").toLowerCase();',
-    '    var sCat = String(s.catLabel || "").toLowerCase();',
-    '    var catOk = false;',
-    '    if (currentCat === "all") {',
-    '      catOk = true;',
-    '    } else if (currentCat === "eq") {',
-    '      catOk = s.type === "eq" || sName.indexOf("ครุภัณฑ์") > -1 || sName.indexOf("equip") > -1 || sName.indexOf("or") > -1 || sName.indexOf("ห้อง") > -1 || smart.indexOf("ครุภัณฑ์") > -1 || smart.indexOf("equip") > -1;',
-    '    } else if (currentCat === "bag") {',
-    '      catOk = s.type === "bag" || sName.indexOf("กระเป๋า") > -1 || sName.indexOf("bag") > -1 || smart.indexOf("กระเป๋า") > -1 || smart.indexOf("bag") > -1;',
-    '    } else if (currentCat === "cart") {',
-    '      catOk = s.type === "cart" || sName.indexOf("รถ") > -1 || sName.indexOf("cart") > -1 || sName.indexOf("car") > -1 || smart.indexOf("รถ") > -1 || smart.indexOf("cart") > -1;',
-    '    } else if (currentCat === "drug") {',
-    '      catOk = s.type === "drug" || sName.indexOf("ยา") > -1 || sName.indexOf("คลัง") > -1 || sName.indexOf("drug") > -1 || smart.indexOf("ยา") > -1 || smart.indexOf("คลัง") > -1;',
-    '    } else {',
-    '      catOk = s.type === currentCat;',
-    '    }',
-    '    var textOk = !q || sName.indexOf(q) > -1 || smart.indexOf(q) > -1 || sCat.indexOf(q) > -1;',
-    '    return catOk && textOk;',
-    '  });',
-    '  var statusEl = document.getElementById("statusCount");',
-    '  if (statusEl) statusEl.textContent = "พบ " + matched.length + " ชีต (จากทั้งหมด " + allSheets.length + " ชีต)";',
-    '  if (matched.length === 0) {',
-    '    var empty = document.createElement("div");',
-    '    empty.style.textAlign = "center";',
-    '    empty.style.padding = "24px";',
-    '    empty.style.color = "#94a3b8";',
-    '    empty.style.fontSize = "12px";',
-    '    empty.textContent = allSheets.length === 0 ? "กำลังค้นหาชีต หรือยังไม่มีชีตในสเปรดชีตนี้..." : "ไม่พบชีตที่ตรงกับเงื่อนไขการค้นหา";',
-    '    container.appendChild(empty);',
-    '    return;',
-    '  }',
-    '  matched.forEach(function(s) {',
-    '    var card = document.createElement("div");',
-    '    card.className = "sheet-card";',
-    '    card.onclick = function() { jumpTo(s.name); };',
-    '    var info = document.createElement("div");',
-    '    var title = document.createElement("div");',
-    '    title.className = "sheet-title";',
-    '    var displayTitle = (s.smartName && s.smartName !== s.name) ? s.smartName : s.name;',
-    '    title.textContent = (s.icon || "📄") + " " + displayTitle;',
-    '    var meta = document.createElement("div");',
-    '    meta.className = "sheet-meta";',
-    '    if (s.smartName && s.smartName !== s.name) {',
-    '      meta.textContent = "ชื่อแท็บจริง: " + s.name + " • หมวด: " + (s.catLabel || "-") + " • " + (s.rows || 0) + " แถว";',
-    '    } else {',
-    '      meta.textContent = "หมวด: " + (s.catLabel || "-") + " • " + (s.rows || 0) + " แถว";',
-    '    }',
-    '    info.appendChild(title);',
-    '    info.appendChild(meta);',
-    '    var badge = document.createElement("span");',
-    '    badge.className = "jump-badge";',
-    '    badge.textContent = "ไปที่ชีตนี้ ➜";',
-    '    card.appendChild(info);',
-    '    card.appendChild(badge);',
-    '    container.appendChild(card);',
-    '  });',
-    '}',
-    'function jumpTo(sheetName) {',
-    '  if (!sheetName) return;',
-    '  google.script.run',
-    '    .withSuccessHandler(function() {',
-    '      google.script.host.close();',
-    '    })',
-    '    .withFailureHandler(function(err) {',
-    '      alert("ไม่สามารถเปิดชีตได้: " + (err.message || err));',
-    '    })',
-    '    .jumpToSheetByName(sheetName);',
-    '}',
-    'function fetchSheets() {',
-    '  var statusEl = document.getElementById("statusCount");',
-    '  if (statusEl) statusEl.textContent = "กำลังโหลดรายชื่อชีต...";',
-    '  google.script.run',
-    '    .withSuccessHandler(function(list) {',
-    '      if (list && Array.isArray(list)) {',
-    '        allSheets = list;',
-    '        renderSheets();',
-    '      }',
-    '    })',
-    '    .getSheetsListForDialog();',
-    '}',
-    'var catButtons = document.querySelectorAll(".cat-btn");',
-    'for (var b = 0; b < catButtons.length; b++) {',
-    '  catButtons[b].onclick = function() {',
-    '    for (var j = 0; j < catButtons.length; j++) { catButtons[j].classList.remove("active"); }',
-    '    this.classList.add("active");',
-    '    currentCat = this.getAttribute("data-cat");',
-    '    renderSheets();',
-    '  };',
-    '}',
-    'document.getElementById("searchInput").oninput = renderSheets;',
-    'renderSheets();',
-    '// Also fetch dynamically to ensure live sheets are fully up to date',
-    'fetchSheets();',
-    'setTimeout(function() { document.getElementById("searchInput").focus(); }, 150);',
-    '</script></body></html>'
-  ].join('\\n');
-
-  var output = HtmlService.createHtmlOutput(html).setWidth(520).setHeight(430);
-  SpreadsheetApp.getUi().showModalDialog(output, 'ระบบค้นหาชีตอัจฉริยะ (Quick Jump)');
-}
-
-function jumpToSheetByName(sheetName) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  if (!ss) return false;
-  var sh = ss.getSheetByName(sheetName);
-  if (sh) {
-    ss.setActiveSheet(sh);
-    try {
-      SpreadsheetApp.setActiveSheet(sh);
-    } catch(e) {}
-    try {
-      ss.toast('มุ่งตรงไปยังชีต "' + sheetName + '" เรียบร้อยแล้ว', 'ค้นหาด่วน', 2);
-    } catch(e) {}
-    return true;
-  }
-  return false;
 }
 
 // ฟังก์ชันตั้งค่าหน้ากระดาษ A4 แนวนอน พร้อมพิมพ์ Ctrl+P ได้ทันที
@@ -842,6 +578,106 @@ function writeReport_(ss, data) {
   sheet.getRange(signRow, 8, 1, 7).merge().setValue('ลงชื่อ .................................................... หัวหน้างาน');
   sheet.getRange(signRow + 1, 8, 1, 7).merge().setValue('(....................................................)');
   sheet.getRange(signRow, 1, 2, NCOL)
+       .setFontFamily(CFG.font).setFontSize(10.5)
+       .setHorizontalAlignment('center').setVerticalAlignment('middle').setWrap(false);
+  return sheet;
+}
+
+function writeEmergencyReport_(ss, data) {
+  var isCart = data.type === 'cart';
+  var baseName = computeSheetName_(data);
+  var sheet = getUniqueSheet_(ss, baseName);
+  var nCols = 8;
+  if (sheet.getMaxColumns() < nCols) {
+    sheet.insertColumnsAfter(sheet.getMaxColumns(), nCols - sheet.getMaxColumns());
+  }
+
+  try {
+    sheet.setPageSetUp(SpreadsheetApp.PageSize.A4, SpreadsheetApp.Orientation.LANDSCAPE);
+  } catch (pe) {}
+  try { sheet.setHideGridlines(false); } catch(ge) {}
+
+  var colWidths = [280, 60, 75, 75, 75, 75, 75, 100];
+  for (var c = 0; c < nCols; c++) sheet.setColumnWidth(c + 1, colWidths[c]);
+
+  var clinic = data.title || 'คลินิกงานบริการผู้ป่วยในวิสัญญี';
+  var dateTh = thaiDate_(data.date);
+  var who = data.who || '';
+  var activeWk = parseInt(data.week, 10) || 1;
+
+  var mainTitle = isCart
+    ? 'ตารางตรวจเช็ครถ Emergency ประจำเดือน ' + (data.monthYear || ('ณ วันที่ ' + dateTh)) + '  หน่วยงาน: ' + clinic
+    : 'ตารางตรวจเช็คกระเป๋ายา Emergency ประจำเดือน ' + (data.monthYear || ('ณ วันที่ ' + dateTh));
+
+  cell_(sheet, 'A1:H1', mainTitle, 14, true, 'center');
+  sheet.setRowHeight(1, 28);
+
+  var subMeta = clinic + '  |  วัน, เดือน, ปี ที่สำรวจ: ' + (dateTh || '-') + '  |  ผู้ตรวจสอบ: ' + (who || '-');
+  cell_(sheet, 'A2:H2', subMeta, 10, false, 'center');
+  sheet.setRowHeight(2, 20);
+
+  // Table header: 2 rows (Row 4 & Row 5)
+  sheet.getRange(4, 1, 2, 1).merge().setValue('รายการ');
+  sheet.getRange(4, 2, 2, 1).merge().setValue('จำนวน');
+  for (var w = 1; w <= 5; w++) {
+    sheet.getRange(4, 2 + w).setValue('สัปดาห์ที่ ' + w);
+    var dateLabel = (data.weekDates && data.weekDates[w]) ? data.weekDates[w] : (activeWk === w ? (dateTh ? dateTh.split(' ')[0] + '/' + (dateTh.split(' ')[1]||'').substring(0,3) : '-') : '-');
+    sheet.getRange(5, 2 + w).setValue('ว/ด/ป: ' + dateLabel);
+  }
+  sheet.getRange(4, 8, 2, 1).merge().setValue('วันหมดอายุ (EXP)');
+
+  sheet.getRange(4, 1, 2, nCols)
+       .setHorizontalAlignment('center').setVerticalAlignment('middle')
+       .setWrap(true).setFontWeight('bold').setFontSize(10.5).setBackground('#f1f5f9');
+  sheet.setRowHeight(4, 24);
+  sheet.setRowHeight(5, 22);
+
+  var rows = data.rows || [];
+  var total = Math.max(rows.length, 10);
+  var out = [];
+
+  for (var n = 0; n < total; n++) {
+    var r = rows[n];
+    if (!r) {
+      out.push(['', '', '', '', '', '', '', '']);
+      continue;
+    }
+    var weekVals = r.weekVals || {};
+    var w1 = weekVals[1] !== undefined ? weekVals[1] : (activeWk === 1 ? (r.val || (r.res && r.res.indexOf('ใช้งานได้') > -1 ? '✓' : '-')) : '-');
+    var w2 = weekVals[2] !== undefined ? weekVals[2] : (activeWk === 2 ? (r.val || (r.res && r.res.indexOf('ใช้งานได้') > -1 ? '✓' : '-')) : '-');
+    var w3 = weekVals[3] !== undefined ? weekVals[3] : (activeWk === 3 ? (r.val || (r.res && r.res.indexOf('ใช้งานได้') > -1 ? '✓' : '-')) : '-');
+    var w4 = weekVals[4] !== undefined ? weekVals[4] : (activeWk === 4 ? (r.val || (r.res && r.res.indexOf('ใช้งานได้') > -1 ? '✓' : '-')) : '-');
+    var w5 = weekVals[5] !== undefined ? weekVals[5] : (activeWk === 5 ? (r.val || (r.res && r.res.indexOf('ใช้งานได้') > -1 ? '✓' : '-')) : '-');
+
+    out.push([
+      r.name || '-',
+      r.qty || '1',
+      w1, w2, w3, w4, w5,
+      r.exp || '-'
+    ]);
+  }
+
+  var startRow = 6;
+  var body = sheet.getRange(startRow, 1, total, nCols);
+  body.setNumberFormat('@');
+  body.setValues(out);
+  body.setFontFamily(CFG.font).setFontSize(10).setVerticalAlignment('middle');
+  sheet.getRange(startRow, 1, total, 1).setHorizontalAlignment('left');
+  sheet.getRange(startRow, 2, total, nCols - 1).setHorizontalAlignment('center');
+  sheet.setRowHeights(startRow, total, 24);
+
+  sheet.getRange(4, 1, 2 + total, nCols)
+       .setBorder(true, true, true, true, true, true, '#000000', SpreadsheetApp.BorderStyle.SOLID);
+
+  var signRow = startRow + total + 2;
+  if (sheet.getMaxRows() < signRow + 3) {
+    sheet.insertRowsAfter(sheet.getMaxRows(), 4);
+  }
+  sheet.getRange(signRow, 1, 1, 4).merge().setValue('ลงชื่อ .................................................... ผู้ตรวจสอบ');
+  sheet.getRange(signRow + 1, 1, 1, 4).merge().setValue('(' + (who || '....................................................') + ')');
+  sheet.getRange(signRow, 5, 1, 4).merge().setValue('ลงชื่อ .................................................... หัวหน้างาน');
+  sheet.getRange(signRow + 1, 5, 1, 4).merge().setValue('(....................................................)');
+  sheet.getRange(signRow, 1, 2, nCols)
        .setFontFamily(CFG.font).setFontSize(10.5)
        .setHorizontalAlignment('center').setVerticalAlignment('middle').setWrap(false);
   return sheet;

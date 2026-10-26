@@ -271,7 +271,7 @@ export const DrugInventoryModal: React.FC<DrugInventoryModalProps> = ({
             <button
               type="button"
               onClick={() => setShowAddModal(true)}
-              className="px-3 py-1.5 rounded-xl bg-neutral-900 hover:bg-neutral-800 dark:bg-white dark:hover:bg-neutral-200 text-white dark:text-neutral-900 font-semibold text-xs flex items-center gap-1.5 transition cursor-pointer shadow-xs"
+              className="px-3 py-1.5 rounded-xl bg-neutral-900 hover:bg-neutral-800 dark:bg-slate-800 dark:hover:bg-slate-700 text-white font-semibold text-xs flex items-center gap-1.5 transition cursor-pointer shadow-xs"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>เพิ่มรายการยา</span>
@@ -280,7 +280,7 @@ export const DrugInventoryModal: React.FC<DrugInventoryModalProps> = ({
             <button
               type="button"
               onClick={handleSaveData}
-              className="px-3 py-1.5 rounded-xl bg-neutral-900 hover:bg-neutral-800 dark:bg-white dark:hover:bg-neutral-200 text-white dark:text-neutral-900 font-semibold text-xs flex items-center gap-1.5 transition cursor-pointer shadow-xs"
+              className="px-3 py-1.5 rounded-xl bg-neutral-900 hover:bg-neutral-800 dark:bg-slate-800 dark:hover:bg-slate-700 text-white font-semibold text-xs flex items-center gap-1.5 transition cursor-pointer shadow-xs"
             >
               <Save className="w-3.5 h-3.5" />
               <span>บันทึก</span>
@@ -334,7 +334,7 @@ export const DrugInventoryModal: React.FC<DrugInventoryModalProps> = ({
               onClick={() => setActiveTab('monthly')}
               className={`px-3 py-1.5 rounded-xl transition flex items-center gap-1.5 cursor-pointer ${
                 activeTab === 'monthly'
-                  ? 'bg-neutral-900 text-white dark:bg-white dark:text-neutral-900 font-bold shadow-xs'
+                  ? 'bg-neutral-900 text-white dark:bg-slate-800 dark:text-white font-bold shadow-xs'
                   : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-200/60 dark:hover:bg-neutral-700'
               }`}
             >
@@ -354,7 +354,7 @@ export const DrugInventoryModal: React.FC<DrugInventoryModalProps> = ({
               onClick={() => setActiveTab('quarterly')}
               className={`px-3 py-1.5 rounded-xl transition flex items-center gap-1.5 cursor-pointer ${
                 activeTab === 'quarterly'
-                  ? 'bg-neutral-900 text-white dark:bg-white dark:text-neutral-900 font-bold shadow-xs'
+                  ? 'bg-neutral-900 text-white dark:bg-slate-800 dark:text-white font-bold shadow-xs'
                   : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-200/60 dark:hover:bg-neutral-700'
               }`}
             >
@@ -374,7 +374,7 @@ export const DrugInventoryModal: React.FC<DrugInventoryModalProps> = ({
               onClick={() => setActiveTab('adhoc')}
               className={`px-3 py-1.5 rounded-xl transition flex items-center gap-1.5 cursor-pointer ${
                 activeTab === 'adhoc'
-                  ? 'bg-neutral-900 text-white dark:bg-white dark:text-neutral-900 font-bold shadow-xs'
+                  ? 'bg-neutral-900 text-white dark:bg-slate-800 dark:text-white font-bold shadow-xs'
                   : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-200/60 dark:hover:bg-neutral-700'
               }`}
             >
@@ -679,7 +679,7 @@ export const DrugInventoryModal: React.FC<DrugInventoryModalProps> = ({
             <button
               type="button"
               onClick={handleSaveData}
-              className="px-4 py-1.5 rounded-xl bg-neutral-900 hover:bg-neutral-800 dark:bg-white dark:hover:bg-neutral-200 text-white dark:text-neutral-900 font-bold cursor-pointer shadow-xs"
+              className="px-4 py-1.5 rounded-xl bg-neutral-900 hover:bg-neutral-800 dark:bg-slate-800 dark:hover:bg-slate-700 text-white font-bold cursor-pointer shadow-xs"
             >
               บันทึกการแก้ไข
             </button>
@@ -814,7 +814,7 @@ export const DrugInventoryModal: React.FC<DrugInventoryModalProps> = ({
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-2 px-3 rounded-xl bg-neutral-900 hover:bg-neutral-800 dark:bg-white dark:text-neutral-900 text-white font-semibold shadow-xs"
+                  className="flex-1 py-2 px-3 rounded-xl bg-neutral-900 hover:bg-neutral-800 dark:bg-slate-800 dark:hover:bg-slate-700 text-white font-semibold shadow-xs"
                 >
                   บันทึกรายการ
                 </button>

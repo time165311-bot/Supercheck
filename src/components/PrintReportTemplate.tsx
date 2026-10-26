@@ -28,18 +28,54 @@ export const PrintReportTemplate: React.FC<PrintReportTemplateProps> = ({
   return (
     <div
       id="print-report-template-root"
-      className="paper-preview sheet-preview"
+      className="a4-page-sheet a4-print-container paper-preview sheet-preview isolate !bg-white !text-black"
       style={{
         display: 'inline-block',
         width: 'max-content',
         minWidth: '100%',
         padding: '20px',
-        backgroundColor: '#ffffff',
-        color: '#000000',
+        backgroundColor: '#ffffff !important',
+        color: '#000000 !important',
         fontFamily: "'Sarabun', 'TH Sarabun PSK', sans-serif",
         boxSizing: 'border-box',
       }}
     >
+      <style>{`
+        .a4-page-sheet,
+        .a4-page-sheet *,
+        .a4-print-container, 
+        .a4-print-container *, 
+        .a4-print-container table, 
+        .a4-print-container thead, 
+        .a4-print-container tbody, 
+        .a4-print-container tr, 
+        .a4-print-container th, 
+        .a4-print-container td, 
+        .a4-print-container p, 
+        .a4-print-container span, 
+        .a4-print-container h2,
+        .a4-print-container h3,
+        .a4-print-container div {
+          background-color: #ffffff !important;
+          color: #000000 !important;
+          border-color: #000000 !important;
+          background-image: none !important;
+          color-scheme: light !important;
+        }
+        .a4-page-sheet th,
+        .a4-print-container th, 
+        .a4-print-container thead tr {
+          background-color: #f1f5f9 !important;
+          color: #000000 !important;
+        }
+        /* Specific override for status colors in isolation */
+        .a4-page-sheet .text-emerald-700, .a4-print-container .text-emerald-700 {
+          color: #15803d !important;
+        }
+        .a4-page-sheet .text-rose-700, .a4-print-container .text-rose-700 {
+          color: #b91c1c !important;
+        }
+      `}</style>
       {/* Header Layout */}
       <div style={{ textAlign: 'center', marginBottom: '12px' }}>
         <h2 style={{ fontSize: '20px', fontWeight: 'bold', margin: '0 0 4px 0', color: '#000000' }}>

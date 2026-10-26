@@ -9,7 +9,7 @@ import {
   CheckItemState,
   InspectionHistoryRecord,
 } from '../types';
-import { DEFAULT_LISTS, ROOMS } from '../constants/initialData';
+import { DEFAULT_LISTS, ROOMS, INITIAL_MASTER_DATA } from '../constants/initialData';
 import { INITIAL_DRUGS_DATA } from '../constants/initialDrugs';
 
 export const STORAGE_KEYS = {
@@ -26,6 +26,7 @@ export const STORAGE_KEYS = {
   AUDIT_LOGS: 'anesthesia_audit_logs',
   DRUGS: 'anesthesia_drug_inventory',
   HISTORY: 'inspection_history',
+  ACCENT_COLOR: 'anesthesia_accent_color',
 };
 
 export function getStored<T>(key: string, defaultValue: T): T {
@@ -61,11 +62,16 @@ export function setStoredString(key: string, value: string): void {
   }
 }
 
-// Initialise Equipment dataset (Guarantees local master persistence)
+// Initialise Equipment dataset (Guarantees local master persistence & master data replacement)
 export function getInitialEquipment(): Record<string, EquipmentItem[]> {
   const stored = getStored<Record<string, EquipmentItem[]> | null>(STORAGE_KEYS.EQ, null);
   if (stored && typeof stored === 'object' && Object.keys(stored).length > 0) {
     return stored;
+  }
+
+  if (INITIAL_MASTER_DATA && INITIAL_MASTER_DATA.equipment && typeof INITIAL_MASTER_DATA.equipment === 'object') {
+    setStored(STORAGE_KEYS.EQ, INITIAL_MASTER_DATA.equipment);
+    return INITIAL_MASTER_DATA.equipment;
   }
 
   const SEED_NAMES = [
@@ -145,6 +151,18 @@ export function getInitialLists(): Record<'bag' | 'cart', ListConfig> {
   ) {
     return stored;
   }
+
+  if (
+    INITIAL_MASTER_DATA &&
+    INITIAL_MASTER_DATA.lists &&
+    typeof INITIAL_MASTER_DATA.lists === 'object' &&
+    INITIAL_MASTER_DATA.lists.bag &&
+    INITIAL_MASTER_DATA.lists.cart
+  ) {
+    setStored(STORAGE_KEYS.CUSTOM_LISTS, INITIAL_MASTER_DATA.lists);
+    return INITIAL_MASTER_DATA.lists;
+  }
+
   setStored(STORAGE_KEYS.CUSTOM_LISTS, DEFAULT_LISTS);
   return DEFAULT_LISTS;
 }
@@ -155,6 +173,12 @@ export function getInitialDrugs(): DrugItem[] {
   if (stored && Array.isArray(stored) && stored.length > 0) {
     return stored;
   }
+
+  if (INITIAL_MASTER_DATA && Array.isArray(INITIAL_MASTER_DATA.drugs) && INITIAL_MASTER_DATA.drugs.length > 0) {
+    setStored(STORAGE_KEYS.DRUGS, INITIAL_MASTER_DATA.drugs);
+    return INITIAL_MASTER_DATA.drugs;
+  }
+
   setStored(STORAGE_KEYS.DRUGS, INITIAL_DRUGS_DATA);
   return INITIAL_DRUGS_DATA;
 }
@@ -213,11 +237,8 @@ export function downloadBackupFile(): void {
     const blob = new Blob([jsonStr], { type: 'application/json;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
-    const now = new Date();
-    const dateStr = now.toISOString().split('T')[0];
-    const timeStr = `${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}`;
     link.href = url;
-    link.download = `anesthesia_backup_${dateStr}_${timeStr}.json`;
+    link.download = 'master_app_data.json';
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
