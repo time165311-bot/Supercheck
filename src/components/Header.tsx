@@ -259,7 +259,7 @@ export const Header: React.FC<HeaderProps> = ({
 
       {/* RIGHT SLIDE-OVER DRAWER PANEL (iOS/Android Native Style) */}
       <aside
-        className={`fixed top-0 right-0 bottom-0 z-50 w-80 sm:w-88 bg-white dark:bg-[#242526] border-l border-[#e4e6eb] dark:border-[#3a3b3c] shadow-2xl flex flex-col transition-transform duration-300 ease-out select-none ${
+        className={`fixed top-0 right-0 bottom-0 z-50 w-80 sm:w-88 backdrop-blur-md bg-white/85 dark:bg-slate-900/85 border-l border-white/20 dark:border-slate-800/60 shadow-2xl flex flex-col transition-transform duration-300 ease-out select-none ${
           isMenuOpen ? 'translate-x-0' : 'translate-x-full'
         }`}
       >
@@ -681,25 +681,31 @@ export const Header: React.FC<HeaderProps> = ({
                 <span className="text-[11px] font-extrabold text-[#65676b] dark:text-[#b0b3b8] px-1 block uppercase tracking-wider">
                   โทนสีแอปพลิเคชัน (Theme Accent Color)
                 </span>
-                <div className="grid grid-cols-5 gap-2 px-1">
+                <div className="grid grid-cols-3 sm:grid-cols-6 gap-2.5 px-1">
                   {[
-                    { id: 'blue', color: '#1877f2', label: 'Blue' },
-                    { id: 'emerald', color: '#10b981', label: 'Emerald' },
-                    { id: 'purple', color: '#8b5cf6', label: 'Neon' },
-                    { id: 'rose', color: '#f43f5e', label: 'Rose' },
-                    { id: 'gray', color: '#6b7280', label: 'Titanium' },
+                    { id: 'blue', color: '#1877F2', label: 'Facebook' },
+                    { id: 'cyber', color: '#00D2FF', label: 'Cyber Ice' },
+                    { id: 'mint', color: '#10B981', label: 'Mint' },
+                    { id: 'iris', color: '#6366F1', label: 'Deep Iris' },
+                    { id: 'rose', color: '#F43F5E', label: 'Soft Rose' },
+                    { id: 'slate', color: '#334155', label: 'Slate Titanium' },
                   ].map((c) => (
                     <button
                       key={c.id}
                       type="button"
                       onClick={() => onSetAccentColor?.(c.id)}
-                      className={`h-10 rounded-xl flex items-center justify-center transition-all active:scale-90 border-2 ${
-                        accentColor === c.id ? 'border-accent dark:border-white shadow-md' : 'border-transparent'
+                      className={`h-11 rounded-2xl flex items-center justify-center transition-all active:scale-90 border-2 relative ${
+                        accentColor === c.id 
+                          ? 'border-white dark:border-[#242526] ring-2 ring-accent ring-offset-2 dark:ring-offset-[#242526] shadow-lg' 
+                          : 'border-transparent hover:scale-105'
                       }`}
                       style={{ backgroundColor: c.color }}
                       title={c.label}
                     >
-                      {accentColor === c.id && <Check className="w-5 h-5 text-white drop-shadow-sm" />}
+                      {accentColor === c.id && (
+                        <div className="absolute inset-0 rounded-2xl bg-white/10 animate-pulse" />
+                      )}
+                      {accentColor === c.id && <Check className="w-5 h-5 text-white drop-shadow-md z-10" />}
                     </button>
                   ))}
                 </div>

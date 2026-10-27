@@ -105,11 +105,12 @@ import {
 } from './services/firebase';
 
 export const ACCENT_COLORS = [
-  { id: 'blue', label: 'ฟ้า Facebook', main: '#1877f2', hover: '#166fe5', light: 'rgba(24, 119, 242, 0.1)' },
-  { id: 'emerald', label: 'เขียว Emerald', main: '#10b981', hover: '#059669', light: 'rgba(16, 185, 129, 0.1)' },
-  { id: 'purple', label: 'ม่วง Neon', main: '#8b5cf6', hover: '#7c3aed', light: 'rgba(139, 92, 246, 0.1)' },
-  { id: 'rose', label: 'ชมพู Rose', main: '#f43f5e', hover: '#e11d48', light: 'rgba(244, 63, 94, 0.1)' },
-  { id: 'gray', label: 'เทา Titanium', main: '#6b7280', hover: '#4b5563', light: 'rgba(107, 114, 128, 0.1)' },
+  { id: 'blue', label: 'Facebook', main: '#1877F2', hover: '#166FE5', light: 'rgba(24, 119, 242, 0.1)' },
+  { id: 'cyber', label: 'Cyber Ice', main: '#00D2FF', hover: '#00B8E0', light: 'rgba(0, 210, 255, 0.1)' },
+  { id: 'mint', label: 'Mint', main: '#10B981', hover: '#059669', light: 'rgba(16, 185, 129, 0.1)' },
+  { id: 'iris', label: 'Deep Iris', main: '#6366F1', hover: '#4F46E5', light: 'rgba(99, 102, 241, 0.1)' },
+  { id: 'rose', label: 'Soft Rose', main: '#F43F5E', hover: '#E11D48', light: 'rgba(244, 63, 94, 0.1)' },
+  { id: 'slate', label: 'Slate Titanium', main: '#334155', hover: '#1E293B', light: 'rgba(51, 65, 85, 0.1)' },
 ];
 
 // Cryptography helpers for client-side password hashing
@@ -247,7 +248,7 @@ export default function App() {
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
   const [weather, setWeather] = useState<LiveWeatherData | null>(null);
-  const [currentTime, setCurrentTime] = useState(new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }));
+  const [currentTime, setCurrentTime] = useState(new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
   const [isPasswordForced, setIsPasswordForced] = useState(false);
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [reportModalTitle, setReportModalTitle] = useState('คลินิกงานบริการผู้ป่วยในวิสัญญี');
@@ -509,11 +510,11 @@ export default function App() {
     };
   }, []);
 
-  // Update current time every minute
+  // Update current time every second (Real-time clock)
   useEffect(() => {
     const timeTimer = setInterval(() => {
-      setCurrentTime(new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }));
-    }, 60000);
+      setCurrentTime(new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+    }, 1000);
     return () => clearInterval(timeTimer);
   }, []);
 
@@ -2167,8 +2168,17 @@ export default function App() {
         {currentView === 'home' && (
           <div className="space-y-3">
             {/* Dynamic Atmosphere Header Card */}
-            <div className={`bg-gradient-to-br ${atmosphere.gradient} text-white rounded-3xl p-5 shadow-lg border border-white/20 dark:border-neutral-700 relative overflow-hidden transition-all duration-700`}>
-              
+            <div
+              style={{
+                backgroundSize: '200% 200%',
+                animation: 'ambientGlow 8s ease infinite',
+              }}
+              className={`bg-gradient-to-br ${atmosphere.gradient} text-white rounded-3xl p-5 shadow-lg border border-white/20 dark:border-neutral-700 relative overflow-hidden transition-all duration-700`}
+            >
+              {/* Floating Ambient Blobs */}
+              <div className="absolute -left-8 -top-8 w-32 h-32 rounded-full bg-white/20 blur-2xl pointer-events-none animate-float-molecule" />
+              <div className="absolute -right-8 -bottom-8 w-36 h-36 rounded-full bg-amber-300/20 blur-2xl pointer-events-none animate-float-molecule [animation-delay:2s]" />
+
               {/* Animation Layer */}
               <div className={`pointer-events-none absolute inset-0 overflow-hidden rounded-3xl z-0 opacity-40 ${atmosphere.animation}`} />
 
@@ -2195,7 +2205,7 @@ export default function App() {
 
                 {/* Right: Icon, Condition & Time */}
                 <div className="flex flex-col items-end gap-1">
-                  <div className="text-4xl filter drop-shadow-md">
+                  <div className="text-4xl filter drop-shadow-md animate-bounce duration-1000">
                     {weather ? weather.icon3D : '☀️'}
                   </div>
                   <div className="text-[10px] font-bold uppercase tracking-widest text-white/80">
@@ -2216,83 +2226,122 @@ export default function App() {
 
             {/* Menu Cards (Facebook Feed Clean Style) */}
             <div className="space-y-2.5">
-              {/* Drug Inventory Card - Facebook Clean Style */}
+              {/* Drug Inventory Card */}
               <button
                 onClick={() => setCurrentView('drug_check')}
-                className="w-full text-left p-3.5 sm:p-4 bg-white dark:bg-[#242526] hover:bg-[#f2f3f5] dark:hover:bg-[#323436] rounded-2xl border border-[#e4e6eb] dark:border-[#3a3b3c] shadow-xs flex items-center justify-between gap-3.5 transition-all cursor-pointer group active:scale-95 duration-150"
+                style={{
+                  background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.12), rgba(6, 182, 212, 0.08))',
+                  border: '1px solid rgba(59, 130, 246, 0.2)',
+                  backgroundSize: '200% 200%',
+                  animation: 'ambientGlow 8s ease infinite',
+                }}
+                className="relative overflow-hidden w-full text-left p-4 backdrop-blur-md bg-white/80 dark:bg-slate-900/80 hover:opacity-95 rounded-2xl shadow-[0_8px_30px_rgba(59,130,246,0.08)] flex items-center justify-between gap-3.5 transition-all cursor-pointer group active:scale-95 duration-150"
               >
-                <div className="flex items-center gap-3 min-w-0 flex-1">
-                  <div className="w-10 h-10 rounded-2xl bg-accent-light text-accent flex items-center justify-center text-xl shrink-0 group-hover:scale-105 transition-transform">
+                <div className="absolute -right-6 -bottom-6 w-28 h-28 rounded-full bg-cyan-400/20 filter blur-xl pointer-events-none animate-float-molecule" />
+                <div className="relative z-10 flex items-center gap-3 min-w-0 flex-1">
+                  <div className="w-11 h-11 rounded-2xl bg-blue-500 text-white flex items-center justify-center text-xl shrink-0 group-hover:scale-110 active:scale-95 transition-transform duration-200 shadow-md">
                     💊
                   </div>
-                  <h3 className="text-sm font-bold text-[#050505] dark:text-[#e4e6eb] leading-normal flex-1">
-                    ระบบตรวจเช็คคลังยาและสารน้ำ
-                  </h3>
+                  <div>
+                    <h3 className="text-sm sm:text-base font-bold text-neutral-900 dark:text-white leading-tight">
+                      ระบบตรวจเช็คคลังยาและสารน้ำ
+                    </h3>
+                    <p className="text-[11px] text-neutral-500 dark:text-neutral-400 mt-0.5">
+                      จัดการคลังยา, สารน้ำ, และวันหมดอายุ
+                    </p>
+                  </div>
                 </div>
               </button>
 
               {/* Equipment Card */}
               <button
                 onClick={() => setCurrentView('eq_overview')}
-                className="w-full text-left p-3.5 sm:p-4 bg-white dark:bg-[#242526] hover:bg-[#f2f3f5] dark:hover:bg-[#323436] rounded-2xl border border-[#e4e6eb] dark:border-[#3a3b3c] shadow-xs flex items-center justify-between gap-3.5 transition-all cursor-pointer group active:scale-95 duration-150"
+                style={{
+                  background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.12), rgba(139, 92, 246, 0.08))',
+                  border: '1px solid rgba(99, 102, 241, 0.2)',
+                  backgroundSize: '200% 200%',
+                  animation: 'ambientGlow 8s ease infinite',
+                }}
+                className="relative overflow-hidden w-full text-left p-4 backdrop-blur-md bg-white/80 dark:bg-slate-900/80 hover:opacity-95 rounded-2xl shadow-[0_8px_30px_rgba(99,102,241,0.08)] flex items-center justify-between gap-3.5 transition-all cursor-pointer group active:scale-95 duration-150"
               >
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="w-10 h-10 rounded-2xl bg-accent-light text-accent flex items-center justify-center text-xl shrink-0 group-hover:scale-105 transition-transform">
+                <div className="absolute -right-6 -bottom-6 w-28 h-28 rounded-full bg-purple-400/20 filter blur-xl pointer-events-none animate-float-molecule [animation-delay:1s]" />
+                <div className="relative z-10 flex items-center gap-3 min-w-0 flex-1">
+                  <div className="w-11 h-11 rounded-2xl bg-indigo-600 text-white flex items-center justify-center text-xl shrink-0 group-hover:scale-110 active:scale-95 transition-transform duration-200 shadow-md">
                     🏥
                   </div>
-                  <h3 className="text-sm font-bold text-[#050505] dark:text-[#e4e6eb] leading-normal truncate">
-                    เช็คครุภัณฑ์วิสัญญี / ห้องผ่าตัด
-                  </h3>
+                  <div>
+                    <h3 className="text-sm sm:text-base font-bold text-neutral-900 dark:text-white leading-tight">
+                      เช็คครุภัณฑ์วิสัญญี / ห้องผ่าตัด
+                    </h3>
+                    <p className="text-[11px] text-neutral-500 dark:text-neutral-400 mt-0.5">
+                      ตรวจสอบความพร้อมอุปกรณ์ห้อง OR
+                    </p>
+                  </div>
                 </div>
-                <span className="text-xs font-bold text-accent px-2.5 py-1 rounded-full bg-accent-light shrink-0 whitespace-nowrap">
-                  {hospitalPct}%
-                </span>
               </button>
 
               {/* Emergency Bag Card */}
               <button
                 onClick={() => setCurrentView('bag_check')}
-                className="w-full text-left p-3.5 sm:p-4 bg-white dark:bg-[#242526] hover:bg-[#f2f3f5] dark:hover:bg-[#323436] rounded-2xl border border-[#e4e6eb] dark:border-[#3a3b3c] shadow-xs flex items-center justify-between gap-3.5 transition-all cursor-pointer group active:scale-[0.99]"
+                style={{
+                  background: 'linear-gradient(135deg, rgba(245, 158, 11, 0.12), rgba(249, 115, 22, 0.08))',
+                  border: '1px solid rgba(245, 158, 11, 0.2)',
+                  backgroundSize: '200% 200%',
+                  animation: 'ambientGlow 8s ease infinite',
+                }}
+                className="relative overflow-hidden w-full text-left p-4 backdrop-blur-md bg-white/80 dark:bg-slate-900/80 hover:opacity-95 rounded-2xl shadow-[0_8px_30px_rgba(245,158,11,0.08)] flex items-center justify-between gap-3.5 transition-all cursor-pointer group active:scale-95 duration-150"
               >
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="w-10 h-10 rounded-2xl bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 flex items-center justify-center text-xl shrink-0 group-hover:scale-105 transition-transform">
+                <div className="absolute -right-6 -bottom-6 w-28 h-28 rounded-full bg-amber-400/20 filter blur-xl pointer-events-none animate-float-molecule [animation-delay:2s]" />
+                <div className="relative z-10 flex items-center gap-3 min-w-0 flex-1">
+                  <div className="w-11 h-11 rounded-2xl bg-amber-500 text-white flex items-center justify-center text-xl shrink-0 group-hover:scale-110 active:scale-95 transition-transform duration-200 shadow-md">
                     💼
                   </div>
-                  <div className="flex items-center gap-2 min-w-0">
-                    <h3 className="text-sm font-bold text-[#050505] dark:text-[#e4e6eb] leading-normal truncate">
-                      เช็คกระเป๋าอีเมอร์เจนซี่
-                    </h3>
-                    {expiryAlerts.filter((a) => a.category === 'bag').length > 0 && (
-                      <span className="w-2 h-2 rounded-full bg-[#e41e3f] shrink-0" title="มีรายการใกล้/หมดอายุ" />
-                    )}
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-sm sm:text-base font-bold text-neutral-900 dark:text-white leading-tight">
+                        เช็คกระเป๋าอีเมอร์เจนซี่
+                      </h3>
+                      {expiryAlerts.filter((a) => a.category === 'bag').length > 0 && (
+                        <span className="w-2.5 h-2.5 rounded-full bg-rose-600 shrink-0 animate-ping" title="มีรายการใกล้/หมดอายุ" />
+                      )}
+                    </div>
+                    <p className="text-[11px] text-neutral-500 dark:text-neutral-400 mt-0.5">
+                      ตรวจสอบกระเป๋าฉุกเฉินและยาสำคัญ
+                    </p>
                   </div>
                 </div>
-                <span className="text-xs font-bold text-amber-600 dark:text-amber-400 px-2.5 py-1 rounded-full bg-amber-50 dark:bg-amber-950/40 shrink-0 whitespace-nowrap">
-                  {bagPct}%
-                </span>
               </button>
 
               {/* Emergency Cart Card */}
               <button
                 onClick={() => setCurrentView('cart_check')}
-                className="w-full text-left p-3.5 sm:p-4 bg-white dark:bg-[#242526] hover:bg-[#f2f3f5] dark:hover:bg-[#323436] rounded-2xl border border-[#e4e6eb] dark:border-[#3a3b3c] shadow-xs flex items-center justify-between gap-3.5 transition-all cursor-pointer group active:scale-[0.99]"
+                style={{
+                  background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.12), rgba(20, 184, 166, 0.08))',
+                  border: '1px solid rgba(16, 185, 129, 0.2)',
+                  backgroundSize: '200% 200%',
+                  animation: 'ambientGlow 8s ease infinite',
+                }}
+                className="relative overflow-hidden w-full text-left p-4 backdrop-blur-md bg-white/80 dark:bg-slate-900/80 hover:opacity-95 rounded-2xl shadow-[0_8px_30px_rgba(16,185,129,0.08)] flex items-center justify-between gap-3.5 transition-all cursor-pointer group active:scale-95 duration-150"
               >
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="w-10 h-10 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 flex items-center justify-center text-xl shrink-0 group-hover:scale-105 transition-transform">
+                <div className="absolute -right-6 -bottom-6 w-28 h-28 rounded-full bg-emerald-400/20 filter blur-xl pointer-events-none animate-float-molecule [animation-delay:3s]" />
+                <div className="relative z-10 flex items-center gap-3 min-w-0 flex-1">
+                  <div className="w-11 h-11 rounded-2xl bg-emerald-600 text-white flex items-center justify-center text-xl shrink-0 group-hover:scale-110 active:scale-95 transition-transform duration-200 shadow-md">
                     🛒
                   </div>
-                  <div className="flex items-center gap-2 min-w-0">
-                    <h3 className="text-sm font-bold text-[#050505] dark:text-[#e4e6eb] leading-normal truncate">
-                      เช็ครถอีเมอร์เจนซี่
-                    </h3>
-                    {expiryAlerts.filter((a) => a.category === 'cart').length > 0 && (
-                      <span className="w-2 h-2 rounded-full bg-[#e4e6eb] dark:bg-[#e41e3f] shrink-0" title="มีรายการใกล้/หมดอายุ" />
-                    )}
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-sm sm:text-base font-bold text-neutral-900 dark:text-white leading-tight">
+                        เช็ครถอีเมอร์เจนซี่
+                      </h3>
+                      {expiryAlerts.filter((a) => a.category === 'cart').length > 0 && (
+                        <span className="w-2.5 h-2.5 rounded-full bg-rose-600 shrink-0 animate-ping" title="มีรายการใกล้/หมดอายุ" />
+                      )}
+                    </div>
+                    <p className="text-[11px] text-neutral-500 dark:text-neutral-400 mt-0.5">
+                      ตรวจสอบรถเข็นช่วยชีวิตฉุกเฉิน
+                    </p>
                   </div>
                 </div>
-                <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 px-2.5 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/40 shrink-0 whitespace-nowrap">
-                  {cartPct}%
-                </span>
               </button>
 
               {/* Manage Users Card - ONLY shown if Admin */}

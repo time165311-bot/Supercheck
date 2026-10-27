@@ -69,6 +69,27 @@ async function startServer() {
     });
   });
 
+  // Weather proxy to bypass client-side CORS issues
+  app.get('/api/weather', async (req, res) => {
+    const { latitude, longitude } = req.query;
+    if (!latitude || !longitude) {
+      return res.status(400).json({ success: false, message: 'Latitude and longitude are required' });
+    }
+
+    try {
+      const url = `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,relative_humidity_2m,weather_code,is_day`;
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`Open-Meteo responded with status: ${response.status}`);
+      }
+      const data = await response.json();
+      res.json(data);
+    } catch (error: any) {
+      console.error('Weather proxy error:', error);
+      res.status(500).json({ success: false, message: error.message || 'Failed to fetch weather data' });
+    }
+  });
+
   // Cross-device sync endpoints
   app.get('/api/sync', (_req, res) => {
     const state = readServerState();

@@ -910,6 +910,16 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
       `}</style>
 
       <div className="bg-white dark:bg-[#242526] rounded-2xl shadow-2xl w-full max-w-6xl max-h-[90vh] my-auto flex flex-col overflow-hidden border border-[#e4e6eb] dark:border-[#3a3b3c] relative">
+        {/* Absolute Top-Right Close Button (X) */}
+        <button
+          onClick={onClose}
+          type="button"
+          className="absolute top-2.5 right-2.5 z-60 w-8 h-8 rounded-full bg-neutral-200/90 hover:bg-rose-500 hover:text-white dark:bg-neutral-800 dark:hover:bg-rose-600 text-neutral-800 dark:text-neutral-100 flex items-center justify-center transition shadow-md cursor-pointer active:scale-95"
+          title="ปิดหน้าต่างพรีวิว A4"
+        >
+          <X className="w-4 h-4" />
+        </button>
+
         {/* 1. Sticky Header Controls (Fixed above document, no overlap) */}
         <div className="shrink-0 w-full bg-[#f0f2f5] dark:bg-[#18191a] border-b border-[#e4e6eb] dark:border-[#3a3b3c] z-50">
           {!showToolbar ? (

@@ -289,6 +289,27 @@
   50% { transform: translateY(-10px) scale(1.05); opacity: 0.8; }
 }
 
+@keyframes pulseWave {
+  0% { transform: scaleX(0.9); opacity: 0.25; }
+  50% { transform: scaleX(1.15); opacity: 0.65; }
+  100% { transform: scaleX(0.9); opacity: 0.25; }
+}
+
+@keyframes defibSpark {
+  0%, 100% { opacity: 0.2; transform: scale(0.95); }
+  50% { opacity: 0.75; transform: scale(1.15); }
+}
+
+@keyframes spinRadar {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes floatMolecule {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50% { transform: translateY(-8px) rotate(8deg); }
+}
+
 .animate-twilight {
   animation: twilightGlow 10s ease-in-out infinite;
 }
@@ -296,3 +317,68 @@
 .animate-sunrise {
   animation: sunrisePulse 8s ease-in-out infinite;
 }
+
+.animate-pulse-wave {
+  animation: pulseWave 3s ease-in-out infinite;
+}
+
+.animate-defib-spark {
+  animation: defibSpark 2s ease-in-out infinite;
+}
+
+.animate-spin-radar {
+  animation: spinRadar 12s linear infinite;
+}
+
+.animate-float-molecule {
+  animation: floatMolecule 4s ease-in-out infinite;
+}
+
+@keyframes gradientAnimation {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+@keyframes ambientGlow {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+.animate-gradient {
+  background-size: 200% 200%;
+  animation: gradientAnimation 8s ease infinite;
+}
+
+.animate-ambient-glow {
+  background-size: 200% 200%;
+  animation: ambientGlow 8s ease infinite !important;
+}
+
+/* Global Smooth Transitions & Animations */
+.smooth-modal {
+  animation: modalIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes modalIn {
+  from { opacity: 0; transform: scale(0.95) translateY(10px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.smooth-drawer {
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.smooth-touch {
+  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.smooth-touch:active {
+  transform: scale(0.95);
+}
+
+.smooth-colors {
+  transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease;
+}
+
+

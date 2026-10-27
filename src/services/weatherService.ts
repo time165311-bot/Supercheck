@@ -95,7 +95,8 @@ async function getUserCoords(): Promise<{ lat: number; lon: number; name: string
  */
 export async function fetchLiveWeather(): Promise<LiveWeatherData> {
   const coords = await getUserCoords();
-  const url = `https://api.open-meteo.com/v1/forecast?latitude=${coords.lat}&longitude=${coords.lon}&current=temperature_2m,relative_humidity_2m,weather_code,is_day`;
+  // Call our server-side proxy to avoid client-side fetch errors/CORS
+  const url = `/api/weather?latitude=${coords.lat}&longitude=${coords.lon}`;
 
   try {
     const res = await fetch(url);
