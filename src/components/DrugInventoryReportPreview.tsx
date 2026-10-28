@@ -102,14 +102,18 @@ export const DrugInventoryReportPreview: React.FC<DrugInventoryReportPreviewProp
 
   return (
     <div
-      className="a4-page-sheet a4-print-container paper-preview sheet-preview isolate !bg-white !text-black p-6 rounded-lg shadow"
+      className="a4-page-sheet a4-print-container paper-preview sheet-preview isolate !bg-white !text-black"
       style={{
-        display: 'inline-block',
-        width: 'max-content',
-        minWidth: '100%',
+        width: '100%',
+        maxWidth: '900px',
+        margin: '0 auto',
+        padding: '16px',
         boxSizing: 'border-box',
+        overflowX: 'auto',
+        WebkitOverflowScrolling: 'touch',
+        background: '#ffffff',
+        borderRadius: '8px',
         backgroundColor: '#ffffff !important',
-        background: '#ffffff !important',
         color: '#000000 !important',
         fontFamily: "'TH Sarabun PSK', 'Sarabun', Tahoma, sans-serif",
       }}
@@ -123,8 +127,17 @@ export const DrugInventoryReportPreview: React.FC<DrugInventoryReportPreviewProp
         .a4-print-container thead, 
         .a4-print-container tbody, 
         .a4-print-container tr, 
-        .a4-print-container th, 
         .a4-print-container td, 
+        .a4-print-container th {
+          background-color: #ffffff !important;
+          color: #000000 !important;
+          border-color: #cbd5e1 !important;
+          background-image: none !important;
+          color-scheme: light !important;
+          white-space: normal !important;
+          word-break: break-word !important;
+          padding: 8px 6px !important;
+        }
         .a4-print-container p, 
         .a4-print-container span, 
         .a4-print-container div {
@@ -252,11 +265,15 @@ export const DrugInventoryReportPreview: React.FC<DrugInventoryReportPreviewProp
       </div>
 
       {/* 2. Standard 8-Column Table Grid */}
+      <div style={{ width: '100%', overflowX: 'auto', display: 'block', boxSizing: 'border-box' }}>
       <table
-        className="w-full border-collapse border border-slate-400"
+        className="border-collapse border border-slate-400"
         style={{
-          minWidth: '820px',
-          fontSize: '12pt',
+          width: '100%',
+          minWidth: '680px',
+          tableLayout: 'auto',
+          borderCollapse: 'collapse',
+          fontSize: '12px',
           color: '#000000 !important',
           backgroundColor: '#ffffff !important'
         }}
@@ -409,6 +426,7 @@ export const DrugInventoryReportPreview: React.FC<DrugInventoryReportPreviewProp
           )}
         </tbody>
       </table>
+      </div>
 
       {/* Signature Area */}
       <div className="mt-8 pt-4 border-t border-slate-200 flex justify-around text-sm" style={{ fontSize: '11pt', color: '#000000 !important', backgroundColor: '#ffffff !important', background: '#ffffff !important' }}>

@@ -69,24 +69,42 @@ async function startServer() {
     });
   });
 
-  // Weather proxy to bypass client-side CORS issues
+  // Weather proxy to bypass client-side CORS issues with robust fallback
   app.get('/api/weather', async (req, res) => {
     const { latitude, longitude } = req.query;
+    const currentHour = new Date().getHours();
+    const isDay = currentHour >= 6 && currentHour < 18 ? 1 : 0;
+
+    const fallbackData = {
+      current: {
+        temperature_2m: 31.5,
+        relative_humidity_2m: 65,
+        weather_code: 0,
+        is_day: isDay,
+      },
+      fallback: true,
+    };
+
     if (!latitude || !longitude) {
-      return res.status(400).json({ success: false, message: 'Latitude and longitude are required' });
+      return res.json(fallbackData);
     }
 
     try {
       const url = `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,relative_humidity_2m,weather_code,is_day`;
-      const response = await fetch(url);
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3000);
+
+      const response = await fetch(url, { signal: controller.signal });
+      clearTimeout(timeoutId);
+
       if (!response.ok) {
-        throw new Error(`Open-Meteo responded with status: ${response.status}`);
+        return res.json(fallbackData);
       }
       const data = await response.json();
-      res.json(data);
+      return res.json(data);
     } catch (error: any) {
-      console.error('Weather proxy error:', error);
-      res.status(500).json({ success: false, message: error.message || 'Failed to fetch weather data' });
+      console.warn('Weather proxy warning (using default weather):', error?.message || error);
+      return res.json(fallbackData);
     }
   });
 

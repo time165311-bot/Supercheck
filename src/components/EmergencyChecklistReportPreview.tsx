@@ -1,5 +1,12 @@
 import React, { useState } from 'react';
-import { OfficialReportItemRow, formatAcquiredDate, formatThaiDate } from './OfficialReportModal';
+import {
+  OfficialReportItemRow,
+  formatAcquiredDate,
+  formatThaiDate,
+  stripEmojis,
+  isCurrentYearExp,
+  formatRealQuantity,
+} from './OfficialReportModal';
 import { getMonthAndYearThai } from './DrugInventoryReportPreview';
 import { Calendar, User as UserIcon, Building2 } from 'lucide-react';
 
@@ -142,14 +149,18 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
 
   return (
     <div
-      className="a4-page-sheet a4-print-container paper-preview sheet-preview isolate !bg-white !text-black p-6 rounded-lg shadow"
+      className="a4-page-sheet a4-print-container paper-preview sheet-preview isolate !bg-white !text-black"
       style={{
-        display: 'inline-block',
-        width: 'max-content',
-        minWidth: '100%',
+        width: '100%',
+        maxWidth: '900px',
+        margin: '0 auto',
+        padding: '16px',
         boxSizing: 'border-box',
+        overflowX: 'auto',
+        WebkitOverflowScrolling: 'touch',
+        background: '#ffffff',
+        borderRadius: '8px',
         backgroundColor: '#ffffff !important',
-        background: '#ffffff !important',
         color: '#000000 !important',
         fontFamily: "'TH Sarabun PSK', 'Sarabun', Tahoma, sans-serif",
       }}
@@ -166,6 +177,16 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
         .a4-print-container tr, 
         .a4-print-container th, 
         .a4-print-container td, 
+        .a4-print-container th {
+          background-color: #ffffff !important;
+          color: #000000 !important;
+          border-color: #cbd5e1 !important;
+          background-image: none !important;
+          color-scheme: light !important;
+          white-space: normal !important;
+          word-break: break-word !important;
+          padding: 8px 6px !important;
+        }
         .a4-print-container p, 
         .a4-print-container span, 
         .a4-print-container div,
@@ -264,11 +285,15 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
         </div>
       </div>
 
+      <div style={{ width: '100%', overflowX: 'auto', WebkitOverflowScrolling: 'touch', boxSizing: 'border-box' }}>
       <table
-        className="w-full border-collapse border border-slate-400"
+        className="border-collapse border border-slate-400"
         style={{
-          minWidth: '850px',
-          fontSize: '12pt',
+          width: '100%',
+          minWidth: '680px',
+          tableLayout: 'auto',
+          borderCollapse: 'collapse',
+          fontSize: '12px',
           color: '#000000 !important',
           backgroundColor: '#ffffff !important'
         }}
@@ -279,17 +304,17 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
             <th
               rowSpan={2}
               className="border border-slate-400 p-2"
-              style={{ width: '280px', minWidth: '260px', textAlign: 'center', verticalAlign: 'middle' }}
+              style={{ width: '280px', minWidth: '220px', textAlign: 'center', verticalAlign: 'middle' }}
             >
               รายการ
             </th>
-            {/* Col 2: จำนวน (60px, center, nowrap) */}
+            {/* Col 2: จำนวนตั้งต้น (60px, center, nowrap) */}
             <th
               rowSpan={2}
               className="border border-slate-400 p-2"
-              style={{ width: '60px', minWidth: '60px', textAlign: 'center', verticalAlign: 'middle', whiteSpace: 'nowrap' }}
+              style={{ width: '70px', minWidth: '60px', textAlign: 'center', verticalAlign: 'middle', whiteSpace: 'nowrap' }}
             >
-              จำนวน
+              จำนวนตั้งต้น
             </th>
             {/* Col 3-7: สัปดาห์ที่ 1 ถึง สัปดาห์ที่ 5 (75px each) */}
             {[1, 2, 3, 4, 5].map((w) => (
@@ -298,7 +323,7 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
                 className={`border border-slate-400 p-1.5 text-center ${
                   currentWeek === w ? 'bg-blue-50/80 text-blue-900 font-bold' : ''
                 }`}
-                style={{ width: '75px', minWidth: '70px', verticalAlign: 'middle' }}
+                style={{ width: '75px', minWidth: '65px', verticalAlign: 'middle' }}
               >
                 สัปดาห์ที่ {w}
               </th>
@@ -307,7 +332,7 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
             <th
               rowSpan={2}
               className="border border-slate-400 p-2"
-              style={{ width: '100px', minWidth: '95px', textAlign: 'center', verticalAlign: 'middle', whiteSpace: 'nowrap' }}
+              style={{ width: '120px', minWidth: '120px', textAlign: 'center', verticalAlign: 'middle', whiteSpace: 'nowrap' }}
             >
               วันหมดอายุ (EXP)
             </th>
@@ -346,7 +371,7 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
                   className="border border-slate-300 p-1.5 pl-3 text-left font-bold"
                   style={{ textAlign: 'left', paddingLeft: '12px', backgroundColor: '#f1f5f9 !important', color: '#000000 !important' }}
                 >
-                  📁 {gName}
+                  {stripEmojis(gName)}
                 </td>
               </tr>
               {/* Group items rows */}
@@ -356,10 +381,12 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
                 const isBad = item.res ? item.res.includes('ไม่ได้') : false;
                 const isMiss = item.res ? item.res.includes('ไม่พบ') : false;
 
-                const checkSymbol = isOk ? '✓' : isBad ? '✗' : isMiss ? '?' : '-';
-
                 const expStr = item.exp || (item as any).expDate || (item.note?.match(/Exp:\s*([^\s|]+)/)?.[1]) || '';
                 const formattedExp = expStr ? formatAcquiredDate(expStr) : '-';
+                const isCurrentYear = isCurrentYearExp(expStr) || isCurrentYearExp(formattedExp);
+
+                // Multi-size breakdown for actual week check result cell
+                const realCheckVal = formatRealQuantity(item.qty, item.name, item.spec);
 
                 return (
                   <tr key={idx} className="hover:bg-slate-50 transition-colors">
@@ -370,28 +397,36 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
                     >
                       {item.name || '-'}
                     </td>
-                    {/* Col 2: จำนวน (ตรงกลาง, nowrap) */}
+                    {/* Col 2: จำนวนตั้งต้น (ตรงกลาง, nowrap) - Standard configured item quantity */}
                     <td
                       className="border border-slate-300 p-2 text-center"
                       style={{ textAlign: 'center', whiteSpace: 'nowrap' }}
                     >
                       {item.qty || '1'}
                     </td>
-                    {/* Col 3-7: สัปดาห์ที่ 1 ถึง 5 */}
+                    {/* Col 3-7: ผลการตรวจเช็คในสัปดาห์ที่ 1 ถึง 5 */}
                     {[1, 2, 3, 4, 5].map((w) => {
                       const customVal = resolvedWeekValues[itemKey]?.[w];
                       const itemWeekVal = item.weekVals?.[w];
 
                       let displayVal = '-';
-                      if (customVal !== undefined) {
+                      if (customVal !== undefined && customVal !== '') {
                         displayVal = customVal;
-                      } else if (itemWeekVal !== undefined) {
+                      } else if (itemWeekVal !== undefined && itemWeekVal !== '') {
                         displayVal = itemWeekVal;
                       } else if (currentWeek === w) {
-                        displayVal = item.val || checkSymbol;
+                        if (item.val && item.val !== '✓') {
+                          displayVal = item.val;
+                        } else if (isOk) {
+                          displayVal = realCheckVal !== '1' && realCheckVal.includes(',') ? realCheckVal : '✓';
+                        } else if (isBad) {
+                          displayVal = '✗';
+                        } else if (isMiss) {
+                          displayVal = '?';
+                        }
                       }
 
-                      const isValOk = displayVal === '✓' || displayVal.toLowerCase() === 'ok';
+                      const isValOk = displayVal === '✓' || displayVal.toLowerCase() === 'ok' || displayVal.includes(',');
                       const isValBad = displayVal === '✗' || displayVal.toLowerCase() === 'fail';
                       const isValEmpty = displayVal === '-' || displayVal === '';
 
@@ -401,7 +436,7 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
                           className={`border border-slate-300 p-0 text-center ${
                             currentWeek === w ? 'bg-blue-50/40' : ''
                           }`}
-                          style={{ textAlign: 'center', width: '75px', minWidth: '70px' }}
+                          style={{ textAlign: 'center', width: '75px', minWidth: '65px' }}
                         >
                           <input
                             type="text"
@@ -417,15 +452,22 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
                                 ? 'text-slate-400'
                                 : 'text-slate-900 font-bold'
                             }`}
-                            title={`สัปดาห์ที่ ${w}: พิมพ์ค่าที่ตรวจได้ เช่น 1, 2, 1400/1700 PSI หรือ ✓, ✗`}
+                            title={`สัปดาห์ที่ ${w}: พิมพ์ค่าที่ตรวจได้ เช่น 1, 1, 1, 1 หรือ 1400/1700 PSI หรือ ✓, ✗`}
                           />
                         </td>
                       );
                     })}
                     {/* Col 8: วันหมดอายุ (EXP) (ตรงกลาง, nowrap) */}
                     <td
-                      className="border border-slate-300 p-2 text-center text-xs"
-                      style={{ textAlign: 'center', whiteSpace: 'nowrap', fontSize: '11pt' }}
+                      className={`border border-slate-300 p-2 text-center text-xs ${isCurrentYear ? 'text-red-600 font-bold' : ''}`}
+                      style={{
+                        width: '120px',
+                        minWidth: '120px',
+                        textAlign: 'center',
+                        whiteSpace: 'nowrap',
+                        fontSize: '11pt',
+                        ...(isCurrentYear ? { color: '#DC2626 !important', fontWeight: 'bold !important' } : {}),
+                      }}
                     >
                       {formattedExp}
                     </td>
@@ -468,7 +510,7 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
                 )}
               </td>
             ))}
-            <td className="border border-slate-400 p-2 text-center" style={{ color: '#000000 !important' }}>-</td>
+            <td className="border border-slate-400 p-2 text-center" style={{ width: '120px', minWidth: '120px', color: '#000000 !important' }}>-</td>
           </tr>
           <tr className="font-semibold" style={{ fontSize: '11pt', color: '#000000 !important', backgroundColor: '#ffffff !important' }}>
             <td
@@ -491,6 +533,7 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
           </tr>
         </tfoot>
       </table>
+      </div>
 
       {/* Note under table */}
       <div className="mt-4 flex justify-between items-center text-xs text-slate-500">
@@ -550,7 +593,7 @@ export function generateEmergencyPrintHtml(
       const groupHeader = `
         <tr style="background-color: #f1f5f9; font-weight: bold;">
           <td colspan="8" style="padding: 4px 8px; text-align: left; border: 1px solid #000; font-size: 10.5pt;">
-            📁 ${gName}
+            ${stripEmojis(gName)}
           </td>
         </tr>
       `;
@@ -566,6 +609,10 @@ export function generateEmergencyPrintHtml(
 
           const expStr = item.exp || (item as any).expDate || (item.note?.match(/Exp:\s*([^\s|]+)/)?.[1]) || '';
           const formattedExp = expStr ? formatAcquiredDate(expStr) : '-';
+          const isCurrentYear = isCurrentYearExp(expStr) || isCurrentYearExp(formattedExp);
+          const expStyle = isCurrentYear ? 'color: #DC2626 !important; font-weight: bold !important;' : '';
+
+          const realCheckVal = formatRealQuantity(item.qty, item.name, item.spec);
 
           const weekCells = [1, 2, 3, 4, 5]
             .map((w) => {
@@ -578,10 +625,18 @@ export function generateEmergencyPrintHtml(
               } else if (itemWeekVal !== undefined && itemWeekVal !== '') {
                 displayVal = itemWeekVal;
               } else if (activeWeek === w) {
-                displayVal = item.val || checkSymbol;
+                if (item.val && item.val !== '✓') {
+                  displayVal = item.val;
+                } else if (isOk) {
+                  displayVal = realCheckVal !== '1' && realCheckVal.includes(',') ? realCheckVal : '✓';
+                } else if (isBad) {
+                  displayVal = '✗';
+                } else if (isMiss) {
+                  displayVal = '?';
+                }
               }
 
-              const isValOk = displayVal === '✓' || displayVal.toLowerCase() === 'ok';
+              const isValOk = displayVal === '✓' || displayVal.toLowerCase() === 'ok' || displayVal.includes(',');
               const isValBad = displayVal === '✗' || displayVal.toLowerCase() === 'fail';
               const isValEmpty = displayVal === '-' || displayVal === '';
 
@@ -602,7 +657,7 @@ export function generateEmergencyPrintHtml(
               <td style="text-align: left; padding-left: 8px; border: 1px solid #000;">${item.name || '-'}</td>
               <td style="text-align: center; border: 1px solid #000; white-space: nowrap;">${item.qty || '1'}</td>
               ${weekCells}
-              <td style="text-align: center; border: 1px solid #000; white-space: nowrap; font-size: 9.5pt;">${formattedExp}</td>
+              <td style="text-align: center; border: 1px solid #000; white-space: nowrap; font-size: 9.5pt; ${expStyle}">${formattedExp}</td>
             </tr>
           `;
         })

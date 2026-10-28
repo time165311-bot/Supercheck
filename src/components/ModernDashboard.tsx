@@ -245,8 +245,8 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
     <div
       className="w-full min-h-screen bg-slate-50 text-slate-800 font-sans pb-12 overflow-x-hidden relative"
     >
-      {/* 1. Vibrant Gradient Header - Full Bleed */}
-      <div className="w-full bg-gradient-to-br from-blue-600 via-cyan-500 to-emerald-400 pt-8 pb-16 px-6 rounded-b-[2rem] shadow-lg relative overflow-hidden">
+      {/* 1. Vibrant Gradient Header Card */}
+      <div className="w-full bg-gradient-to-br from-blue-600 via-cyan-500 to-emerald-400 pt-6 pb-14 px-6 rounded-3xl shadow-lg relative overflow-hidden mt-1">
         {/* Background Decorative Elements */}
         <div className="absolute -top-10 -right-10 w-40 h-40 bg-white/20 rounded-full blur-2xl pointer-events-none" />
         <div className="absolute bottom-0 left-5 w-32 h-32 bg-emerald-300/30 rounded-full blur-xl pointer-events-none" />

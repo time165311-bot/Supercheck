@@ -13,6 +13,7 @@ import {
   Maximize2,
   RotateCcw,
   Move,
+  RefreshCw,
 } from 'lucide-react';
 import { InspectionHistoryRecord, User, DrugItem } from '../types';
 import { INITIAL_DRUGS_DATA } from '../constants/initialDrugs';
@@ -142,6 +143,55 @@ export function formatAcquiredDate(dateVal?: string | null): string {
   return str.replace(/\s+/g, ' ');
 }
 
+export function stripEmojis(str?: string): string {
+  if (!str) return '';
+  return str.replace(/[\u{1F300}-\u{1F9FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]|[\u{1F600}-\u{1F64F}]|[\u{1F680}-\u{1F6FF}]/gu, '').trim();
+}
+
+export function isCurrentYearExp(expVal?: string | null): boolean {
+  if (!expVal) return false;
+  const str = String(expVal).trim();
+  if (!str || str === '-' || str === 'null' || str === 'undefined') return false;
+
+  const currentYearAD = new Date().getFullYear(); // 2026
+  const currentYearBE = currentYearAD + 543;       // 2569
+  const shortAD = String(currentYearAD).slice(-2); // "26"
+  const shortBE = String(currentYearBE).slice(-2); // "69"
+
+  if (str.includes(String(currentYearAD)) || str.includes(String(currentYearBE))) {
+    return true;
+  }
+  if (new RegExp(`[\\/.-]${shortAD}$`).test(str) || new RegExp(`[\\/.-]${shortBE}$`).test(str)) {
+    return true;
+  }
+  return false;
+}
+
+export function formatRealQuantity(qtyVal?: string | number, nameStr?: string, specStr?: string): string {
+  const combined = `${nameStr || ''} ${specStr || ''} ${qtyVal || ''}`;
+  const strQty = String(qtyVal || '').trim();
+
+  // Look for size / number specs like No. 4, 5, 5.5, 6 or เบอร์ 4, 5, 6
+  const sizePattern = /(?:No\.|no\.|เบอร์|ขนาด)\s*([0-9.,\s/&]+)/i;
+  const match = combined.match(sizePattern);
+  if (match && match[1]) {
+    const sizes = match[1].split(/[,/&]/).map((s) => s.trim()).filter((s) => /^\d+(\.\d+)?$/.test(s));
+    if (sizes.length > 1) {
+      return sizes.map(() => '1').join(', ');
+    }
+  }
+
+  if (strQty.includes('อย่างละ') || strQty.includes('เหมา')) {
+    const numbers = combined.match(/(\d+(\.\d+)?)/g);
+    if (numbers && numbers.length > 1) {
+      return Array(numbers.length).fill('1').join(', ');
+    }
+    return '1';
+  }
+
+  return strQty || '1';
+}
+
 export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
   isOpen,
   onClose,
@@ -170,122 +220,15 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
   const [drugSubCategory, setDrugSubCategory] = useState<'all' | 'monthly' | 'quarterly' | 'adhoc'>(initialDrugSubCategory);
   const [drugHeaderNote, setDrugHeaderNote] = useState<string>('(เพิ่ม Column Exp.)');
   const [showToolbar, setShowToolbar] = useState<boolean>(true);
+  const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
 
-  // Zoom & Pan Engine state
-  const [zoom, setZoom] = useState<number>(1.0);
-  const [pan, setPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
-  const [isDragging, setIsDragging] = useState<boolean>(false);
-  const dragStartRef = useRef<{ x: number; y: number; panX: number; panY: number }>({ x: 0, y: 0, panX: 0, panY: 0 });
-  const touchPinchRef = useRef<{ initialDist: number; initialZoom: number } | null>(null);
+  // Zoom & Pan (Simplified for clean rewrite - fixed at 100%)
+  const [zoom] = useState<number>(1.0);
   const previewContainerRef = useRef<HTMLDivElement>(null);
   const previewContentRef = useRef<HTMLDivElement>(null);
 
   // Week values tracking for bag and cart
   const [weekItemValues, setWeekItemValues] = useState<{ [itemKey: string]: { [week: number]: string } }>({});
-
-  const handleZoomIn = () => {
-    setZoom((z) => Math.min(2.5, Math.round((z + 0.15) * 100) / 100));
-  };
-
-  const handleZoomOut = () => {
-    setZoom((z) => Math.max(0.4, Math.round((z - 0.15) * 100) / 100));
-  };
-
-  const handleResetZoom = () => {
-    setZoom(1.0);
-    setPan({ x: 0, y: 0 });
-  };
-
-  const handleFitScreen = () => {
-    if (previewContainerRef.current && previewContentRef.current) {
-      const containerW = previewContainerRef.current.clientWidth - 48;
-      const contentW = previewContentRef.current.scrollWidth || 1080;
-      if (contentW > 0 && containerW > 0) {
-        const fitScale = Math.min(1.0, Math.max(0.4, containerW / contentW));
-        setZoom(Math.round(fitScale * 100) / 100);
-        setPan({ x: 0, y: 0 });
-      }
-    } else {
-      setZoom(0.85);
-      setPan({ x: 0, y: 0 });
-    }
-  };
-
-  // PC: Ctrl + Mouse Wheel zoom
-  useEffect(() => {
-    const container = previewContainerRef.current;
-    if (!container) return;
-
-    const onWheel = (e: WheelEvent) => {
-      if (e.ctrlKey || e.metaKey) {
-        e.preventDefault();
-        const delta = e.deltaY < 0 ? 0.1 : -0.1;
-        setZoom((prev) => Math.min(2.5, Math.max(0.4, Math.round((prev + delta) * 100) / 100)));
-      }
-    };
-
-    container.addEventListener('wheel', onWheel, { passive: false });
-    return () => container.removeEventListener('wheel', onWheel);
-  }, [isOpen]);
-
-  // Mouse Drag to Pan
-  const handleMouseDown = (e: React.MouseEvent) => {
-    const target = e.target as HTMLElement;
-    if (
-      ['INPUT', 'BUTTON', 'SELECT', 'TEXTAREA'].includes(target.tagName) ||
-      target.closest('input, button, select, textarea')
-    ) {
-      return;
-    }
-    setIsDragging(true);
-    dragStartRef.current = {
-      x: e.clientX,
-      y: e.clientY,
-      panX: pan.x,
-      panY: pan.y,
-    };
-  };
-
-  const handleMouseMove = (e: React.MouseEvent) => {
-    if (!isDragging) return;
-    const dx = e.clientX - dragStartRef.current.x;
-    const dy = e.clientY - dragStartRef.current.y;
-    setPan({
-      x: dragStartRef.current.panX + dx,
-      y: dragStartRef.current.panY + dy,
-    });
-  };
-
-  const handleMouseUp = () => {
-    if (isDragging) setIsDragging(false);
-  };
-
-  // Mobile Touch Pinch-to-zoom
-  const handleTouchStart = (e: React.TouchEvent) => {
-    if (e.touches.length === 2) {
-      const dist = Math.hypot(
-        e.touches[0].clientX - e.touches[1].clientX,
-        e.touches[0].clientY - e.touches[1].clientY
-      );
-      touchPinchRef.current = { initialDist: dist, initialZoom: zoom };
-    }
-  };
-
-  const handleTouchMove = (e: React.TouchEvent) => {
-    if (e.touches.length === 2 && touchPinchRef.current) {
-      const dist = Math.hypot(
-        e.touches[0].clientX - e.touches[1].clientX,
-        e.touches[0].clientY - e.touches[1].clientY
-      );
-      const ratio = dist / touchPinchRef.current.initialDist;
-      const nextZoom = Math.min(2.5, Math.max(0.4, touchPinchRef.current.initialZoom * ratio));
-      setZoom(Math.round(nextZoom * 100) / 100);
-    }
-  };
-
-  const handleTouchEnd = () => {
-    touchPinchRef.current = null;
-  };
 
   // Sync category when initialCategory changes or modal opens
   useEffect(() => {
@@ -297,10 +240,7 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
     }
     setSelectedRoundId('current');
     setFeedback(null);
-    setShowToolbar(true);
-    setTimeout(() => {
-      handleFitScreen();
-    }, 150);
+    // Reset Modal View
   }, [initialCategory, initialDrugSubCategory, isOpen]);
 
   // Load drugs from prop, local storage, or initial constant
@@ -465,7 +405,7 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
             <td style="text-align: left; font-size: 8.5pt;">${item.spec || '-'}</td>
             <td style="text-align: center; font-size: 8.5pt;">${item.source || '-'}</td>
             <td style="text-align: center; font-size: 8.5pt; white-space: nowrap;">${formatAcquiredDate(item.date)}</td>
-            <td style="text-align: center;">${item.qty || '1'}</td>
+            <td style="text-align: center;">${formatRealQuantity(item.qty, item.name, item.spec)}</td>
             <td style="text-align: center;">${item.tax || '7'}</td>
             <td style="text-align: right;">${item.price || '-'}</td>
             <td style="text-align: center; font-size: 8.5pt;">${item.location || '-'}</td>
@@ -822,341 +762,172 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
   const isAdmin = !currentUser || currentUser.role === 'admin';
 
   return (
-    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex flex-col justify-start items-center p-2 sm:p-4 overflow-hidden animate-in fade-in">
-      {/* Media Print Global Rules */}
-      <style>{`
-        @page {
-          size: A4 landscape;
-          margin: 10mm;
-        }
-        @media print {
-          body {
-            font-family: 'TH Sarabun PSK', 'Sarabun', sans-serif !important;
-          }
-          thead {
-            display: table-header-group !important;
-          }
-          tr {
-            page-break-inside: avoid !important;
-          }
-        }
-        .preview-container {
-          overflow-x: auto !important;
-          overflow-y: auto !important;
-          -webkit-overflow-scrolling: touch !important;
-          touch-action: pan-x pan-y !important;
-        }
-        .paper-preview, .sheet-preview, .a4-page-sheet, .a4-print-container {
-          display: inline-block !important;
-          width: max-content !important;
-          min-width: 100% !important;
-          box-sizing: border-box !important;
-          background-color: #ffffff !important;
-          background: #ffffff !important;
-          color: #000000 !important;
-        }
-        /* Strict isolation for report content to beat global dark: utilities */
-        .a4-page-sheet,
-        .a4-page-sheet *,
-        .a4-print-container, 
-        .a4-print-container *, 
-        .paper-preview, 
-        .paper-preview *,
-        [class*="a4-"] *,
-        .a4-page-sheet [class*="bg-"],
-        .a4-page-sheet [class*="text-"],
-        .a4-page-sheet [class*="dark:"] {
-          background-color: #ffffff !important;
-          background: #ffffff !important;
-          color: #000000 !important;
-          border-color: #cbd5e1 !important;
-          background-image: none !important;
-          color-scheme: light !important;
-          box-shadow: none !important;
-          text-shadow: none !important;
-          backdrop-filter: none !important;
-        }
-        /* Restore header and specific table colors */
-        .a4-page-sheet th,
-        .a4-page-sheet thead tr,
-        .a4-page-sheet th *,
-        .a4-print-container th, 
-        .a4-print-container thead tr,
-        .paper-preview th,
-        .paper-preview thead tr {
-          background-color: #f1f5f9 !important;
-          background: #f1f5f9 !important;
-          color: #000000 !important;
-        }
-        /* High-contrast status colors */
-        .a4-page-sheet .text-emerald-700, .a4-print-container .text-emerald-700, .paper-preview .text-emerald-700, .paper-preview .text-emerald-600 { color: #15803d !important; background-color: transparent !important; }
-        .a4-page-sheet .text-rose-700, .a4-print-container .text-rose-700, .paper-preview .text-rose-700, .paper-preview .text-rose-600 { color: #b91c1c !important; background-color: transparent !important; }
-        .a4-page-sheet .text-amber-700, .a4-print-container .text-amber-700, .paper-preview .text-amber-700, .paper-preview .text-amber-600 { color: #b45309 !important; background-color: transparent !important; }
-        
-        /* Fix for potential black banners in headers/footers */
-        .a4-page-sheet header, .a4-page-sheet footer, .a4-page-sheet section, .a4-page-sheet div[class*="bg-"] {
-          background-color: #ffffff !important;
-          background: #ffffff !important;
-        }
-        .a4-page-sheet table, .a4-page-sheet tr, .a4-page-sheet td {
-          background-color: #ffffff !important;
-          color: #000000 !important;
-          border: 1px solid #000000 !important;
-        }
-        .a4-page-sheet thead th {
-          background-color: #f1f5f9 !important;
-          color: #000000 !important;
-        }
-      `}</style>
-
-      <div className="bg-white dark:bg-[#242526] rounded-2xl shadow-2xl w-full max-w-6xl max-h-[90vh] my-auto mt-4 pt-[env(safe-area-inset-top)] flex flex-col overflow-hidden border border-[#e4e6eb] dark:border-[#3a3b3c] relative">
-        {/* 1. Sticky Header Controls (Fixed above document, no overlap) */}
-        <div className="shrink-0 w-full bg-[#f0f2f5] dark:bg-[#18191a] border-b border-[#e4e6eb] dark:border-[#3a3b3c] z-50">
-          {!showToolbar ? (
-            <div className="p-2 flex justify-end items-center gap-3">
-              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mr-auto ml-2">A4 Document Preview</span>
-              <button
-                type="button"
-                onClick={() => setShowToolbar(true)}
-                className="px-3 py-1.5 rounded-xl bg-accent text-white shadow-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer hover:bg-accent-hover transition-all active:scale-95"
-              >
-                <span>👁️ แสดงแผงควบคุม</span>
-              </button>
-              <button
-                onClick={onClose}
-                className="w-8 h-8 rounded-full bg-[#e4e6eb] dark:bg-[#3a3b3c] hover:bg-rose-100 dark:hover:bg-rose-900/30 text-slate-600 dark:text-slate-400 hover:text-rose-600 flex items-center justify-center transition cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
+    <div 
+      className="fixed inset-0 z-[9999] flex items-center justify-center p-4 sm:p-6"
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 9999,
+        background: 'rgba(0, 0, 0, 0.75)',
+        backdropFilter: 'blur(8px)',
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        padding: '16px',
+        boxSizing: 'border-box',
+      }}
+    >
+      <div 
+        className="bg-white dark:bg-[#242526] shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200"
+        style={{
+          width: isFullscreen ? '98vw' : '96vw',
+          maxWidth: isFullscreen ? 'none' : '900px',
+          height: isFullscreen ? '95vh' : 'auto',
+          maxHeight: isFullscreen ? '95vh' : '92vh',
+          background: '#ffffff',
+          borderRadius: isFullscreen ? '12px' : '20px',
+          display: 'flex',
+          flexDirection: 'column',
+          boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
+          boxSizing: 'border-box'
+        }}
+      >
+        {/* Modal Sticky Header */}
+        <div className="sticky top-0 z-50 flex flex-col gap-3 p-4 border-b border-slate-100 bg-slate-50/80 backdrop-blur-md">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1">
+              {[
+                { id: 'eq', label: 'ครุภัณฑ์', emoji: '🏫' },
+                { id: 'bag', label: 'กระเป๋า', emoji: '💼' },
+                { id: 'cart', label: 'รถ', emoji: '🛒' },
+                { id: 'drug', label: 'คลังยา', emoji: '💊' }
+              ].map((cat) => (
+                <button
+                  key={cat.id}
+                  onClick={() => {
+                    setSelectedCategory(cat.id as any);
+                    setSelectedRoundId('current');
+                  }}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all active:scale-95 whitespace-nowrap ${
+                    selectedCategory === cat.id 
+                      ? 'bg-sky-600 text-white shadow-md ring-2 ring-sky-500/20' 
+                      : 'bg-white text-slate-600 hover:bg-slate-100'
+                  }`}
+                >
+                  <span>{cat.emoji}</span>
+                  <span>{cat.label}</span>
+                </button>
+              ))}
             </div>
-          ) : (
-            <div className="p-2 sm:px-4 sm:py-2 flex flex-wrap items-center justify-between gap-3">
-              {/* Left: Category Tabs + Round Selector */}
-              <div className="flex items-center gap-2 flex-wrap">
-                <div className="flex items-center bg-[#e4e6eb] dark:bg-[#3a3b3c] p-0.5 rounded-xl text-xs font-semibold">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSelectedCategory('eq');
-                        setSelectedRoundId('current');
-                      }}
-                      className={`px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-xl transition-all cursor-pointer whitespace-nowrap leading-normal overflow-visible active:scale-95 flex items-center gap-1.5 ${
-                        selectedCategory === 'eq' ? 'bg-accent text-white shadow-md font-extrabold' : 'text-[#65676b] dark:text-[#b0b3b8] hover:text-[#050505] dark:hover:text-white'
-                      }`}
-                    >
-                      <span className="shrink-0 leading-none">🏫</span>
-                      <span className="whitespace-nowrap">ครุภัณฑ์</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSelectedCategory('bag');
-                        setSelectedRoundId('current');
-                      }}
-                      className={`px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-xl transition-all cursor-pointer whitespace-nowrap leading-normal overflow-visible active:scale-95 flex items-center gap-1.5 ${
-                        selectedCategory === 'bag' ? 'bg-accent text-white shadow-md font-extrabold' : 'text-[#65676b] dark:text-[#b0b3b8] hover:text-[#050505] dark:hover:text-white'
-                      }`}
-                    >
-                      <span className="shrink-0 leading-none">💼</span>
-                      <span className="whitespace-nowrap">กระเป๋า</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSelectedCategory('cart');
-                        setSelectedRoundId('current');
-                      }}
-                      className={`px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-xl transition-all cursor-pointer whitespace-nowrap leading-normal overflow-visible active:scale-95 flex items-center gap-1.5 ${
-                        selectedCategory === 'cart' ? 'bg-accent text-white shadow-md font-extrabold' : 'text-[#65676b] dark:text-[#b0b3b8] hover:text-[#050505] dark:hover:text-white'
-                      }`}
-                    >
-                      <span className="shrink-0 leading-none">🛒</span>
-                      <span className="whitespace-nowrap">รถ</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSelectedCategory('drug');
-                        setSelectedRoundId('current');
-                      }}
-                      className={`px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-xl transition-all cursor-pointer whitespace-nowrap leading-normal overflow-visible active:scale-95 flex items-center gap-1.5 ${
-                        selectedCategory === 'drug' ? 'bg-accent text-white shadow-md font-extrabold' : 'text-[#65676b] dark:text-[#b0b3b8] hover:text-[#050505] dark:hover:text-white'
-                      }`}
-                    >
-                      <span className="shrink-0 leading-none">💊</span>
-                      <span className="whitespace-nowrap">คลังยา</span>
-                    </button>
-                </div>
 
-                <select
-                  value={selectedRoundId}
-                  onChange={(e) => setSelectedRoundId(e.target.value)}
-                  className="bg-white dark:bg-[#242526] text-[#050505] dark:text-[#e4e6eb] border border-[#e4e6eb] dark:border-[#3a3b3c] rounded-xl px-3 py-1 text-xs font-bold outline-none cursor-pointer focus:ring-2 focus:ring-accent/20"
-                >
-                  <option value="current">🟢 รอบปัจจุบัน</option>
-                  {filteredHistoryRecords.map((r) => (
-                    <option key={r.id} value={r.id}>
-                      🕒 [{r.timestamp || r.date}] {r.who || 'ไม่ระบุ'}
-                    </option>
-                  ))}
-                </select>
-
-                {selectedRecord && onDeleteHistoryRecord && (
-                  <button
-                    type="button"
-                    onClick={handleDeleteCurrentRecord}
-                    className="px-2.5 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold transition cursor-pointer"
-                    title="ลบประวัติรอบนี้"
-                  >
-                    <Trash2 className="w-3.5 h-3.5 inline mr-1" /> ลบรอบนี้
-                  </button>
-                )}
-              </div>
-
-              {/* Right: Zoom + Export + Toggle + Close */}
-              <div className="flex items-center gap-1.5 flex-wrap ml-auto">
-                <div className="flex items-center gap-0.5 bg-white dark:bg-[#242526] border border-[#e4e6eb] dark:border-[#3a3b3c] rounded-xl p-0.5 shadow-sm">
-                  <button
-                    type="button"
-                    onClick={handleZoomOut}
-                    className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-lg transition cursor-pointer"
-                    title="ซูมออก"
-                  >
-                    <ZoomOut className="w-4 h-4" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleResetZoom}
-                    className="px-2 py-0.5 hover:bg-blue-50 dark:hover:bg-blue-900/20 text-slate-800 dark:text-slate-200 rounded font-bold transition cursor-pointer text-[11px]"
-                    title="รีเซ็ต 100%"
-                  >
-                    {Math.round(zoom * 100)}%
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleZoomIn}
-                    className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-lg transition cursor-pointer"
-                    title="ซูมเข้า"
-                  >
-                    <ZoomIn className="w-4 h-4" />
-                  </button>
-                  <div className="w-[1px] h-4 bg-slate-200 dark:bg-slate-700 mx-1"></div>
-                  <button
-                    type="button"
-                    onClick={handleFitScreen}
-                    className="px-2.5 py-1 bg-blue-50 dark:bg-blue-950/40 text-[#1877f2] dark:text-blue-400 rounded-lg font-bold flex items-center gap-1.5 transition cursor-pointer text-[11px]"
-                    title="พอดีหน้าจอ"
-                  >
-                    <Maximize2 className="w-3.5 h-3.5" />
-                    <span className="hidden sm:inline">พอดีจอ</span>
-                  </button>
-                </div>
-
-                <button
-                  onClick={handleSendReportToGas}
-                  disabled={isExportingGas}
-                  className="bg-accent hover:bg-accent-hover text-white font-bold px-3 py-1.5 rounded-xl flex items-center gap-1.5 text-xs cursor-pointer whitespace-nowrap shadow-sm active:scale-95 transition-all"
-                  title="ส่ง Report เข้า Google Sheets"
-                >
-                  <FileSpreadsheet className="w-4 h-4 shrink-0" />
-                  <span className="hidden md:inline">ส่ง Sheets</span>
-                </button>
-
-                <button
-                  onClick={handlePrintPdf}
-                  disabled={isPrinting}
-                  className="bg-accent hover:bg-accent-hover text-white font-bold px-3 py-1.5 rounded-xl flex items-center gap-1.5 text-xs cursor-pointer whitespace-nowrap shadow-sm active:scale-95 transition-all"
-                  title="ดาวน์โหลด PDF (A4 แนวนอน)"
-                >
-                  <Printer className="w-4 h-4 shrink-0" />
-                  <span className="hidden md:inline">PDF</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setShowToolbar(false)}
-                  className="px-3 py-1.5 rounded-xl bg-[#e4e6eb] dark:bg-[#3a3b3c] hover:bg-[#d8dadf] dark:hover:bg-[#4e4f50] text-[#050505] dark:text-[#e4e6eb] font-bold flex items-center gap-1.5 text-xs cursor-pointer transition-colors"
-                  title="ซ่อนแผงควบคุม"
-                >
-                  <span>👁️ ซ่อน</span>
-                </button>
-
-                <button
-                  onClick={onClose}
-                  className="w-8 h-8 rounded-full bg-[#e4e6eb] hover:bg-[#d8dadf] dark:bg-[#3a3b3c] dark:hover:bg-[#4e4f50] text-[#050505] dark:text-[#e4e6eb] flex items-center justify-center transition cursor-pointer shrink-0"
-                  title="ปิดหน้าต่าง"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Feedback message banner */}
-        {feedback && (
-          <div
-            className={`px-3 py-1.5 text-xs font-semibold flex items-center justify-between ${
-              feedback.type === 'info'
-                ? 'bg-blue-50 text-blue-800 border-b border-blue-200'
-                : feedback.type === 'success'
-                ? 'bg-emerald-50 text-emerald-800 border-b border-emerald-200'
-                : 'bg-rose-50 text-rose-800 border-b border-rose-200'
-            }`}
-          >
-            <span>{feedback.message}</span>
-            <button
-              onClick={() => setFeedback(null)}
-              className="text-slate-500 hover:text-slate-800 cursor-pointer ml-2"
+            <button 
+              onClick={onClose}
+              className="p-2.5 rounded-full hover:bg-slate-200 text-slate-500 transition-colors"
             >
-              ✕
+              <X className="w-5 h-5" />
             </button>
           </div>
-        )}
 
-        {/* Body Area - Scrollable Clean HTML Table with Zoom & Pan */}
-        <div
-          ref={previewContainerRef}
-          onMouseDown={handleMouseDown}
-          onMouseMove={handleMouseMove}
-          onMouseUp={handleMouseUp}
-          onMouseLeave={handleMouseUp}
-          onTouchStart={handleTouchStart}
-          onTouchMove={handleTouchMove}
-          onTouchEnd={handleTouchEnd}
-          className="preview-container flex-1 overflow-auto p-4 sm:p-12 bg-[#cbd5e1] dark:bg-black/60 select-none relative flex justify-center items-start"
-          style={{
-            overflowX: 'auto',
-            overflowY: 'auto',
-            WebkitOverflowScrolling: 'touch',
-            touchAction: 'pan-x pan-y',
-            cursor: isDragging ? 'grabbing' : zoom > 1 ? 'grab' : 'default',
-          }}
-        >
-          <div
-            ref={previewContentRef}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2 bg-white p-1 rounded-xl border border-slate-200">
+              <select
+                value={selectedRoundId}
+                onChange={(e) => setSelectedRoundId(e.target.value)}
+                className="bg-transparent text-xs font-bold text-slate-700 px-3 py-1 outline-none cursor-pointer"
+              >
+                <option value="current">🟢 รอบปัจจุบัน (Live)</option>
+                {filteredHistoryRecords.map((rec) => (
+                  <option key={rec.id} value={rec.id}>
+                    📜 {rec.timestamp} ({rec.who || 'ผู้ตรวจ'})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setIsFullscreen(!isFullscreen)}
+                className={`p-2 rounded-xl transition-all active:scale-95 ${isFullscreen ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
+                title={isFullscreen ? "ออกจากโหมดเต็มหน้าจอ" : "โหมดเต็มหน้าจอ (Fit to Screen)"}
+              >
+                <Maximize2 className="w-4 h-4" />
+              </button>
+              
+              <div className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 rounded-lg text-[10px] font-bold text-slate-500 uppercase tracking-wider border border-slate-200">
+                <span>Zoom: 100%</span>
+              </div>
+
+              <button
+                onClick={handleSendReportToGas}
+                disabled={isExportingGas}
+                className="hidden md:flex items-center gap-2 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-md active:scale-95 transition disabled:opacity-50"
+              >
+                {isExportingGas ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <FileSpreadsheet className="w-3.5 h-3.5" />}
+                <span>ส่ง Sheets</span>
+              </button>
+
+              <button
+                onClick={handlePrintPdf}
+                disabled={isPrinting}
+                className="flex items-center gap-2 px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold rounded-xl shadow-lg active:scale-95 transition disabled:opacity-50"
+              >
+                {isPrinting ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Printer className="w-4 h-4" />}
+                <span>พิมพ์ / PDF</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Scrollable Document Area */}
+        <div className="flex-1 overflow-auto bg-slate-100 p-4 sm:p-8" ref={previewContainerRef}>
+          <div 
+            className="paper-preview mx-auto shadow-xl"
             style={{
-              transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
-              transformOrigin: 'top left',
-              transition: isDragging ? 'none' : 'transform 0.08s ease-out',
-              display: 'inline-block',
-              width: 'max-content',
-              minWidth: '100%',
-              boxSizing: 'border-box',
+              width: '100%',
+              maxWidth: '850px',
+              minWidth: '700px',
+              margin: '0 auto',
+              background: '#ffffff',
+              padding: isFullscreen ? '40px' : '24px',
+              borderRadius: '2px',
+              boxSizing: 'border-box'
             }}
           >
+            {/* Report Content Switcher */}
             {selectedCategory === 'drug' ? (
-              <DrugInventoryReportPreview
-                drugs={resolvedDrugs}
-                date={displayDate}
-                inspector={displayInspector}
-                signature={userSignature}
-                clinicName={cleanClinicName}
-                subCategory={drugSubCategory}
-                onSubCategoryChange={setDrugSubCategory}
-                headerNote={drugHeaderNote}
-                onHeaderNoteChange={setDrugHeaderNote}
-              />
+              <div className="space-y-4">
+                <div className="flex items-center justify-between mb-4 border-b pb-4">
+                  <div className="flex gap-2">
+                    {['all', 'monthly', 'quarterly', 'adhoc'].map((sub) => (
+                      <button
+                        key={sub}
+                        onClick={() => setDrugSubCategory(sub as any)}
+                        className={`px-3 py-1.5 rounded-lg text-[10px] font-bold transition ${
+                          drugSubCategory === sub ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                        }`}
+                      >
+                        {sub === 'all' ? 'ทั้งหมด' : sub === 'monthly' ? 'รายเดือน' : sub === 'quarterly' ? '3 เดือน' : 'ครั้งคราว'}
+                      </button>
+                    ))}
+                  </div>
+                  <input 
+                    type="text" 
+                    value={drugHeaderNote} 
+                    onChange={(e) => setDrugHeaderNote(e.target.value)}
+                    placeholder="หมายเหตุท้ายชื่อรายงาน..."
+                    className="text-[10px] border border-slate-200 px-2 py-1 rounded outline-none"
+                  />
+                </div>
+                <DrugInventoryReportPreview
+                  drugs={resolvedDrugs}
+                  date={displayDate}
+                  inspector={displayInspector}
+                  signature={userSignature}
+                  clinicName={cleanClinicName}
+                  subCategory={drugSubCategory}
+                  headerNote={drugHeaderNote}
+                />
+              </div>
             ) : selectedCategory === 'bag' || selectedCategory === 'cart' ? (
               <EmergencyChecklistReportPreview
                 type={selectedCategory}
@@ -1166,157 +937,117 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
                 signature={userSignature}
                 agencyName={cleanClinicName}
                 weekItemValues={weekItemValues}
-                onWeekItemValuesChange={setWeekItemValues}
               />
             ) : (
-              <div
-                className="a4-page-sheet a4-print-container paper-preview sheet-preview p-6 rounded-lg shadow"
-                style={{
-                  display: 'inline-block',
-                  width: 'max-content',
-                  minWidth: '100%',
-                  boxSizing: 'border-box',
-                  backgroundColor: '#ffffff !important',
-                  background: '#ffffff !important',
-                  color: '#000000 !important',
-                }}
-              >
-            {/* Header Document Area */}
-            <div className="text-center mb-4" style={{ backgroundColor: '#ffffff !important', background: '#ffffff !important' }}>
-              <h2 className="text-xl font-bold" style={{ color: '#000000 !important' }}>{mainDocHeading}</h2>
-              <p className="text-sm mt-1" style={{ color: '#000000 !important' }}>ณ วันที่ {formatThaiDate(displayDate)}</p>
-            </div>
+              /* Equipment Table (14 Columns) */
+              <div className="w-full">
+                <div className="text-center mb-6">
+                  <h2 className="text-[18px] font-bold text-black mb-1">{mainDocHeading}</h2>
+                  <p className="text-[14px] text-black">ณ วันที่ {formatThaiDate(displayDate)}</p>
+                </div>
 
-            <div className="flex justify-between items-center text-xs font-medium mb-3" style={{ color: '#000000 !important', backgroundColor: '#ffffff !important', background: '#ffffff !important' }}>
-              <div>
-                <span className="font-semibold" style={{ color: '#000000 !important' }}>{cleanClinicName}</span>
-              </div>
-              <div className="flex items-center gap-4">
-                <span className="flex items-center gap-1" style={{ color: '#000000 !important' }}>
-                  <Calendar className="w-3.5 h-3.5" style={{ color: '#000000 !important' }} />
-                  วัน, เดือน, ปี ที่สำรวจ: {formatThaiDate(displayDate)}
-                </span>
-                {displayInspector && (
-                  <span className="flex items-center gap-1 font-medium" style={{ color: '#000000 !important' }}>
-                    <UserIcon className="w-3.5 h-3.5" style={{ color: '#000000 !important' }} />
-                    ผู้ตรวจ: {displayInspector}
-                  </span>
-                )}
-              </div>
-            </div>
-
-            <table className="w-full min-w-[1050px] border-collapse border border-slate-400 text-xs" style={{ backgroundColor: '#ffffff !important', color: '#000000 !important' }}>
-              <thead>
-                <tr className="font-bold text-center" style={{ backgroundColor: '#f1f5f9 !important', color: '#000000 !important' }}>
-                  <th rowSpan={2} className="border border-slate-400 p-2 w-12">ลำดับที่</th>
-                  <th rowSpan={2} className="border border-slate-400 p-2 w-28">หมายเลขพัสดุ</th>
-                  <th rowSpan={2} className="border border-slate-400 p-2 w-28">รหัสสินทรัพย์ SAP</th>
-                  <th rowSpan={2} className="border border-slate-400 p-2 text-center min-w-[180px]">รายการ</th>
-                  <th rowSpan={2} className="border border-slate-400 p-2 text-left min-w-[160px]">มาตรฐานและคุณลักษณะเฉพาะ</th>
-                  <th rowSpan={2} className="border border-slate-400 p-2 w-24">แหล่งเงินที่มา (ประเภทเงินงบประมาณ)</th>
-                  <th rowSpan={2} className="border border-slate-400 p-2 w-24 min-w-[90px] whitespace-nowrap text-center">ว/ด/ป ที่ได้มา</th>
-                  <th rowSpan={2} className="border border-slate-400 p-2 w-16">จำนวนตามบัญชี</th>
-                  <th rowSpan={2} className="border border-slate-400 p-2 w-16">อัตราภาษี (%)</th>
-                  <th rowSpan={2} className="border border-slate-400 p-2 text-right w-24">ราคา (รวมภาษี)</th>
-                  <th rowSpan={2} className="border border-slate-400 p-2 w-28">สถานที่ตั้ง ตึก / ชั้น / ห้อง</th>
-                  <th colSpan={3} className="border border-slate-400 p-2">ผลการตรวจสอบพัสดุ</th>
-                </tr>
-                <tr className="font-semibold text-center text-[11px]" style={{ backgroundColor: '#f1f5f9 !important', color: '#000000 !important' }}>
-                  <th className="border border-slate-400 p-1 w-16 text-emerald-700">พบรายการ ใช้งานได้</th>
-                  <th className="border border-slate-400 p-1 w-16 text-rose-700">พบรายการ ใช้งานไม่ได้</th>
-                  <th className="border border-slate-400 p-1 w-16 text-amber-700">ไม่พบรายการ</th>
-                </tr>
-              </thead>
-              <tbody>
-                {activeItems && activeItems.length > 0 ? (
-                  activeItems.map((item, idx) => {
-                    const isOk = item.res ? item.res.includes('ใช้งานได้') : (item as any).status === 'normal' || (item as any).checked;
-                    const isBad = item.res ? item.res.includes('ไม่ได้') : false;
-                    const isMiss = item.res ? item.res.includes('ไม่พบ') : false;
-
-                    return (
-                      <tr key={idx} style={{ color: '#000000 !important' }}>
-                        <td className="border border-slate-300 p-2 text-center">{idx + 1}</td>
-                        <td className="border border-slate-300 p-2 text-center font-mono text-xs">{item.code || '-'}</td>
-                        <td className="border border-slate-300 p-2 text-center font-mono text-xs">{item.sap || '-'}</td>
-                        <td className="border border-slate-300 p-2 text-left font-normal" style={{ paddingLeft: '8px' }}>{item.name || '-'}</td>
-                        <td className="border border-slate-300 p-2 text-xs">{item.spec || '-'}</td>
-                        <td className="border border-slate-300 p-2 text-center text-xs">{item.source || '-'}</td>
-                        <td className="border border-slate-300 p-2 text-center text-xs whitespace-nowrap">{formatAcquiredDate(item.date)}</td>
-                        <td className="border border-slate-300 p-2 text-center">{item.qty || '1'}</td>
-                        <td className="border border-slate-300 p-2 text-center">{item.tax || '7'}</td>
-                        <td className="border border-slate-300 p-2 text-right">{item.price || '-'}</td>
-                        <td className="border border-slate-300 p-2 text-center text-xs">{item.location || '-'}</td>
-                        <td className="border border-slate-300 p-1 text-center font-bold text-emerald-600">
-                          {isOk ? '✓' : ''}
-                        </td>
-                        <td className="border border-slate-300 p-1 text-center font-bold text-rose-600">
-                          {isBad ? '✓' : ''}
-                        </td>
-                        <td className="border border-slate-300 p-1 text-center font-bold text-amber-600">
-                          {isMiss ? '✓' : ''}
-                        </td>
-                      </tr>
-                    );
-                  })
-                ) : (
-                  <tr>
-                    <td colSpan={14} className="border border-slate-300 p-8 text-center text-slate-400">
-                      ไม่มีข้อมูลรายการในหมวดนี้
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-
-            {/* Signature Area */}
-            <div className="mt-8 pt-4 border-t border-slate-200 flex justify-around text-xs" style={{ color: '#000000 !important', backgroundColor: '#ffffff !important', background: '#ffffff !important' }}>
-              <div className="text-center flex flex-col items-center">
-                {userSignature ? (
-                  <div className="h-12 flex items-end justify-center mb-1">
-                    <img src={userSignature} alt="ลายเซ็น" className="max-h-12 max-w-[140px] object-contain" />
+                <div className="flex justify-between items-center mb-4 text-[13px] font-bold">
+                  <div className="text-black">{cleanClinicName}</div>
+                  <div className="flex gap-6 text-black">
+                    <span>วัน, เดือน, ปี ที่สำรวจ: {formatThaiDate(displayDate)}</span>
+                    {displayInspector && <span>ผู้ตรวจ: {displayInspector}</span>}
                   </div>
-                ) : (
-                  <div className="h-12" />
-                )}
-                <p style={{ color: '#000000 !important' }}>ลงชื่อ .................................................... ผู้ตรวจสอบ</p>
-                <p style={{ color: '#000000 !important' }}>({displayInspector || '....................................................'})</p>
+                </div>
+
+                <div style={{ width: '100%', overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+                  <table style={{ width: '100%', minWidth: '950px', tableLayout: 'auto', borderCollapse: 'collapse', fontSize: '11px', border: '1px solid #000000' }}>
+                    <thead>
+                      <tr className="bg-slate-50 text-black font-bold">
+                        <th rowSpan={2} style={{ border: '1px solid #000000', padding: '6px 4px', textAlign: 'center', width: '35px' }}>ลำดับที่</th>
+                        <th rowSpan={2} style={{ border: '1px solid #000000', padding: '6px 4px', textAlign: 'center', width: '100px' }}>หมายเลขพัสดุ</th>
+                        <th rowSpan={2} style={{ border: '1px solid #000000', padding: '6px 4px', textAlign: 'center', width: '100px' }}>รหัสสินทรัพย์ SAP</th>
+                        <th rowSpan={2} style={{ border: '1px solid #000000', padding: '8px 6px', textAlign: 'left', minWidth: '160px' }}>รายการ</th>
+                        <th rowSpan={2} style={{ border: '1px solid #000000', padding: '8px 6px', textAlign: 'left', minWidth: '140px' }}>มาตรฐานและคุณลักษณะเฉพาะ</th>
+                        <th rowSpan={2} style={{ border: '1px solid #000000', padding: '6px 4px', textAlign: 'center', width: '80px' }}>แหล่งเงินที่ได้มา</th>
+                        <th rowSpan={2} style={{ border: '1px solid #000000', padding: '6px 4px', textAlign: 'center', width: '90px' }}>ว/ด/ป ที่ได้มา</th>
+                        <th rowSpan={2} style={{ border: '1px solid #000000', padding: '6px 4px', textAlign: 'center', width: '40px' }}>จำนวน</th>
+                        <th rowSpan={2} style={{ border: '1px solid #000000', padding: '6px 4px', textAlign: 'center', width: '40px' }}>อัตราภาษี (%)</th>
+                        <th rowSpan={2} style={{ border: '1px solid #000000', padding: '6px 4px', textAlign: 'center', width: '80px' }}>ราคา (รวมภาษี)</th>
+                        <th rowSpan={2} style={{ border: '1px solid #000000', padding: '6px 4px', textAlign: 'center', width: '90px' }}>สถานที่ตั้ง / ชั้น / ห้อง</th>
+                        <th colSpan={3} style={{ border: '1px solid #000000', padding: '4px', textAlign: 'center' }}>ผลการตรวจสอบ</th>
+                      </tr>
+                      <tr className="bg-slate-50 text-black font-bold">
+                        <th style={{ border: '1px solid #000000', padding: '4px', width: '55px', textAlign: 'center' }}>ใช้งานได้</th>
+                        <th style={{ border: '1px solid #000000', padding: '4px', width: '55px', textAlign: 'center' }}>ชำรุด ใช้งานไม่ได้</th>
+                        <th style={{ border: '1px solid #000000', padding: '4px', width: '55px', textAlign: 'center' }}>ไม่พบ</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {activeItems.map((item, idx) => {
+                        const isOk = item.res?.includes('ใช้งานได้');
+                        const isBad = item.res?.includes('ไม่ได้');
+                        const isMiss = item.res?.includes('ไม่พบ');
+                        return (
+                          <tr key={idx} className="text-black">
+                            <td style={{ border: '1px solid #000000', padding: '6px 4px', textAlign: 'center' }}>{idx + 1}</td>
+                            <td style={{ border: '1px solid #000000', padding: '6px 4px', textAlign: 'center', fontFamily: 'monospace', fontSize: '10px' }}>{item.code || '-'}</td>
+                            <td style={{ border: '1px solid #000000', padding: '6px 4px', textAlign: 'center', fontFamily: 'monospace', fontSize: '10px' }}>{item.sap || '-'}</td>
+                            <td style={{ border: '1px solid #000000', padding: '6px 8px', textAlign: 'left', wordBreak: 'keep-all' }}>{item.name}</td>
+                            <td style={{ border: '1px solid #000000', padding: '6px 8px', textAlign: 'left', fontSize: '10px', wordBreak: 'keep-all' }}>{item.spec || '-'}</td>
+                            <td style={{ border: '1px solid #000000', padding: '6px 4px', textAlign: 'center', fontSize: '10px' }}>{item.source || '-'}</td>
+                            <td style={{ border: '1px solid #000000', padding: '6px 4px', textAlign: 'center', fontSize: '10px' }}>{formatAcquiredDate(item.date)}</td>
+                            <td style={{ border: '1px solid #000000', padding: '6px 4px', textAlign: 'center' }}>{formatRealQuantity(item.qty, item.name, item.spec)}</td>
+                            <td style={{ border: '1px solid #000000', padding: '6px 4px', textAlign: 'center' }}>{item.tax || '7'}</td>
+                            <td style={{ border: '1px solid #000000', padding: '6px 4px', textAlign: 'right' }}>{item.price || '-'}</td>
+                            <td style={{ border: '1px solid #000000', padding: '6px 4px', textAlign: 'center', fontSize: '10px' }}>{item.location || '-'}</td>
+                            <td style={{ border: '1px solid #000000', padding: '4px', textAlign: 'center', color: '#15803d', fontWeight: 'bold', fontSize: '14px' }}>{isOk ? '✓' : ''}</td>
+                            <td style={{ border: '1px solid #000000', padding: '4px', textAlign: 'center', color: '#b91c1c', fontWeight: 'bold', fontSize: '14px' }}>{isBad ? '✓' : ''}</td>
+                            <td style={{ border: '1px solid #000000', padding: '4px', textAlign: 'center', color: '#b45309', fontWeight: 'bold', fontSize: '14px' }}>{isMiss ? '✓' : ''}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="mt-12 flex justify-around text-[14px]">
+                  <div className="text-center">
+                    <div className="h-16 flex items-end justify-center mb-2">
+                      {userSignature && <img src={userSignature} style={{ maxHeight: '60px', maxWidth: '160px', objectFit: 'contain' }} alt="signature" />}
+                    </div>
+                    <p className="font-bold">ลงชื่อ .................................................... ผู้ตรวจสอบ</p>
+                    <p className="mt-1">({displayInspector || '....................................................'})</p>
+                  </div>
+                  <div className="text-center">
+                    <div className="h-16" />
+                    <p className="font-bold">ลงชื่อ .................................................... หัวหน้างาน</p>
+                    <p className="mt-1">(....................................................)</p>
+                  </div>
+                </div>
               </div>
-              <div className="text-center flex flex-col items-center">
-                <div className="h-12" />
-                <p style={{ color: '#000000 !important' }}>ลงชื่อ .................................................... หัวหน้างาน</p>
-                <p style={{ color: '#000000 !important' }}>(....................................................)</p>
-              </div>
-            </div>
-          </div>
-        )}
+            )}
           </div>
         </div>
+
+        {/* Modal Footer Controls removed as per request */}
       </div>
 
-      {/* Confirmation Modal for History Deletion */}
+      {/* Delete Confirmation Modal */}
       {recordToDelete && (
-        <div className="fixed inset-0 z-60 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
-          <div className="bg-white rounded-2xl p-5 max-w-sm w-full shadow-2xl border border-slate-200 space-y-3">
-            <div className="flex items-center gap-2 text-rose-600 font-bold text-base">
-              <Trash2 className="w-5 h-5" />
-              <span>ยืนยันการลบประวัติการตรวจรอบนี้?</span>
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl animate-in zoom-in-95">
+            <div className="w-12 h-12 rounded-full bg-rose-100 flex items-center justify-center text-rose-600 mb-4">
+              <Trash2 className="w-6 h-6" />
             </div>
-            <p className="text-xs text-slate-600 leading-relaxed">
-              คุณต้องการลบประวัติการตรวจรอบ <b>"{recordToDelete.title || recordToDelete.timestamp}"</b> วันที่ {recordToDelete.date || recordToDelete.timestamp} ออกจากระบบและเครื่องทั้งหมดหรือไม่? การดำเนินการนี้จะมีผลถาวร
+            <h3 className="text-lg font-bold text-slate-900 mb-2">ยืนยันการลบประวัติ?</h3>
+            <p className="text-sm text-slate-600 mb-6">
+              คุณกำลังจะลบประวัติการตรวจรอบ "{recordToDelete.title || recordToDelete.timestamp}" ออกจากระบบถาวร ไม่สามารถกู้คืนได้
             </p>
-            <div className="flex items-center justify-end gap-2 pt-2">
+            <div className="flex gap-3">
               <button
-                type="button"
                 onClick={() => setRecordToDelete(null)}
-                className="px-3.5 py-1.5 rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-100 text-xs font-semibold cursor-pointer"
+                className="flex-1 px-4 py-2.5 rounded-xl bg-slate-100 text-slate-700 font-bold text-sm"
               >
                 ยกเลิก
               </button>
               <button
-                type="button"
                 onClick={handleConfirmDeleteCurrentRecord}
-                className="px-4 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition cursor-pointer shadow-xs"
+                className="flex-1 px-4 py-2.5 rounded-xl bg-rose-600 text-white font-bold text-sm"
               >
                 ยืนยันการลบ
               </button>
@@ -1324,6 +1055,24 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
           </div>
         </div>
       )}
+
+      <style>{`
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        
+        @media print {
+          .fixed, .sticky, button, .modal-footer, header, footer { display: none !important; }
+          body, html { background: #fff !important; margin: 0 !important; padding: 0 !important; }
+          .paper-preview { 
+            box-shadow: none !important; 
+            margin: 0 !important; 
+            padding: 0 !important; 
+            width: 100% !important; 
+            max-width: none !important; 
+            min-width: 0 !important;
+          }
+        }
+      `}</style>
     </div>
   );
 };

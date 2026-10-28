@@ -35,6 +35,7 @@ import {
   Users,
   X,
   CheckCheck,
+  Pencil,
 } from 'lucide-react';
 
 import {
@@ -283,6 +284,113 @@ export default function App() {
   } | null>(null);
   const [selectedItemDetail, setSelectedItemDetail] = useState<{ item: EquipmentItem; result?: string; note?: string } | null>(null);
   const [zoomedImageUrl, setZoomedImageUrl] = useState<string | null>(null);
+
+  // Edit Item Details Modal State & Handler
+  const [editingItemData, setEditingItemData] = useState<{
+    type: 'room' | 'bag' | 'cart';
+    roomId?: string;
+    groupName?: string;
+    index: number;
+    name: string;
+    qty: string;
+    exp: string;
+  } | null>(null);
+
+  const isExpCurrentYear = (expVal?: string | null): boolean => {
+    if (!expVal) return false;
+    const str = String(expVal).trim();
+    if (!str || str === '-' || str === 'null') return false;
+    return str.includes('2026') || str.includes('2569') || str.includes('69');
+  };
+
+  const getItemDisplayInfo = (item: EquipmentItem) => {
+    const nameStr = item.name || '';
+    const specStr = item.spec || '';
+    const qtyRaw = item.qty || (item as any).amount || '1';
+    const expStr = item.exp || (item as any).defaultExp || '';
+
+    let displayName = nameStr;
+    let sizeLabel = '';
+
+    const sizeRegex = /(?:No\.|เบอร์|ขนาด)\s*([0-9.,\s\/-]+)/i;
+    const match = nameStr.match(sizeRegex);
+    if (match) {
+      sizeLabel = `เบอร์/ขนาด: ${match[1].trim()}`;
+    } else if (specStr) {
+      sizeLabel = specStr;
+    }
+
+    let displayQty = String(qtyRaw).trim();
+    if (displayQty.includes('อย่างละ')) {
+      const sizes = match ? match[1].split(/[,/]/).map((s) => s.trim()).filter(Boolean) : [];
+      const countMatch = displayQty.match(/อย่างละ\s*(\d+)/);
+      const pieceCount = countMatch ? parseInt(countMatch[1], 10) : 1;
+
+      if (sizes.length > 0) {
+        const explicitArray = sizes.map(() => pieceCount).join(', ');
+        displayQty = `${explicitArray} (รวม ${sizes.length * pieceCount} ชิ้น)`;
+      } else {
+        displayQty = displayQty.replace('อย่างละ', '').trim();
+      }
+    }
+
+    return {
+      displayName,
+      sizeLabel,
+      displayQty,
+      expStr,
+    };
+  };
+
+  const handleSaveItemEdit = () => {
+    if (!editingItemData) return;
+    const { type, roomId, groupName, index, name, qty, exp } = editingItemData;
+
+    if (type === 'room' && roomId) {
+      setEquipment((prev) => {
+        const roomItems = prev[roomId] ? [...prev[roomId]] : [];
+        if (roomItems[index]) {
+          roomItems[index] = {
+            ...roomItems[index],
+            name,
+            qty,
+            exp,
+          };
+        }
+        const updated = { ...prev, [roomId]: roomItems };
+        setStored(STORAGE_KEYS.EQ, updated);
+        return updated;
+      });
+    } else if ((type === 'bag' || type === 'cart') && groupName) {
+      setLists((prev) => {
+        const catConfig = prev[type];
+        if (!catConfig || !catConfig.groups || !catConfig.groups[groupName]) return prev;
+        const groupItems = [...catConfig.groups[groupName]];
+        if (groupItems[index]) {
+          groupItems[index] = {
+            ...groupItems[index],
+            name,
+            qty,
+            exp,
+          };
+        }
+        const updated = {
+          ...prev,
+          [type]: {
+            ...catConfig,
+            groups: {
+              ...catConfig.groups,
+              [groupName]: groupItems,
+            },
+          },
+        };
+        setStored(STORAGE_KEYS.CUSTOM_LISTS, updated);
+        return updated;
+      });
+    }
+
+    setEditingItemData(null);
+  };
 
   // Check form state (for currently active screen)
   const [inspectorName, setInspectorName] = useLocalStorageString(STORAGE_KEYS.INSPECTOR, '');
@@ -2286,7 +2394,18 @@ export default function App() {
   };
 
   return (
-    <div style={{ backgroundColor: '#F0F2F5' }} className="relative min-h-screen text-[#1C1E21] pb-28 transition-colors duration-200 pt-6">
+    <div
+      style={{ 
+        width: '100%', 
+        maxWidth: '100vw', 
+        padding: 'calc(env(safe-area-inset-top) + 20px) 16px 80px 16px', 
+        overflowX: 'hidden',
+        boxSizing: 'border-box',
+        backgroundColor: theme === 'dark' ? '#18191a' : '#F0F2F5',
+        minHeight: '100vh'
+      }}
+      className="relative min-h-screen text-[#1C1E21] dark:text-white transition-colors duration-200 overflow-x-hidden"
+    >
       {/* Cinematic Parallax Operating Room Background with Facebook Minimal Cool Overlay & Floating Dust */}
       <ParallaxBackground />
 
@@ -2418,8 +2537,11 @@ export default function App() {
         </div>
       )}
 
-      {/* Main Container - Full Bleed 100vw */}
-      <main className="relative z-10 w-screen -mx-[calc((100vw-100%)/2)] min-h-screen pt-3 transition-all duration-300 overflow-x-hidden">
+      {/* Main Container */}
+      <main
+        className="relative z-10 w-full max-w-full min-h-screen pt-2 transition-all duration-300 overflow-x-hidden"
+        style={{ width: '100%', boxSizing: 'border-box', overflowX: 'hidden' }}
+      >
         {/* View Routing */}
         <div key={currentView} className="animate-in fade-in duration-300 transition-all">
         {currentView === 'home' && (
@@ -2872,6 +2994,7 @@ export default function App() {
                           const currentCheck = activeRoomChecks[itemKey] || { result: '' };
                           const isOk = currentCheck.result === 'ปกติ';
                           const isBad = currentCheck.result === 'ผิดปกติ';
+                          const info = getItemDisplayInfo(item);
 
                           return (
                             <div
@@ -2894,48 +3017,95 @@ export default function App() {
                                   />
                                 )}
 
-                                <div className="flex-1 min-w-0 space-y-0.5">
-                                  <div className="flex items-center gap-2">
+                                <div className="flex-1 min-w-0 space-y-1">
+                                  <div className="flex items-center gap-1.5 flex-wrap">
                                     {item.no && (
                                       <span className="text-[9px] px-1.5 py-0.5 rounded-md bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 font-black border border-blue-100 dark:border-blue-900/50">
                                         #{item.no}
                                       </span>
                                     )}
                                     <h4 className="text-xs font-bold text-slate-800 dark:text-slate-100 truncate leading-tight">
-                                      {item.name}
+                                      {info.displayName}
                                     </h4>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setEditingItemData({
+                                          type: 'room',
+                                          roomId: activeRoomId,
+                                          index: idx,
+                                          name: item.name,
+                                          qty: item.qty || '1',
+                                          exp: item.exp || '',
+                                        });
+                                      }}
+                                      className="w-6 h-6 p-1 rounded-md bg-slate-100 dark:bg-slate-800 hover:bg-sky-100 dark:hover:bg-sky-900/50 text-slate-500 hover:text-sky-600 transition flex items-center justify-center cursor-pointer"
+                                      title="แก้ไขข้อมูลอุปกรณ์/วันหมดอายุ"
+                                    >
+                                      <Pencil className="w-3.5 h-3.5" />
+                                    </button>
                                   </div>
-                                  {item.code && (
-                                    <p className="text-[10px] text-slate-500 font-mono tracking-tight truncate opacity-80">
-                                      SN: {item.code}
-                                    </p>
-                                  )}
+
+                                  <div className="flex items-center gap-1.5 flex-wrap text-[10px]">
+                                    {info.sizeLabel && (
+                                      <span className="px-1.5 py-0.5 rounded-md bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 font-semibold border border-blue-100 dark:border-blue-900/50">
+                                        {info.sizeLabel}
+                                      </span>
+                                    )}
+                                    <span className="px-1.5 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold border border-slate-200 dark:border-slate-700">
+                                      ตั้งต้น: {info.displayQty}
+                                    </span>
+                                    {item.code && (
+                                      <span className="text-slate-500 font-mono tracking-tight opacity-80">
+                                        SN: {item.code}
+                                      </span>
+                                    )}
+                                    {info.expStr && (
+                                      <span
+                                        style={
+                                          isExpCurrentYear(info.expStr)
+                                            ? { color: '#DC2626 !important', fontWeight: 'bold !important' }
+                                            : {}
+                                        }
+                                        className={
+                                          isExpCurrentYear(info.expStr)
+                                            ? 'text-rose-600 font-black'
+                                            : 'text-slate-500 font-medium'
+                                        }
+                                      >
+                                        EXP: {info.expStr}
+                                      </span>
+                                    )}
+                                  </div>
                                 </div>
                               </div>
 
                               {/* 1-Tap Toggle Buttons & Actions */}
                               <div className="flex items-center gap-2 shrink-0 ml-3">
                                 {eqMode === 'check' ? (
-                                  <div className="flex gap-1.5">
+                                  <div className="flex gap-2">
                                     <button
+                                      type="button"
                                       onClick={() => handleToggleCheck(activeRoomId, itemKey, 'ปกติ', item.name)}
-                                      className={`status-btn ${
+                                      className={`px-3 py-2 rounded-xl text-xs font-extrabold cursor-pointer transition active:scale-95 flex items-center gap-1 ${
                                         isOk
-                                          ? 'bg-emerald-500 text-white shadow-emerald-500/30'
-                                          : 'bg-slate-100 dark:bg-slate-800 text-slate-400 hover:text-slate-600'
+                                          ? 'bg-emerald-600 text-white shadow-md shadow-emerald-500/30'
+                                          : 'bg-slate-100 dark:bg-slate-800 text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
                                       }`}
                                     >
                                       ✓ ปกติ
                                     </button>
                                     <button
+                                      type="button"
                                       onClick={() => handleToggleCheck(activeRoomId, itemKey, 'ผิดปกติ', item.name)}
-                                      className={`status-btn ${
+                                      className={`px-3 py-2 rounded-xl text-xs font-extrabold cursor-pointer transition active:scale-95 flex items-center gap-1 ${
                                         isBad
-                                          ? 'bg-rose-500 text-white shadow-rose-500/30'
-                                          : 'bg-slate-100 dark:bg-slate-800 text-slate-400 hover:text-slate-600'
+                                          ? 'bg-rose-600 text-white shadow-md shadow-rose-500/30'
+                                          : 'bg-slate-100 dark:bg-slate-800 text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
                                       }`}
                                     >
-                                      ✕ ปัญหา
+                                      ✕ มีปัญหา
                                     </button>
                                   </div>
                                 ) : (
@@ -3134,119 +3304,120 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* View Mode Switcher: 3D Slider Carousel vs Quick Checklist */}
-                  <div className="flex items-center justify-between gap-2 px-1 mb-2">
-                    <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                      รูปแบบการแสดงผล
-                    </span>
-                    <div className="flex items-center gap-1 p-1 bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm rounded-xl border border-slate-200 dark:border-slate-700">
-                      <button
-                        type="button"
-                        onClick={() => setInspectionViewMode('carousel')}
-                        className={`px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                          inspectionViewMode === 'carousel'
-                            ? 'bg-blue-600 text-white shadow-sm'
-                            : 'text-slate-500 dark:text-slate-400 hover:text-slate-800'
-                        }`}
-                      >
-                        <span>🎠 3D Cards</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setInspectionViewMode('list')}
-                        className={`px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                          inspectionViewMode === 'list'
-                            ? 'bg-blue-600 text-white shadow-sm'
-                            : 'text-slate-500 dark:text-slate-400 hover:text-slate-800'
-                        }`}
-                      >
-                        <span>📋 Checklist</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  {inspectionViewMode === 'carousel' ? (
-                    /* 3D Swiper Carousel for Bag/Cart */
-                    <SwiperInspectionCarousel
-                      title={`ตรวจเช็ค 3D: ${cfg.title}`}
-                      subtitle="ปัดซ้าย-ขวา เพื่อเลือกรายการ และบันทึกผลได้ทันที"
-                      items={allItems}
-                      checks={catChecks}
-                      onToggleCheck={(itemKey, res, name) => handleToggleCheck(categoryKey, itemKey, res, name)}
-                      onUpdateNote={(itemKey, note) => handleUpdateItemNote(categoryKey, itemKey, note)}
-                      onOpenDetail={(item, check) => setSelectedItemDetail({ item, result: check?.result, note: check?.note })}
-                      onZoomImage={(url) => setZoomedImageUrl(url)}
-                      onOpenBarcodeScan={() => setIsGlobalBarcodeScannerOpen(true)}
-                    />
-                  ) : (
-                    /* Visual Compartment Matrix (Quick Checklist View) */
-                    <div className="space-y-6">
-                      {Object.entries(cfg.groups).map(([groupName, groupItems]) => (
-                        <div key={groupName} className="space-y-3">
-                          <div className="flex items-center gap-2 px-1">
-                            <span className="w-1.5 h-4 bg-blue-500 rounded-full" />
-                            <h3 className="text-xs font-black text-slate-800 dark:text-slate-100 uppercase tracking-wider">
-                              {groupName} ({groupItems.length})
-                            </h3>
-                          </div>
-                          
-                          <div className="space-y-2.5">
-                            {groupItems.map((item, idx) => {
-                              const k = `${categoryKey}|${item.name}|${item.code || ''}`;
-                              const isOk = catChecks[k]?.result === 'ปกติ';
-                              const isBad = catChecks[k]?.result === 'ผิดปกติ';
-                              
-                              return (
-                                <div 
-                                  key={`${groupName}_${idx}`}
-                                  className={`p-3.5 rounded-2xl border transition-all duration-200 flex justify-between items-center shadow-sm active:scale-[0.98] checklist-item ${
-                                    isBad 
-                                      ? 'bg-rose-50 dark:bg-rose-950/20 border-rose-200 dark:border-rose-900/40' 
-                                      : isOk 
-                                      ? 'bg-emerald-50 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-900/40'
-                                      : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800'
-                                  }`}
-                                >
-                                  <div className="space-y-0.5 max-w-[55%] min-w-0">
+                  {/* Quick Checklist View (3D mode disabled for Bag/Cart) */}
+                  <div className="space-y-6">
+                    {Object.entries(cfg.groups).map(([groupName, groupItems]) => (
+                      <div key={groupName} className="space-y-3">
+                        <div className="flex items-center gap-2 px-1">
+                          <span className="w-1.5 h-4 bg-blue-500 rounded-full" />
+                          <h3 className="text-xs font-black text-slate-800 dark:text-slate-100 uppercase tracking-wider">
+                            {groupName} ({groupItems.length})
+                          </h3>
+                        </div>
+                        
+                        <div className="space-y-2.5">
+                          {groupItems.map((item, idx) => {
+                            const k = `${categoryKey}|${item.name}|${item.code || ''}`;
+                            const isOk = catChecks[k]?.result === 'ปกติ';
+                            const isBad = catChecks[k]?.result === 'ผิดปกติ';
+                            const info = getItemDisplayInfo(item);
+                            
+                            return (
+                              <div 
+                                key={`${groupName}_${idx}`}
+                                className={`p-3.5 rounded-2xl border transition-all duration-200 flex justify-between items-center shadow-sm active:scale-[0.98] checklist-item ${
+                                  isBad 
+                                    ? 'bg-rose-50 dark:bg-rose-950/20 border-rose-200 dark:border-rose-900/40' 
+                                    : isOk 
+                                    ? 'bg-emerald-50 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-900/40'
+                                    : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800'
+                                }`}
+                              >
+                                <div className="space-y-1 max-w-[62%] min-w-0">
+                                  <div className="flex items-center gap-1.5 flex-wrap">
                                     <h3 className="text-xs font-bold text-slate-800 dark:text-slate-100 truncate leading-tight">
-                                      {item.name}
+                                      {info.displayName}
                                     </h3>
-                                    {item.exp && (
-                                      <p className="text-[10px] font-medium text-slate-500 opacity-80">Exp: {item.exp}</p>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setEditingItemData({
+                                          type: categoryKey as 'bag' | 'cart',
+                                          groupName,
+                                          index: idx,
+                                          name: item.name,
+                                          qty: item.qty || (item as any).amount || '1',
+                                          exp: item.exp || (item as any).defaultExp || '',
+                                        });
+                                      }}
+                                      className="p-1 rounded-md text-slate-400 hover:text-sky-600 hover:bg-sky-50 dark:hover:bg-sky-950/40 transition cursor-pointer"
+                                      title="แก้ไขข้อมูลอุปกรณ์/วันหมดอายุ"
+                                    >
+                                      ✏️
+                                    </button>
+                                  </div>
+
+                                  <div className="flex items-center gap-1.5 flex-wrap text-[10px]">
+                                    {info.sizeLabel && (
+                                      <span className="px-1.5 py-0.5 rounded-md bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 font-semibold border border-blue-100 dark:border-blue-900/50">
+                                        {info.sizeLabel}
+                                      </span>
+                                    )}
+                                    <span className="px-1.5 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold border border-slate-200 dark:border-slate-700">
+                                      ตั้งต้น: {info.displayQty}
+                                    </span>
+                                    {info.expStr && (
+                                      <span
+                                        style={
+                                          isExpCurrentYear(info.expStr)
+                                            ? { color: '#DC2626 !important', fontWeight: 'bold !important' }
+                                            : {}
+                                        }
+                                        className={
+                                          isExpCurrentYear(info.expStr)
+                                            ? 'text-rose-600 font-black'
+                                            : 'text-slate-500 font-medium'
+                                        }
+                                      >
+                                        EXP: {info.expStr}
+                                      </span>
                                     )}
                                   </div>
-
-                                  {/* 1-Tap Toggle Buttons */}
-                                  <div className="flex gap-1.5 shrink-0">
-                                    <button
-                                      onClick={() => handleToggleCheck(categoryKey, k, 'ปกติ', item.name)}
-                                      className={`status-btn ${
-                                        isOk
-                                          ? 'bg-emerald-500 text-white shadow-emerald-500/30'
-                                          : 'bg-slate-100 dark:bg-slate-800 text-slate-400 hover:text-slate-600'
-                                      }`}
-                                    >
-                                      ✓ ปกติ
-                                    </button>
-                                    <button
-                                      onClick={() => handleToggleCheck(categoryKey, k, 'ผิดปกติ', item.name)}
-                                      className={`status-btn ${
-                                        isBad
-                                          ? 'bg-rose-500 text-white shadow-rose-500/30'
-                                          : 'bg-slate-100 dark:bg-slate-800 text-slate-400 hover:text-slate-600'
-                                      }`}
-                                    >
-                                      ✕ ปัญหา
-                                    </button>
-                                  </div>
                                 </div>
-                              );
-                            })}
-                          </div>
+
+                                {/* 1-Tap Toggle Buttons */}
+                                <div className="flex gap-2 shrink-0">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleToggleCheck(categoryKey, k, 'ปกติ', item.name)}
+                                    className={`px-3 py-2 rounded-xl text-xs font-extrabold cursor-pointer transition active:scale-95 flex items-center gap-1 ${
+                                      isOk
+                                        ? 'bg-emerald-600 text-white shadow-md shadow-emerald-500/30'
+                                        : 'bg-slate-100 dark:bg-slate-800 text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                                    }`}
+                                  >
+                                    ✓ ปกติ
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleToggleCheck(categoryKey, k, 'ผิดปกติ', item.name)}
+                                    className={`px-3 py-2 rounded-xl text-xs font-extrabold cursor-pointer transition active:scale-95 flex items-center gap-1 ${
+                                      isBad
+                                        ? 'bg-rose-600 text-white shadow-md shadow-rose-500/30'
+                                        : 'bg-slate-100 dark:bg-slate-800 text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                                    }`}
+                                  >
+                                    ✕ มีปัญหา
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
                         </div>
-                      ))}
-                    </div>
-                  )}
+                      </div>
+                    ))}
+                  </div>
 
                   {/* Submission form */}
                   <div className="p-4 sm:p-5 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-3 text-xs">
@@ -3592,6 +3763,88 @@ export default function App() {
           <button onClick={() => setResetToast('')} className="text-emerald-200 hover:text-white p-0.5 cursor-pointer">
             ✕
           </button>
+        </div>
+      )}
+
+      {/* Edit Item Details Pop-up Modal */}
+      {editingItemData && (
+        <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-[#242526] rounded-2xl p-5 w-full max-w-md border border-slate-200 dark:border-slate-700 shadow-2xl space-y-4 max-h-[90dvh] flex flex-col my-auto">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3 shrink-0">
+              <h3 className="text-sm font-extrabold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                <Pencil className="w-4 h-4 text-sky-600" />
+                <span>แก้ไขข้อมูลอุปกรณ์ / ยา</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setEditingItemData(null)}
+                className="p-1 rounded-full text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs overflow-y-auto pr-1 flex-1 pb-4">
+              <div>
+                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  ชื่อรายการ / อุปกรณ์
+                </label>
+                <input
+                  type="text"
+                  value={editingItemData.name}
+                  onChange={(e) => setEditingItemData({ ...editingItemData, name: e.target.value })}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white font-medium outline-none focus:ring-2 focus:ring-sky-500"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  จำนวนตั้งต้น (จำนวนตามบัญชี)
+                </label>
+                <input
+                  type="text"
+                  value={editingItemData.qty}
+                  onChange={(e) => setEditingItemData({ ...editingItemData, qty: e.target.value })}
+                  placeholder="เช่น 1 อัน, 2 เส้น"
+                  className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white font-medium outline-none focus:ring-2 focus:ring-sky-500"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  วันหมดอายุ (EXP)
+                </label>
+                <input
+                  type="date"
+                  value={editingItemData.exp ? (editingItemData.exp.includes('T') ? editingItemData.exp.split('T')[0] : editingItemData.exp) : ''}
+                  onChange={(e) => setEditingItemData({ ...editingItemData, exp: e.target.value })}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white font-medium outline-none focus:ring-2 focus:ring-sky-500 cursor-pointer"
+                />
+                {isExpCurrentYear(editingItemData.exp) && (
+                  <p className="text-[11px] text-rose-600 font-bold mt-1">
+                    ⚠️ วันหมดอายุปีปัจจุบัน (2026 / 2569) - ระบบจะเน้นย้ำตัวหนาสีแดง
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800 shrink-0">
+              <button
+                type="button"
+                onClick={() => setEditingItemData(null)}
+                className="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold cursor-pointer hover:bg-slate-200"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveItemEdit}
+                className="px-5 py-2 rounded-xl bg-sky-600 hover:bg-sky-700 text-white font-bold cursor-pointer shadow-sm active:scale-95 transition"
+              >
+                บันทึกข้อมูล
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

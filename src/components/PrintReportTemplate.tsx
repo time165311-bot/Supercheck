@@ -1,5 +1,5 @@
 import React from 'react';
-import { OfficialReportItemRow, formatAcquiredDate } from './OfficialReportModal';
+import { OfficialReportItemRow, formatAcquiredDate, isCurrentYearExp, formatRealQuantity } from './OfficialReportModal';
 
 interface PrintReportTemplateProps {
   title?: string;
@@ -155,6 +155,10 @@ export const PrintReportTemplate: React.FC<PrintReportTemplateProps> = ({
               const isBad = (row.res || '').includes('ไม่ได้');
               const isMiss = (row.res || '').includes('ไม่พบ');
 
+              const acquiredDateStr = formatAcquiredDate(row.date);
+              const expDateStr = row.exp ? formatAcquiredDate(row.exp) : '';
+              const isCurrentYear = isCurrentYearExp(row.date) || isCurrentYearExp(acquiredDateStr) || isCurrentYearExp(row.exp) || isCurrentYearExp(expDateStr);
+
               return (
                 <tr key={idx} style={{ fontSize: '13px' }}>
                   <td style={{ border: '1px solid #000', padding: '5px 4px', textAlign: 'center', verticalAlign: 'middle' }}>
@@ -175,11 +179,11 @@ export const PrintReportTemplate: React.FC<PrintReportTemplateProps> = ({
                   <td style={{ border: '1px solid #000', padding: '5px 4px', textAlign: 'center', verticalAlign: 'middle' }}>
                     {row.source || '-'}
                   </td>
-                  <td style={{ border: '1px solid #000', padding: '5px 4px', textAlign: 'center', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>
-                    {formatAcquiredDate(row.date)}
+                  <td style={{ border: '1px solid #000', padding: '5px 4px', textAlign: 'center', verticalAlign: 'middle', whiteSpace: 'nowrap', ...(isCurrentYear ? { color: '#DC2626', fontWeight: 'bold' } : {}) }}>
+                    {acquiredDateStr}
                   </td>
                   <td style={{ border: '1px solid #000', padding: '5px 4px', textAlign: 'center', verticalAlign: 'middle' }}>
-                    {row.qty || '1'}
+                    {formatRealQuantity(row.qty, row.name, row.spec)}
                   </td>
                   <td style={{ border: '1px solid #000', padding: '5px 4px', textAlign: 'center', verticalAlign: 'middle' }}>
                     {row.tax || '7'}

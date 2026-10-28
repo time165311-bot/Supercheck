@@ -52,8 +52,10 @@ interface FirestoreErrorInfo {
 }
 
 function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errMsg = error instanceof Error ? error.message : String(error);
+  const isOffline = errMsg.includes('offline') || errMsg.includes('Failed to get document because the client is offline');
   const errInfo: FirestoreErrorInfo = {
-    error: error instanceof Error ? error.message : String(error),
+    error: isOffline ? 'Firestore is currently offline' : errMsg,
     authInfo: {
       userId: auth.currentUser?.uid,
       email: auth.currentUser?.email,
@@ -61,8 +63,10 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
     operationType,
     path,
   };
-  console.error('Firestore Error: ', JSON.stringify(errInfo));
-  throw new Error(JSON.stringify(errInfo));
+  console.warn('Firestore Log: ', JSON.stringify(errInfo));
+  if (!isOffline) {
+    throw new Error(JSON.stringify(errInfo));
+  }
 }
 
 // Real-time listener for Inspection Records
@@ -81,6 +85,10 @@ export async function subscribeInspectionHistory(callback: (records: InspectionH
         callback(records);
       },
       (err) => {
+        if (err.message.includes('offline')) {
+          console.warn('Firestore subscription notice: client is offline');
+          return;
+        }
         handleFirestoreError(err, OperationType.GET, path);
       }
     );
@@ -129,7 +137,8 @@ export async function fetchInspectionsFromFirebase(): Promise<InspectionHistoryR
       records.push(d.data() as InspectionHistoryRecord);
     });
     return records;
-  } catch (e) {
+  } catch (e: any) {
+    if (e?.message?.includes('offline')) return [];
     handleFirestoreError(e, OperationType.LIST, path);
     return [];
   }
@@ -151,6 +160,10 @@ export async function subscribeAuditLogs(callback: (logs: AuditLogEntry[]) => vo
         callback(logs);
       },
       (err) => {
+        if (err.message.includes('offline')) {
+          console.warn('Firestore subscription notice: client is offline');
+          return;
+        }
         handleFirestoreError(err, OperationType.GET, path);
       }
     );
@@ -232,7 +245,8 @@ export async function fetchUsersFromFirebase(): Promise<User[]> {
       users.push(d.data() as User);
     });
     return users;
-  } catch (e) {
+  } catch (e: any) {
+    if (e?.message?.includes('offline')) return [];
     handleFirestoreError(e, OperationType.LIST, path);
     return [];
   }
@@ -267,7 +281,8 @@ export async function loadSettingsFromFirebase(): Promise<{ sheetUrl?: string; t
       return snap.data() as { sheetUrl?: string; theme?: string };
     }
     return null;
-  } catch (e) {
+  } catch (e: any) {
+    if (e?.message?.includes('offline')) return null;
     handleFirestoreError(e, OperationType.GET, path);
     return null;
   }
@@ -298,7 +313,8 @@ export async function loadGlobalChecksFromFirebase(): Promise<Record<string, any
       return snap.data().data;
     }
     return null;
-  } catch (e) {
+  } catch (e: any) {
+    if (e?.message?.includes('offline')) return null;
     handleFirestoreError(e, OperationType.GET, path);
     return null;
   }
@@ -329,7 +345,8 @@ export async function loadLastSubmittedFromFirebase(): Promise<Record<string, st
       return snap.data().data;
     }
     return null;
-  } catch (e) {
+  } catch (e: any) {
+    if (e?.message?.includes('offline')) return null;
     handleFirestoreError(e, OperationType.GET, path);
     return null;
   }
