@@ -3,8 +3,19 @@
 @custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
 
 @layer base {
+  /* ลบขอบขาว/เทา นอกสุดของเบราว์เซอร์ออกทั้งหมด */
+  html, body, #root {
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+    max-width: 100% !important;
+    overflow-x: hidden !important;
+    background-color: #f1f5f9; /* สีพื้นหลังกลมกลืน */
+  }
+
   :root {
-    --font-sans: 'Prompt', 'Noto Sans Thai', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    --font-sans: 'Sarabun', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     --fb-blue: #1877f2;
     --fb-blue-hover: #166fe5;
     --fb-bg: #f0f2f5;
@@ -13,24 +24,26 @@
     --fb-text: #050505;
     --fb-text-sub: #65676b;
     
-    /* Dynamic Accent Color Variable */
+    /* Dynamic Accent Color Variable: Facebook Blue */
     --app-accent: #1877f2;
     --app-accent-hover: #166fe5;
     --app-accent-light: rgba(24, 119, 242, 0.1);
   }
 
   body {
-    font-family: var(--font-sans);
+    font-family: 'Sarabun', 'Inter', sans-serif !important;
+    font-weight: 500;
     line-height: 1.5;
     letter-spacing: -0.01em;
     -webkit-tap-highlight-color: transparent;
     -webkit-font-smoothing: antialiased;
-    background-color: #f0f2f5;
-    color: #050505;
+    background-color: #F0F2F5 !important;
+    color: #1C1E21 !important;
   }
 
   /* Prevent Thai text overlap and clipping across all headings, buttons, and inputs */
   button, input, select, textarea, h1, h2, h3, h4, h5, h6, p, span {
+    font-family: 'Sarabun', 'Inter', sans-serif !important;
     line-height: normal;
   }
 }
@@ -43,11 +56,11 @@
 .accent-ring { ring-color: var(--app-accent) !important; }
 .bg-accent-light { background-color: var(--app-accent-light) !important; }
 
-/* Facebook Light & Dark UI Overrides */
+/* Light & Dark UI Overrides */
 [data-theme="light"],
 [data-theme="light"] body {
-  background-color: #f0f2f5 !important;
-  color: #050505 !important;
+  background-color: #F0F2F5 !important;
+  color: #1C1E21 !important;
 }
 
 [data-theme="dark"],
@@ -55,6 +68,63 @@
   background-color: #18191a !important;
   color: #e4e6eb !important;
   color-scheme: dark;
+}
+
+/* Swiper 3D Coverflow Cards Slider */
+.swiper-cards,
+.main-swiper {
+  width: 100%;
+  padding-top: 14px;
+  padding-bottom: 28px;
+  overflow: hidden !important;
+}
+
+.swiper-cards .swiper-wrapper,
+.main-swiper .swiper-wrapper {
+  align-items: center;
+}
+
+.swiper-cards .swiper-slide,
+.main-swiper .swiper-slide {
+  width: 310px;
+  max-width: 86vw;
+  border-radius: 24px;
+  overflow: visible;
+  transition: opacity 0.3s ease;
+  /* 120 FPS Hardware Acceleration */
+  will-change: transform, opacity;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+}
+
+@media (min-width: 640px) {
+  .swiper-cards .swiper-slide,
+  .main-swiper .swiper-slide {
+    width: 350px;
+  }
+}
+
+.swiper-cards .swiper-slide-shadow-left,
+.swiper-cards .swiper-slide-shadow-right,
+.main-swiper .swiper-slide-shadow-left,
+.main-swiper .swiper-slide-shadow-right {
+  border-radius: 24px;
+  background-image: linear-gradient(to right, rgba(0, 0, 0, 0.4), rgba(0, 0, 0, 0)) !important;
+}
+
+.swiper-cards .swiper-pagination-bullet,
+.main-swiper .swiper-pagination-bullet {
+  background: #65676B;
+  opacity: 0.35;
+  transition: all 0.3s ease;
+}
+
+.swiper-cards .swiper-pagination-bullet-active,
+.main-swiper .swiper-pagination-bullet-active {
+  background: #1877F2;
+  opacity: 1;
+  width: 24px;
+  border-radius: 6px;
 }
 
 /* Facebook Dark Mode Panels & Cards */
@@ -382,3 +452,30 @@
 }
 
 
+.luxury-card {
+  background-color: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(12px);
+  border-radius: 32px;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+}
+[data-theme="dark"] .luxury-card {
+  background-color: rgba(15, 23, 42, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3), 0 10px 10px -5px rgba(0, 0, 0, 0.2);
+}
+
+/* Vibrant Quick Checklist Styles */
+.checklist-item {
+  will-change: transform;
+  transform: translateZ(0);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.checklist-item:active {
+  transform: scale(0.98) translateZ(0);
+}
+
+.status-btn {
+  @apply flex-1 py-3 px-4 rounded-2xl text-[11px] font-black tracking-tight transition-all duration-200 active:scale-90 flex items-center justify-center gap-1.5 shadow-sm;
+}

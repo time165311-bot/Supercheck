@@ -909,17 +909,7 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
         }
       `}</style>
 
-      <div className="bg-white dark:bg-[#242526] rounded-2xl shadow-2xl w-full max-w-6xl max-h-[90vh] my-auto flex flex-col overflow-hidden border border-[#e4e6eb] dark:border-[#3a3b3c] relative">
-        {/* Absolute Top-Right Close Button (X) */}
-        <button
-          onClick={onClose}
-          type="button"
-          className="absolute top-2.5 right-2.5 z-60 w-8 h-8 rounded-full bg-neutral-200/90 hover:bg-rose-500 hover:text-white dark:bg-neutral-800 dark:hover:bg-rose-600 text-neutral-800 dark:text-neutral-100 flex items-center justify-center transition shadow-md cursor-pointer active:scale-95"
-          title="ปิดหน้าต่างพรีวิว A4"
-        >
-          <X className="w-4 h-4" />
-        </button>
-
+      <div className="bg-white dark:bg-[#242526] rounded-2xl shadow-2xl w-full max-w-6xl max-h-[90vh] my-auto mt-4 pt-[env(safe-area-inset-top)] flex flex-col overflow-hidden border border-[#e4e6eb] dark:border-[#3a3b3c] relative">
         {/* 1. Sticky Header Controls (Fixed above document, no overlap) */}
         <div className="shrink-0 w-full bg-[#f0f2f5] dark:bg-[#18191a] border-b border-[#e4e6eb] dark:border-[#3a3b3c] z-50">
           {!showToolbar ? (
@@ -950,11 +940,12 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
                         setSelectedCategory('eq');
                         setSelectedRoundId('current');
                       }}
-                      className={`px-3 py-1 rounded-lg transition-all cursor-pointer whitespace-nowrap leading-normal active:scale-95 ${
-                        selectedCategory === 'eq' ? 'bg-accent text-white shadow-md font-bold' : 'text-[#65676b] dark:text-[#b0b3b8] hover:text-[#050505] dark:hover:text-white'
+                      className={`px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-xl transition-all cursor-pointer whitespace-nowrap leading-normal overflow-visible active:scale-95 flex items-center gap-1.5 ${
+                        selectedCategory === 'eq' ? 'bg-accent text-white shadow-md font-extrabold' : 'text-[#65676b] dark:text-[#b0b3b8] hover:text-[#050505] dark:hover:text-white'
                       }`}
                     >
-                      🏥 ครุภัณฑ์
+                      <span className="shrink-0 leading-none">🏫</span>
+                      <span className="whitespace-nowrap">ครุภัณฑ์</span>
                     </button>
                     <button
                       type="button"
@@ -962,11 +953,12 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
                         setSelectedCategory('bag');
                         setSelectedRoundId('current');
                       }}
-                      className={`px-3 py-1 rounded-lg transition-all cursor-pointer whitespace-nowrap leading-normal active:scale-95 ${
-                        selectedCategory === 'bag' ? 'bg-accent text-white shadow-md font-bold' : 'text-[#65676b] dark:text-[#b0b3b8] hover:text-[#050505] dark:hover:text-white'
+                      className={`px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-xl transition-all cursor-pointer whitespace-nowrap leading-normal overflow-visible active:scale-95 flex items-center gap-1.5 ${
+                        selectedCategory === 'bag' ? 'bg-accent text-white shadow-md font-extrabold' : 'text-[#65676b] dark:text-[#b0b3b8] hover:text-[#050505] dark:hover:text-white'
                       }`}
                     >
-                      💼 กระเป๋า
+                      <span className="shrink-0 leading-none">💼</span>
+                      <span className="whitespace-nowrap">กระเป๋า</span>
                     </button>
                     <button
                       type="button"
@@ -974,11 +966,12 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
                         setSelectedCategory('cart');
                         setSelectedRoundId('current');
                       }}
-                      className={`px-3 py-1 rounded-lg transition-all cursor-pointer whitespace-nowrap leading-normal active:scale-95 ${
-                        selectedCategory === 'cart' ? 'bg-accent text-white shadow-md font-bold' : 'text-[#65676b] dark:text-[#b0b3b8] hover:text-[#050505] dark:hover:text-white'
+                      className={`px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-xl transition-all cursor-pointer whitespace-nowrap leading-normal overflow-visible active:scale-95 flex items-center gap-1.5 ${
+                        selectedCategory === 'cart' ? 'bg-accent text-white shadow-md font-extrabold' : 'text-[#65676b] dark:text-[#b0b3b8] hover:text-[#050505] dark:hover:text-white'
                       }`}
                     >
-                      🛒 รถ
+                      <span className="shrink-0 leading-none">🛒</span>
+                      <span className="whitespace-nowrap">รถ</span>
                     </button>
                     <button
                       type="button"
@@ -986,11 +979,12 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
                         setSelectedCategory('drug');
                         setSelectedRoundId('current');
                       }}
-                      className={`px-3 py-1 rounded-lg transition-all cursor-pointer whitespace-nowrap leading-normal active:scale-95 ${
-                        selectedCategory === 'drug' ? 'bg-accent text-white shadow-md font-bold' : 'text-[#65676b] dark:text-[#b0b3b8] hover:text-[#050505] dark:hover:text-white'
+                      className={`px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-xl transition-all cursor-pointer whitespace-nowrap leading-normal overflow-visible active:scale-95 flex items-center gap-1.5 ${
+                        selectedCategory === 'drug' ? 'bg-accent text-white shadow-md font-extrabold' : 'text-[#65676b] dark:text-[#b0b3b8] hover:text-[#050505] dark:hover:text-white'
                       }`}
                     >
-                      💊 คลังยา
+                      <span className="shrink-0 leading-none">💊</span>
+                      <span className="whitespace-nowrap">คลังยา</span>
                     </button>
                 </div>
 

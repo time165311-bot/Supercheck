@@ -38,7 +38,8 @@ export const GlobalScrollButtons: React.FC = () => {
 
   return (
     <div
-      className={`fixed bottom-20 sm:bottom-6 right-4 sm:right-6 z-40 flex flex-col gap-2 items-end transition-all duration-300 ease-in-out select-none ${
+      style={{ bottom: '90px', right: '16px', zIndex: 40 }}
+      className={`fixed flex flex-col gap-2 items-end transition-all duration-300 ease-in-out select-none ${
         showButtons ? 'opacity-100 translate-y-0 pointer-events-auto' : 'opacity-0 translate-y-4 pointer-events-none'
       }`}
       aria-hidden={!showButtons}

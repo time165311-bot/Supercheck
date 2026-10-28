@@ -73,16 +73,22 @@ export const QuickReplaceModal: React.FC<QuickReplaceModalProps> = ({
           <div className="text-[11px] text-slate-400 mt-0.5">
             ตำแหน่ง: {category === 'bag' ? 'กระเป๋า Emergency' : 'รถ Emergency'} ({groupName})
           </div>
-          <div className="text-[11px] text-red-600 dark:text-red-400 font-medium mt-1">
-            วันหมดอายุเดิม: {item.exp || 'ไม่ได้ระบุ'}
+          <div
+            className="text-[11px] text-red-600 dark:text-red-400 font-medium mt-1"
+            style={{ display: 'flex', alignItems: 'center', whiteSpace: 'nowrap', flexShrink: 0 }}
+          >
+            <span style={{ whiteSpace: 'nowrap', flexShrink: 0 }}>วันหมดอายุเดิม: {item.exp || 'ไม่ได้ระบุ'}</span>
           </div>
         </div>
 
         {/* Date Selector Form */}
         <form onSubmit={handleSubmit} className="space-y-3">
           <div>
-            <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">
-              ระบุวันหมดอายุของล็อตใหม่
+            <label
+              className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1"
+              style={{ display: 'flex', alignItems: 'center', whiteSpace: 'nowrap', flexShrink: 0 }}
+            >
+              <span style={{ whiteSpace: 'nowrap', flexShrink: 0 }}>ระบุวันหมดอายุของล็อตใหม่</span>
             </label>
             <input
               type="date"

@@ -1,25 +1,8 @@
 {
   "entities": {
-    "User": {
-      "title": "User",
-      "description": "System user account",
-      "type": "object",
-      "properties": {
-        "id": { "type": "string" },
-        "username": { "type": "string" },
-        "name": { "type": "string" },
-        "role": { "type": "string", "enum": ["admin", "staff"] },
-        "active": { "type": "boolean" },
-        "avatar": { "type": "string" },
-        "hash": { "type": "string" },
-        "salt": { "type": "string" },
-        "must": { "type": "boolean" }
-      },
-      "required": ["id", "username", "name", "role", "active"]
-    },
     "InspectionRecord": {
-      "title": "InspectionRecord",
-      "description": "Hospital anesthesia and emergency equipment inspection submission record",
+      "title": "Inspection Record",
+      "description": "Historical record of a completed inspection",
       "type": "object",
       "properties": {
         "id": { "type": "string" },
@@ -27,57 +10,102 @@
         "date": { "type": "string" },
         "time": { "type": "string" },
         "who": { "type": "string" },
-        "user": { "type": "string" },
-        "type": { "type": "string", "enum": ["eq", "bag", "cart"] },
+        "type": { "type": "string", "enum": ["eq", "bag", "cart", "drug"] },
         "title": { "type": "string" },
-        "rows": { "type": "array" },
-        "note": { "type": "string" }
+        "rows": { "type": "array" }
       },
-      "required": ["id", "timestamp", "date", "who", "type", "title"]
+      "required": ["id", "timestamp", "who", "type"]
     },
     "AuditLog": {
-      "title": "AuditLog",
-      "description": "Action audit log entry",
+      "title": "Audit Log",
+      "description": "System audit log entry",
       "type": "object",
       "properties": {
         "id": { "type": "string" },
-        "user": { "type": "string" },
-        "name": { "type": "string" },
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
         "action": { "type": "string" },
         "details": { "type": "string" },
-        "location": { "type": "string" },
-        "timestamp": { "type": "string" }
+        "category": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "ip": { "type": "string" }
       },
-      "required": ["id", "user", "action", "timestamp"]
+      "required": ["id", "action", "timestamp"]
     },
-    "AppConfig": {
-      "title": "AppConfig",
-      "description": "Application settings and synchronization state",
+    "User": {
+      "title": "User",
+      "description": "Application user",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "username": { "type": "string" },
+        "name": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin", "staff"] },
+        "active": { "type": "boolean" },
+        "salt": { "type": "string" },
+        "hash": { "type": "string" },
+        "must": { "type": "boolean" },
+        "created": { "type": "string" },
+        "last": { "type": "string" },
+        "avatar": { "type": "string" },
+        "signature": { "type": "string" },
+        "position": { "type": "string" }
+      },
+      "required": ["id", "username", "name", "role"]
+    },
+    "GlobalChecks": {
+      "title": "Global Checks",
+      "description": "Current status of all checklist items",
+      "type": "object",
+      "properties": {
+        "data": { "type": "object" },
+        "updatedAt": { "type": "string" }
+      }
+    },
+    "LastSubmitted": {
+      "title": "Last Submitted",
+      "description": "Timestamps of last submissions per category/room",
+      "type": "object",
+      "properties": {
+        "data": { "type": "object" },
+        "updatedAt": { "type": "string" }
+      }
+    },
+    "AppSettings": {
+      "title": "App Settings",
+      "description": "Global application configuration",
       "type": "object",
       "properties": {
         "sheetUrl": { "type": "string" },
-        "apiUrl": { "type": "string" },
-        "theme": { "type": "string", "enum": ["light", "dark"] },
+        "theme": { "type": "string" },
         "updatedAt": { "type": "string" }
       }
     }
   },
   "firestore": {
-    "/users/{userId}": {
-      "schema": { "$ref": "User" },
-      "description": "User profile collection"
-    },
     "/inspection_records/{recordId}": {
-      "schema": { "$ref": "InspectionRecord" },
-      "description": "Inspection and audit checklists submission records"
+      "schema": "InspectionRecord",
+      "description": "Collection of inspection history"
     },
     "/audit_logs/{logId}": {
-      "schema": { "$ref": "AuditLog" },
-      "description": "System action history audit log"
+      "schema": "AuditLog",
+      "description": "Collection of system audit logs"
     },
-    "/settings/{configId}": {
-      "schema": { "$ref": "AppConfig" },
-      "description": "Global application configuration document"
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Collection of application users"
+    },
+    "/settings/global_checks": {
+      "schema": "GlobalChecks",
+      "description": "Document storing the current state of all checks"
+    },
+    "/settings/last_submitted": {
+      "schema": "LastSubmitted",
+      "description": "Document storing the last submission timestamps"
+    },
+    "/settings/config": {
+      "schema": "AppSettings",
+      "description": "Document storing global app configuration"
     }
   }
 }

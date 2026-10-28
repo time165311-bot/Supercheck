@@ -154,7 +154,13 @@ export const Header: React.FC<HeaderProps> = ({
   return (
     <>
       <header
-        className={`bg-white dark:bg-[#242526] border-b border-[#e4e6eb] dark:border-[#3a3b3c] sticky top-0 z-30 transition-transform duration-300 ease-in-out shadow-2xs ${
+        style={{
+          backgroundColor: 'rgba(255, 255, 255, 0.95)',
+          backdropFilter: 'blur(12px)',
+          WebkitBackdropFilter: 'blur(12px)',
+          borderColor: '#E4E6EB',
+        }}
+        className={`border-b sticky top-0 z-30 transition-transform duration-300 ease-in-out shadow-xs ${
           isVisible ? 'translate-y-0' : '-translate-y-full'
         }`}
       >
@@ -169,8 +175,11 @@ export const Header: React.FC<HeaderProps> = ({
               className="cursor-pointer select-none group flex items-center gap-2 sm:gap-2.5 active:scale-95 transition-transform min-w-0"
               title="กลับสู่หน้าหลัก"
             >
-              {/* Facebook Blue Emblem */}
-              <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full flex items-center justify-center text-white shadow-xs bg-accent hover:bg-accent-hover transition-colors relative overflow-hidden shrink-0">
+              {/* Facebook Blue Medical Emblem */}
+              <div 
+                style={{ backgroundColor: '#1877F2' }}
+                className="w-9 h-9 sm:w-10 sm:h-10 rounded-full flex items-center justify-center text-white shadow-xs hover:opacity-90 transition-opacity relative overflow-hidden shrink-0"
+              >
                 <svg viewBox="0 0 24 24" fill="none" className="w-5 h-5 relative z-10 text-white">
                   <path
                     d="M12 3L19 7V17L12 21L5 17V7L12 3Z"

@@ -71,6 +71,8 @@ import { pullDataFromGoogleSheets, sendInspectionToGas } from './services/api';
 import { useLocalStorage, useLocalStorageString } from './hooks/useLocalStorage';
 import { fileToBase64 } from './services/media';
 import { Header } from './components/Header';
+import { AppDrawer } from './components/AppDrawer';
+import { BarcodeScannerModal } from './components/BarcodeScannerModal';
 import { ExpiryAlertBanner } from './components/ExpiryAlertBanner';
 import { NotificationModal } from './components/NotificationModal';
 import { SettingsModal } from './components/SettingsModal';
@@ -84,10 +86,16 @@ import { FloorMap } from './components/FloorMap';
 import { UserManagement } from './components/UserManagement';
 import { PasswordModal } from './components/PasswordModal';
 import { DrugInventoryView } from './components/DrugInventoryView';
+
 import { UncheckedRoomsNavigator } from './components/UncheckedRoomsNavigator';
 import { SubmissionLoadingModal } from './components/SubmissionLoadingModal';
 import { QuickReplaceModal } from './components/QuickReplaceModal';
+import { ModernDashboard } from './components/ModernDashboard';
 import { GlobalScrollButtons } from './components/GlobalScrollButtons';
+import { ParallaxBackground } from './components/ParallaxBackground';
+import { SwiperInspectionCarousel } from './components/SwiperInspectionCarousel';
+
+
 import { AccountSecurityModal } from './components/AccountSecurityModal';
 import { FriendsModal } from './components/FriendsModal';
 import { fetchLiveWeather, LiveWeatherData } from './services/weatherService';
@@ -102,6 +110,11 @@ import {
   clearAllAuditLogsInFirebase,
   saveSettingsToFirebase,
   syncUsersToFirebase,
+  saveGlobalChecksToFirebase,
+  loadGlobalChecksFromFirebase,
+  saveLastSubmittedToFirebase,
+  loadLastSubmittedFromFirebase,
+  loadSettingsFromFirebase,
 } from './services/firebase';
 
 export const ACCENT_COLORS = [
@@ -247,6 +260,8 @@ export default function App() {
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [isGlobalBarcodeScannerOpen, setIsGlobalBarcodeScannerOpen] = useState(false);
   const [weather, setWeather] = useState<LiveWeatherData | null>(null);
   const [currentTime, setCurrentTime] = useState(new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
   const [isPasswordForced, setIsPasswordForced] = useState(false);
@@ -287,6 +302,11 @@ export default function App() {
 
   // Filter for expiry in Bag/Cart checks
   const [expFilter, setExpFilter] = useState<'all' | 'expired' | 'warning' | 'good'>('all');
+
+  // Search and status filter for Room Equipment check
+  const [roomSearchQuery, setRoomSearchQuery] = useState('');
+  const [roomStatusFilter, setRoomStatusFilter] = useState<'all' | 'unchecked' | 'ok' | 'bad'>('all');
+  const [inspectionViewMode, setInspectionViewMode] = useState<'carousel' | 'list'>('carousel');
 
   // New item input states
   const [addingGroupIdx, setAddingGroupIdx] = useState<number | null>(null);
@@ -469,28 +489,58 @@ export default function App() {
     }
   };
 
+  const syncWithFirebase = async () => {
+    try {
+      const fbChecks = await loadGlobalChecksFromFirebase();
+      if (fbChecks && Object.keys(fbChecks).length > 0) {
+        setGlobalChecks(fbChecks);
+        setStored(STORAGE_KEYS.GLOBAL_CHECKS, fbChecks);
+      }
+
+      const fbLastSub = await loadLastSubmittedFromFirebase();
+      if (fbLastSub && Object.keys(fbLastSub).length > 0) {
+        setLastSubmitted(fbLastSub);
+        setStored(STORAGE_KEYS.LAST_SUBMITTED, fbLastSub);
+      }
+
+      const fbSettings = await loadSettingsFromFirebase();
+      if (fbSettings) {
+        if (fbSettings.sheetUrl) {
+          setSheetUrl(fbSettings.sheetUrl);
+          setStoredString(STORAGE_KEYS.SHEET_URL, fbSettings.sheetUrl);
+        }
+      }
+    } catch (e) {
+      console.warn('Firebase sync error:', e);
+    }
+  };
+
   useEffect(() => {
     // Initial sync with server if available
     syncWithServer();
+    syncWithFirebase();
 
     // Subscribe to Firebase Cloud Firestore in real-time
-    const unsubFirebaseHistory = subscribeInspectionHistory((records) => {
-      if (records) {
-        setInspectionHistory(records);
-        setStored('inspection_history', records);
-      }
-    });
+    let unsubFirebaseHistory: () => void;
+    let unsubFirebaseAudit: () => void;
 
-    const unsubFirebaseAudit = subscribeAuditLogs((logs) => {
-      if (logs) {
-        setAuditLogs(logs);
-        setStored(STORAGE_KEYS.AUDIT_LOGS, logs);
-      }
-    });
+    subscribeInspectionHistory((records) => {
+        if (records) {
+          setInspectionHistory(records);
+          setStored('inspection_history', records);
+        }
+    }).then(unsub => { unsubFirebaseHistory = unsub; });
+
+    subscribeAuditLogs((logs) => {
+        if (logs) {
+          setAuditLogs(logs);
+          setStored(STORAGE_KEYS.AUDIT_LOGS, logs);
+        }
+    }).then(unsub => { unsubFirebaseAudit = unsub; });
 
     return () => {
-      unsubFirebaseHistory();
-      unsubFirebaseAudit();
+      if (unsubFirebaseHistory) unsubFirebaseHistory();
+      if (unsubFirebaseAudit) unsubFirebaseAudit();
     };
   }, []);
 
@@ -928,7 +978,118 @@ export default function App() {
   });
   const cartPct = cartItems.length > 0 ? Math.round((cartCheckedCount / cartItems.length) * 100) : 0;
 
-  // Toggle item check status
+  // Overall Hospital System Stats for Dashboard Summary Cards
+  const overallStats = useMemo(() => {
+    let totalEq = 0;
+    let checkedEq = 0;
+    let normalEq = 0;
+    let defectiveEq = 0;
+
+    ROOMS.forEach((r) => {
+      const roomItems = equipment[r.id] || [];
+      totalEq += roomItems.length;
+      const rChecks = globalChecks[r.id] || {};
+      roomItems.forEach((it) => {
+        const k = `${r.n}|${it.name}|${it.code || ''}`;
+        const check = rChecks[k];
+        if (check && check.result) {
+          checkedEq++;
+          if (check.result === 'ปกติ') normalEq++;
+          if (check.result === 'ผิดปกติ') defectiveEq++;
+        }
+      });
+    });
+
+    let totalBag = 0;
+    let checkedBag = 0;
+    let normalBag = 0;
+    let defectiveBag = 0;
+
+    if (lists?.bag?.groups) {
+      Object.values(lists.bag.groups).forEach((items) => {
+        totalBag += items.length;
+        items.forEach((it) => {
+          const k = `bag|${it.name}|${it.code || ''}`;
+          const check = (globalChecks['bag'] || {})[k];
+          if (check && check.result) {
+            checkedBag++;
+            if (check.result === 'ปกติ') normalBag++;
+            if (check.result === 'ผิดปกติ') defectiveBag++;
+          }
+          const { status } = calculateExpirationStatus(it.exp);
+          if (status === 'expired' || status === 'warning') defectiveBag++;
+        });
+      });
+    }
+
+    let totalCart = 0;
+    let checkedCart = 0;
+    let normalCart = 0;
+    let defectiveCart = 0;
+
+    if (lists?.cart?.groups) {
+      Object.values(lists.cart.groups).forEach((items) => {
+        totalCart += items.length;
+        items.forEach((it) => {
+          const k = `cart|${it.name}|${it.code || ''}`;
+          const check = (globalChecks['cart'] || {})[k];
+          if (check && check.result) {
+            checkedCart++;
+            if (check.result === 'ปกติ') normalCart++;
+            if (check.result === 'ผิดปกติ') defectiveCart++;
+          }
+          const { status } = calculateExpirationStatus(it.exp);
+          if (status === 'expired' || status === 'warning') defectiveCart++;
+        });
+      });
+    }
+
+    const totalDrug = drugs ? drugs.length : 0;
+    const lowOrExpiredDrug = drugs
+      ? drugs.filter(
+          (d) =>
+            d.remaining <= d.minStock ||
+            (d.expDate && calculateExpirationStatus(d.expDate).status !== 'good')
+        ).length
+      : 0;
+
+    const grandTotal = totalEq + totalBag + totalCart + totalDrug;
+    const grandChecked = checkedEq + checkedBag + checkedCart;
+    const grandNormal = normalEq + normalBag + normalCart + (totalDrug - lowOrExpiredDrug);
+    const grandDefective = defectiveEq + defectiveBag + defectiveCart + lowOrExpiredDrug;
+
+    return {
+      grandTotal,
+      grandChecked,
+      grandNormal,
+      grandDefective,
+      completionPct: grandTotal > 0 ? Math.round((grandChecked / grandTotal) * 100) : 0,
+    };
+  }, [equipment, lists, globalChecks, drugs]);
+
+  // Filter room equipment by search query and status filter
+  const filteredRoomEquipment = useMemo(() => {
+    return activeRoomEquipment.filter((item) => {
+      const q = roomSearchQuery.trim().toLowerCase();
+      const matchSearch =
+        !q ||
+        item.name.toLowerCase().includes(q) ||
+        (item.code && item.code.toLowerCase().includes(q)) ||
+        (item.sap && item.sap.toLowerCase().includes(q));
+
+      if (!matchSearch) return false;
+
+      const itemKey = `${activeRoom.n}|${item.name}|${item.code || ''}`;
+      const check = activeRoomChecks[itemKey] || { result: '' };
+
+      if (roomStatusFilter === 'unchecked') return !check.result;
+      if (roomStatusFilter === 'ok') return check.result === 'ปกติ';
+      if (roomStatusFilter === 'bad') return check.result === 'ผิดปกติ';
+
+      return true;
+    });
+  }, [activeRoomEquipment, roomSearchQuery, roomStatusFilter, activeRoom, activeRoomChecks]);
+
   const handleToggleCheck = (
     contextKey: string,
     itemKey: string,
@@ -969,10 +1130,39 @@ export default function App() {
 
       setStored(STORAGE_KEYS.GLOBAL_CHECKS, newGlobalChecks);
 
-      // Immediately push to server in background so sync is instant and doesn't get overwritten by polling
+      // Immediately push to server and Firebase in background
       pushServerSync({
         globalChecks: newGlobalChecks,
       }).catch(() => {});
+      saveGlobalChecksToFirebase(newGlobalChecks).catch(() => {});
+
+      // Check if 100% complete for this context to celebrate
+      setTimeout(() => {
+        let total = 0;
+        let checked = 0;
+        if (contextKey === 'bag' || contextKey === 'cart') {
+          const cfg = lists[contextKey as 'bag' | 'cart'];
+          Object.values(cfg.groups).forEach(arr => {
+            total += arr.length;
+            arr.forEach(it => {
+              const k = `${contextKey}|${it.name}|${it.code || ''}`;
+              if (updatedContext[k]?.result) checked++;
+            });
+          });
+        } else if (ROOMS.some(r => r.id === contextKey)) {
+          const items = equipment[contextKey] || [];
+          total = items.length;
+          const roomObj = ROOMS.find(r => r.id === contextKey);
+          items.forEach(it => {
+            const k = `${roomObj?.n}|${it.name}|${it.code || ''}`;
+            if (updatedContext[k]?.result) checked++;
+          });
+        }
+
+        if (total > 0 && checked === total) {
+          celebrateCompletion();
+        }
+      }, 100);
 
       return newGlobalChecks;
     });
@@ -1013,10 +1203,54 @@ export default function App() {
       pushServerSync({
         globalChecks: newGlobalChecks,
       }).catch(() => {});
+      saveGlobalChecksToFirebase(newGlobalChecks).catch(() => {});
+
+      // Check if 100% complete for this context to celebrate
+      setTimeout(() => {
+        let total = 0;
+        let checked = 0;
+        if (contextKey === 'bag' || contextKey === 'cart') {
+          const cfg = lists[contextKey as 'bag' | 'cart'];
+          Object.values(cfg.groups).forEach(arr => {
+            total += arr.length;
+            arr.forEach(it => {
+              const k = `${contextKey}|${it.name}|${it.code || ''}`;
+              if (updatedContext[k]?.result) checked++;
+            });
+          });
+        } else if (ROOMS.some(r => r.id === contextKey)) {
+          const items = equipment[contextKey] || [];
+          total = items.length;
+          const roomObj = ROOMS.find(r => r.id === contextKey);
+          items.forEach(it => {
+            const k = `${roomObj?.n}|${it.name}|${it.code || ''}`;
+            if (updatedContext[k]?.result) checked++;
+          });
+        }
+
+        if (total > 0 && checked === total) {
+          celebrateCompletion();
+        }
+      }, 100);
 
       return newGlobalChecks;
     });
   };
+
+  // Update drug stock quantity directly from Next-Gen Dashboard
+  const handleUpdateDrugQty = (drugId: string, delta: number) => {
+    const updated = drugs.map((d) => {
+      if (d.id === drugId) {
+        const nextRem = Math.max(0, d.remaining + delta);
+        return { ...d, remaining: nextRem };
+      }
+      return d;
+    });
+    setDrugs(updated);
+    setStored(STORAGE_KEYS.DRUGS, updated);
+    pushServerSync({ drugs: updated }).catch(() => {});
+  };
+
 
   // Batch check all normal for Bag or Cart
   const handleBatchCheckAllNormal = (catKey: 'bag' | 'cart') => {
@@ -1047,6 +1281,13 @@ export default function App() {
       };
       setStored(STORAGE_KEYS.GLOBAL_CHECKS, newGlobalChecks);
       pushServerSync({ globalChecks: newGlobalChecks }).catch(() => {});
+      saveGlobalChecksToFirebase(newGlobalChecks).catch(() => {});
+
+      // Celebration if 100% complete
+      setTimeout(() => {
+        celebrateCompletion();
+      }, 100);
+
       return newGlobalChecks;
     });
 
@@ -1078,6 +1319,13 @@ export default function App() {
       };
       setStored(STORAGE_KEYS.GLOBAL_CHECKS, newGlobalChecks);
       pushServerSync({ globalChecks: newGlobalChecks }).catch(() => {});
+      saveGlobalChecksToFirebase(newGlobalChecks).catch(() => {});
+
+      // Celebration if 100% complete
+      setTimeout(() => {
+        celebrateCompletion();
+      }, 100);
+
       return newGlobalChecks;
     });
     setResetToast(`✓ ติ๊กเช็คปกติครบทุกรายการในห้องนี้เรียบร้อยแล้ว`);
@@ -1782,6 +2030,8 @@ export default function App() {
     // Save to Firebase Cloud Firestore database
     saveInspectionToFirebase(newRecord);
     addAuditLogToFirebase(entry);
+    saveGlobalChecksToFirebase(globalChecks);
+    saveLastSubmittedToFirebase(updatedLastSubmitted);
 
     setReportModalTitle(titleStr);
     setReportModalRows(submissionRows);
@@ -1873,14 +2123,18 @@ export default function App() {
   };
 
   const celebrateCompletion = () => {
+    // Subtle, professional confetti burst
     confetti({
-      particleCount: 150,
-      spread: 70,
-      origin: { y: 0.6 },
-      colors: ACCENT_COLORS.map(c => c.main)
+      particleCount: 80,
+      spread: 60,
+      origin: { y: 0.7 },
+      colors: ACCENT_COLORS.map(c => c.main),
+      gravity: 1.2,
+      scalar: 0.8,
+      ticks: 200,
     });
-    setResetToast('ตรวจเช็คเรียบร้อยแล้ว! 👏');
-    setTimeout(() => setResetToast(''), 3000);
+    setResetToast('การตรวจเช็คเสร็จสมบูรณ์ 100% แล้ว! 👏');
+    setTimeout(() => setResetToast(''), 4000);
   };
 
   // Atmospheric Style computed based on time
@@ -2032,9 +2286,14 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-neutral-50 dark:bg-black text-neutral-900 dark:text-neutral-100 pb-28 transition-colors duration-200">
-      {/* Header with auto-hide */}
-      <Header
+    <div style={{ backgroundColor: '#F0F2F5' }} className="relative min-h-screen text-[#1C1E21] pb-28 transition-colors duration-200 pt-6">
+      {/* Cinematic Parallax Operating Room Background with Facebook Minimal Cool Overlay & Floating Dust */}
+      <ParallaxBackground />
+
+      {/* Slide-over Drawer (Triggered from Bottom Bar Menu) */}
+      <AppDrawer
+        isOpen={isDrawerOpen}
+        onClose={() => setIsDrawerOpen(false)}
         currentUser={currentUser}
         allUsers={users}
         theme={theme}
@@ -2047,14 +2306,16 @@ export default function App() {
         onOpenProfile={() => setIsProfileModalOpen(true)}
         onOpenPasswordModal={() => setIsPasswordModalOpen(true)}
         onLogout={handleLogout}
+        onNavigateToUsers={() => {
+          setCurrentView('users');
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }}
         isSyncing={isSyncing}
-        isVisible={isNavVisible}
         unreadCount={
           currentUser?.role === 'admin'
             ? expiredCount + warningCount + auditLogs.length
             : expiredCount + warningCount
         }
-        // New props for integrated drawer sub-views
         apiUrl={apiUrl}
         sheetUrl={sheetUrl}
         accentColor={accentColor}
@@ -2085,7 +2346,6 @@ export default function App() {
         }}
         onChangePasswordSubmit={handleChangeOwnPassword}
         onRestoreBackup={(data) => {
-          // Update all React states to reflect the restored data immediately
           if (data.users) setUsers(data.users);
           if (data.drugs) setDrugs(data.drugs);
           if (data.equipment) setEquipment(data.equipment);
@@ -2100,20 +2360,16 @@ export default function App() {
             if (data.settings.theme) setTheme(data.settings.theme);
             if (data.settings.inspectorName) setInspectorName(data.settings.inspectorName);
           }
-          
-          // Re-sync with Firebase if necessary
           if (data.users) syncUsersToFirebase(data.users);
         }}
       />
 
-      {/* Sticky Top Progress Bar on scroll */}
+      {/* Sticky Top Progress Bar on scroll (Starts directly at top of screen) */}
       {currentView !== 'home' && currentView !== 'users' && currentView !== 'drug_check' && (
         <div
-          className={`sticky ${
-            isNavVisible ? 'top-[53px]' : 'top-0'
-          } z-20 bg-white/80 dark:bg-black/80 backdrop-blur-xl border-b border-neutral-200/60 dark:border-neutral-800/80 py-1.5 px-4 shadow-xs transition-all duration-300`}
+          className="sticky top-0 z-20 bg-white/85 dark:bg-black/85 backdrop-blur-xl border-b border-neutral-200/60 dark:border-neutral-800/80 py-1.5 px-4 shadow-xs transition-all duration-300"
         >
-          <div className="max-w-4xl mx-auto flex items-center justify-between text-xs font-semibold text-neutral-800 dark:text-neutral-200 gap-2">
+          <div className="w-full flex items-center justify-between text-xs font-semibold text-neutral-800 dark:text-neutral-200 gap-2">
             <span className="truncate max-w-[55%] sm:max-w-none text-neutral-900 dark:text-white font-medium">
               {currentView === 'eq_overview'
                 ? 'แผนผังและรายการครุภัณฑ์'
@@ -2142,9 +2398,9 @@ export default function App() {
               )}
             </div>
           </div>
-          <div className="max-w-4xl mx-auto w-full bg-neutral-100 dark:bg-neutral-800 h-1.5 rounded-full overflow-hidden mt-1.5">
+          <div className="w-full bg-emerald-100/60 dark:bg-emerald-950/40 h-2 rounded-full overflow-hidden border border-emerald-200/50 dark:border-emerald-800/40 mt-1.5">
             <div
-              className="bg-accent h-full rounded-full transition-all duration-300"
+              className="h-full rounded-full transition-all duration-300"
               style={{
                 width: `${
                   currentView === 'eq_overview'
@@ -2155,217 +2411,39 @@ export default function App() {
                     ? bagPct
                     : cartPct
                 }%`,
+                background: 'linear-gradient(90deg, #10b981 0%, #34d399 100%)',
               }}
             />
           </div>
         </div>
       )}
 
-      {/* Main Container */}
-      <main className="max-w-4xl mx-auto px-4 pt-3 transition-all duration-300">
+      {/* Main Container - Full Bleed 100vw */}
+      <main className="relative z-10 w-screen -mx-[calc((100vw-100%)/2)] min-h-screen pt-3 transition-all duration-300 overflow-x-hidden">
         {/* View Routing */}
         <div key={currentView} className="animate-in fade-in duration-300 transition-all">
         {currentView === 'home' && (
-          <div className="space-y-3">
-            {/* Dynamic Atmosphere Header Card */}
-            <div
-              style={{
-                backgroundSize: '200% 200%',
-                animation: 'ambientGlow 8s ease infinite',
-              }}
-              className={`bg-gradient-to-br ${atmosphere.gradient} text-white rounded-3xl p-5 shadow-lg border border-white/20 dark:border-neutral-700 relative overflow-hidden transition-all duration-700`}
-            >
-              {/* Floating Ambient Blobs */}
-              <div className="absolute -left-8 -top-8 w-32 h-32 rounded-full bg-white/20 blur-2xl pointer-events-none animate-float-molecule" />
-              <div className="absolute -right-8 -bottom-8 w-36 h-36 rounded-full bg-amber-300/20 blur-2xl pointer-events-none animate-float-molecule [animation-delay:2s]" />
-
-              {/* Animation Layer */}
-              <div className={`pointer-events-none absolute inset-0 overflow-hidden rounded-3xl z-0 opacity-40 ${atmosphere.animation}`} />
-
-              {/* Extra Sparkles for Night */}
-              {new Date().getHours() >= 20 || new Date().getHours() < 6 ? (
-                <div className="absolute inset-0 z-0 pointer-events-none opacity-30">
-                  <div className="absolute top-4 left-10 w-1 h-1 bg-white rounded-full animate-twinkle" />
-                  <div className="absolute top-12 right-20 w-1 h-1 bg-white rounded-full animate-twinkle [animation-delay:1s]" />
-                  <div className="absolute bottom-10 left-1/2 w-1 h-1 bg-white rounded-full animate-twinkle [animation-delay:1.5s]" />
-                </div>
-              ) : null}
-
-              {/* Content Layer */}
-              <div className="relative z-10 flex items-center justify-between gap-4 w-full">
-                {/* Left: Temp & Date */}
-                <div className="flex flex-col gap-0.5">
-                  <div className="text-5xl font-bold tracking-tighter drop-shadow-sm">
-                    {weather ? `${weather.temp}°` : '29°'}
-                  </div>
-                  <div className="text-sm font-medium text-white/90 drop-shadow-sm">
-                    {getFormattedThaiDate()}
-                  </div>
-                </div>
-
-                {/* Right: Icon, Condition & Time */}
-                <div className="flex flex-col items-end gap-1">
-                  <div className="text-4xl filter drop-shadow-md animate-bounce duration-1000">
-                    {weather ? weather.icon3D : '☀️'}
-                  </div>
-                  <div className="text-[10px] font-bold uppercase tracking-widest text-white/80">
-                    {atmosphere.label}
-                  </div>
-                  <div className="text-xs font-mono text-white/70">
-                    {currentTime}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Urgent Expiration Alert Banner - ONLY shown on Home */}
-            <ExpiryAlertBanner
-              alerts={expiryAlerts}
-              onOpenAlertDetails={() => setIsNotificationsOpen(true)}
-            />
-
-            {/* Menu Cards (Facebook Feed Clean Style) */}
-            <div className="space-y-2.5">
-              {/* Drug Inventory Card */}
-              <button
-                onClick={() => setCurrentView('drug_check')}
-                style={{
-                  background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.12), rgba(6, 182, 212, 0.08))',
-                  border: '1px solid rgba(59, 130, 246, 0.2)',
-                  backgroundSize: '200% 200%',
-                  animation: 'ambientGlow 8s ease infinite',
-                }}
-                className="relative overflow-hidden w-full text-left p-4 backdrop-blur-md bg-white/80 dark:bg-slate-900/80 hover:opacity-95 rounded-2xl shadow-[0_8px_30px_rgba(59,130,246,0.08)] flex items-center justify-between gap-3.5 transition-all cursor-pointer group active:scale-95 duration-150"
-              >
-                <div className="absolute -right-6 -bottom-6 w-28 h-28 rounded-full bg-cyan-400/20 filter blur-xl pointer-events-none animate-float-molecule" />
-                <div className="relative z-10 flex items-center gap-3 min-w-0 flex-1">
-                  <div className="w-11 h-11 rounded-2xl bg-blue-500 text-white flex items-center justify-center text-xl shrink-0 group-hover:scale-110 active:scale-95 transition-transform duration-200 shadow-md">
-                    💊
-                  </div>
-                  <div>
-                    <h3 className="text-sm sm:text-base font-bold text-neutral-900 dark:text-white leading-tight">
-                      ระบบตรวจเช็คคลังยาและสารน้ำ
-                    </h3>
-                    <p className="text-[11px] text-neutral-500 dark:text-neutral-400 mt-0.5">
-                      จัดการคลังยา, สารน้ำ, และวันหมดอายุ
-                    </p>
-                  </div>
-                </div>
-              </button>
-
-              {/* Equipment Card */}
-              <button
-                onClick={() => setCurrentView('eq_overview')}
-                style={{
-                  background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.12), rgba(139, 92, 246, 0.08))',
-                  border: '1px solid rgba(99, 102, 241, 0.2)',
-                  backgroundSize: '200% 200%',
-                  animation: 'ambientGlow 8s ease infinite',
-                }}
-                className="relative overflow-hidden w-full text-left p-4 backdrop-blur-md bg-white/80 dark:bg-slate-900/80 hover:opacity-95 rounded-2xl shadow-[0_8px_30px_rgba(99,102,241,0.08)] flex items-center justify-between gap-3.5 transition-all cursor-pointer group active:scale-95 duration-150"
-              >
-                <div className="absolute -right-6 -bottom-6 w-28 h-28 rounded-full bg-purple-400/20 filter blur-xl pointer-events-none animate-float-molecule [animation-delay:1s]" />
-                <div className="relative z-10 flex items-center gap-3 min-w-0 flex-1">
-                  <div className="w-11 h-11 rounded-2xl bg-indigo-600 text-white flex items-center justify-center text-xl shrink-0 group-hover:scale-110 active:scale-95 transition-transform duration-200 shadow-md">
-                    🏥
-                  </div>
-                  <div>
-                    <h3 className="text-sm sm:text-base font-bold text-neutral-900 dark:text-white leading-tight">
-                      เช็คครุภัณฑ์วิสัญญี / ห้องผ่าตัด
-                    </h3>
-                    <p className="text-[11px] text-neutral-500 dark:text-neutral-400 mt-0.5">
-                      ตรวจสอบความพร้อมอุปกรณ์ห้อง OR
-                    </p>
-                  </div>
-                </div>
-              </button>
-
-              {/* Emergency Bag Card */}
-              <button
-                onClick={() => setCurrentView('bag_check')}
-                style={{
-                  background: 'linear-gradient(135deg, rgba(245, 158, 11, 0.12), rgba(249, 115, 22, 0.08))',
-                  border: '1px solid rgba(245, 158, 11, 0.2)',
-                  backgroundSize: '200% 200%',
-                  animation: 'ambientGlow 8s ease infinite',
-                }}
-                className="relative overflow-hidden w-full text-left p-4 backdrop-blur-md bg-white/80 dark:bg-slate-900/80 hover:opacity-95 rounded-2xl shadow-[0_8px_30px_rgba(245,158,11,0.08)] flex items-center justify-between gap-3.5 transition-all cursor-pointer group active:scale-95 duration-150"
-              >
-                <div className="absolute -right-6 -bottom-6 w-28 h-28 rounded-full bg-amber-400/20 filter blur-xl pointer-events-none animate-float-molecule [animation-delay:2s]" />
-                <div className="relative z-10 flex items-center gap-3 min-w-0 flex-1">
-                  <div className="w-11 h-11 rounded-2xl bg-amber-500 text-white flex items-center justify-center text-xl shrink-0 group-hover:scale-110 active:scale-95 transition-transform duration-200 shadow-md">
-                    💼
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h3 className="text-sm sm:text-base font-bold text-neutral-900 dark:text-white leading-tight">
-                        เช็คกระเป๋าอีเมอร์เจนซี่
-                      </h3>
-                      {expiryAlerts.filter((a) => a.category === 'bag').length > 0 && (
-                        <span className="w-2.5 h-2.5 rounded-full bg-rose-600 shrink-0 animate-ping" title="มีรายการใกล้/หมดอายุ" />
-                      )}
-                    </div>
-                    <p className="text-[11px] text-neutral-500 dark:text-neutral-400 mt-0.5">
-                      ตรวจสอบกระเป๋าฉุกเฉินและยาสำคัญ
-                    </p>
-                  </div>
-                </div>
-              </button>
-
-              {/* Emergency Cart Card */}
-              <button
-                onClick={() => setCurrentView('cart_check')}
-                style={{
-                  background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.12), rgba(20, 184, 166, 0.08))',
-                  border: '1px solid rgba(16, 185, 129, 0.2)',
-                  backgroundSize: '200% 200%',
-                  animation: 'ambientGlow 8s ease infinite',
-                }}
-                className="relative overflow-hidden w-full text-left p-4 backdrop-blur-md bg-white/80 dark:bg-slate-900/80 hover:opacity-95 rounded-2xl shadow-[0_8px_30px_rgba(16,185,129,0.08)] flex items-center justify-between gap-3.5 transition-all cursor-pointer group active:scale-95 duration-150"
-              >
-                <div className="absolute -right-6 -bottom-6 w-28 h-28 rounded-full bg-emerald-400/20 filter blur-xl pointer-events-none animate-float-molecule [animation-delay:3s]" />
-                <div className="relative z-10 flex items-center gap-3 min-w-0 flex-1">
-                  <div className="w-11 h-11 rounded-2xl bg-emerald-600 text-white flex items-center justify-center text-xl shrink-0 group-hover:scale-110 active:scale-95 transition-transform duration-200 shadow-md">
-                    🛒
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h3 className="text-sm sm:text-base font-bold text-neutral-900 dark:text-white leading-tight">
-                        เช็ครถอีเมอร์เจนซี่
-                      </h3>
-                      {expiryAlerts.filter((a) => a.category === 'cart').length > 0 && (
-                        <span className="w-2.5 h-2.5 rounded-full bg-rose-600 shrink-0 animate-ping" title="มีรายการใกล้/หมดอายุ" />
-                      )}
-                    </div>
-                    <p className="text-[11px] text-neutral-500 dark:text-neutral-400 mt-0.5">
-                      ตรวจสอบรถเข็นช่วยชีวิตฉุกเฉิน
-                    </p>
-                  </div>
-                </div>
-              </button>
-
-              {/* Manage Users Card - ONLY shown if Admin */}
-              {currentUser?.role === 'admin' && (
-                <button
-                  onClick={() => setCurrentView('users')}
-                  className="w-full text-left p-3.5 sm:p-4 bg-white dark:bg-[#242526] hover:bg-[#f2f3f5] dark:hover:bg-[#323436] rounded-2xl border border-[#e4e6eb] dark:border-[#3a3b3c] shadow-xs flex items-center justify-between gap-3.5 transition-all cursor-pointer group active:scale-[0.99]"
-                >
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div className="w-10 h-10 rounded-2xl bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400 flex items-center justify-center text-xl shrink-0 group-hover:scale-105 transition-transform">
-                      👥
-                    </div>
-                    <h3 className="text-sm font-bold text-[#050505] dark:text-[#e4e6eb] leading-normal truncate">
-                      จัดการผู้ใช้งาน & กำหนดสิทธิ์
-                    </h3>
-                  </div>
-                  <span className="text-xs font-semibold text-[#65676b] dark:text-[#b0b3b8] px-2.5 py-1 rounded-full bg-[#f0f2f5] dark:bg-[#3a3b3c] shrink-0 whitespace-nowrap">
-                    {users.length} บัญชี
-                  </span>
-                </button>
-              )}
-            </div>
-          </div>
+          <ModernDashboard
+            currentUser={currentUser}
+            drugs={drugs}
+            equipment={equipment}
+            lists={lists}
+            globalChecks={globalChecks}
+            expiryAlerts={expiryAlerts}
+            overallStats={overallStats}
+            onNavigate={(view: any) => {
+              setCurrentView(view);
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+            onLogout={handleLogout}
+            onOpenNotifications={() => setIsNotificationsOpen(true)}
+            onToggleCheck={(targetId, itemKey, res, name) => handleToggleCheck(targetId, itemKey, res, name)}
+            onUpdateNote={(targetId, itemKey, note) => handleUpdateItemNote(targetId, itemKey, note)}
+            onZoomImage={(url) => setZoomedImageUrl(url)}
+            onOpenBarcodeScan={() => setIsGlobalBarcodeScannerOpen(true)}
+          />
         )}
+
 
         {/* View: Equipment Overview (Hospital Floor Plan) */}
         {currentView === 'eq_overview' && (
@@ -2401,17 +2479,26 @@ export default function App() {
             </div>
 
             {/* Hospital Progress Bar */}
-            <div className="p-3.5 sm:p-4 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between text-xs font-bold text-slate-700 dark:text-slate-300 mb-2 gap-1.5 leading-normal">
+            <div
+              style={{
+                background: 'linear-gradient(135deg, #f5f3ff 0%, #ede9fe 100%)',
+                border: '1px solid #ddd6fe',
+              }}
+              className="dark:!bg-gradient-to-br dark:!from-[#1e1b4b] dark:!to-[#0f172a] dark:!border-[#312e81] p-3.5 sm:p-4 rounded-2xl shadow-xs"
+            >
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between text-xs font-bold text-purple-950 dark:text-purple-100 mb-2 gap-1.5 leading-normal">
                 <span>ความคืบหน้าการเช็คครุภัณฑ์ทั้งโรงพยาบาล</span>
-                <span className="text-accent font-extrabold whitespace-nowrap">
+                <span className="text-purple-700 dark:text-purple-300 font-extrabold whitespace-nowrap">
                   {hospitalPct}% ({hospitalCheckedItems}/{hospitalTotalItems} รายการ)
                 </span>
               </div>
-              <div className="w-full bg-slate-100 dark:bg-slate-800 h-2.5 rounded-full overflow-hidden border border-slate-200 dark:border-slate-700">
+              <div className="w-full bg-purple-200/50 dark:bg-purple-950/60 h-2.5 rounded-full overflow-hidden border border-purple-300/50 dark:border-purple-800/40">
                 <div
-                  className="bg-accent h-full rounded-full transition-all duration-300"
-                  style={{ width: `${hospitalPct}%` }}
+                  className="h-full rounded-full transition-all duration-300"
+                  style={{
+                    width: `${hospitalPct}%`,
+                    background: 'linear-gradient(90deg, #10b981 0%, #34d399 100%)',
+                  }}
                 />
               </div>
             </div>
@@ -2478,28 +2565,37 @@ export default function App() {
             </div>
 
             {/* Room Header & Progress */}
-            <div className="p-4 sm:p-5 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div
+              style={{
+                background: 'linear-gradient(135deg, #f5f3ff 0%, #ede9fe 100%)',
+                border: '1px solid #ddd6fe',
+              }}
+              className="dark:!bg-gradient-to-br dark:!from-[#1e1b4b] dark:!to-[#0f172a] dark:!border-[#312e81] p-4 sm:p-5 rounded-3xl shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+            >
               <div>
-                <h2 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <h2 className="text-base font-extrabold text-purple-950 dark:text-purple-100 flex items-center gap-2">
                   <span>📍 {activeRoom.n}</span>
-                  <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-medium">
+                  <span className="text-xs px-2.5 py-0.5 rounded-full bg-purple-200/80 dark:bg-purple-900/60 text-purple-900 dark:text-purple-200 font-bold">
                     {roomTotal} รายการ
                   </span>
                 </h2>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                <p className="text-xs text-purple-800/80 dark:text-purple-200/80 mt-0.5 font-medium">
                   ตรวจเช็คความพร้อมเครื่องดมยาและครุภัณฑ์ประจำห้อง
                 </p>
               </div>
 
               <div className="w-full sm:w-60">
-                <div className="flex justify-between text-xs font-bold text-slate-600 dark:text-slate-300 mb-1">
+                <div className="flex justify-between text-xs font-bold text-purple-950 dark:text-purple-200 mb-1">
                   <span>ความคืบหน้าห้องนี้</span>
-                  <span className="text-accent">{roomPct}%</span>
+                  <span className="text-purple-700 dark:text-purple-300 font-extrabold">{roomPct}%</span>
                 </div>
-                <div className="w-full bg-slate-100 dark:bg-slate-800 h-2 rounded-full overflow-hidden border border-slate-200 dark:border-slate-700">
+                <div className="w-full bg-purple-200/50 dark:bg-purple-950/60 h-2.5 rounded-full overflow-hidden border border-purple-300/50 dark:border-purple-800/40">
                   <div
-                    className="bg-accent h-full rounded-full transition-all duration-300"
-                    style={{ width: `${roomPct}%` }}
+                    className="h-full rounded-full transition-all duration-300"
+                    style={{
+                      width: `${roomPct}%`,
+                      background: 'linear-gradient(90deg, #10b981 0%, #34d399 100%)',
+                    }}
                   />
                 </div>
               </div>
@@ -2603,131 +2699,276 @@ export default function App() {
               </div>
             )}
 
+            {/* Search and Status Filter controls */}
+            <div className="p-3 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs space-y-2.5">
+              <div className="flex flex-col sm:flex-row items-center gap-2">
+                <div className="relative flex-1 w-full">
+                  <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="text"
+                    value={roomSearchQuery}
+                    onChange={(e) => setRoomSearchQuery(e.target.value)}
+                    placeholder="ค้นหาชื่อครุภัณฑ์, รหัสพัสดุ หรือ SAP..."
+                    className="w-full pl-9 pr-8 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs outline-none focus:ring-2 focus:ring-sky-500 font-medium"
+                  />
+                  {roomSearchQuery && (
+                    <button
+                      onClick={() => setRoomSearchQuery('')}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+
+                {/* Status Filter buttons */}
+                <div className="flex items-center gap-1 w-full sm:w-auto overflow-x-auto pb-1 sm:pb-0 text-xs">
+                  <button
+                    onClick={() => setRoomStatusFilter('all')}
+                    className={`px-3 py-1.5 min-h-[32px] rounded-xl font-medium whitespace-nowrap transition cursor-pointer ${
+                      roomStatusFilter === 'all'
+                        ? 'bg-slate-800 dark:bg-slate-200 text-white dark:text-slate-900 font-semibold shadow-xs'
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                    }`}
+                  >
+                    ทั้งหมด ({activeRoomEquipment.length})
+                  </button>
+                  <button
+                    onClick={() => setRoomStatusFilter('unchecked')}
+                    className={`px-3 py-1.5 min-h-[32px] rounded-xl font-medium whitespace-nowrap transition cursor-pointer ${
+                      roomStatusFilter === 'unchecked'
+                        ? 'bg-amber-500 text-white font-semibold shadow-xs'
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                    }`}
+                  >
+                    ยังไม่ได้ตรวจ
+                  </button>
+                  <button
+                    onClick={() => setRoomStatusFilter('ok')}
+                    className={`px-3 py-1.5 min-h-[32px] rounded-xl font-medium whitespace-nowrap transition cursor-pointer ${
+                      roomStatusFilter === 'ok'
+                        ? 'bg-emerald-600 text-white font-semibold shadow-xs'
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                    }`}
+                  >
+                    ปกติ
+                  </button>
+                  <button
+                    onClick={() => setRoomStatusFilter('bad')}
+                    className={`px-3 py-1.5 min-h-[32px] rounded-xl font-medium whitespace-nowrap transition cursor-pointer ${
+                      roomStatusFilter === 'bad'
+                        ? 'bg-rose-600 text-white font-semibold shadow-xs'
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                    }`}
+                  >
+                    ผิดปกติ
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* View Mode Switcher: 3D Slider Carousel vs List */}
+            <div className="flex items-center justify-between gap-2 px-1">
+              <span className="text-xs font-bold text-[#050505] dark:text-white flex items-center gap-1.5">
+                <span>รูปแบบการแสดงผล:</span>
+              </span>
+              <div className="flex items-center gap-1 p-1 bg-[#F0F2F5] dark:bg-slate-800 rounded-xl border border-[#E4E6EB] dark:border-slate-700">
+                <button
+                  type="button"
+                  onClick={() => setInspectionViewMode('carousel')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                    inspectionViewMode === 'carousel'
+                      ? 'bg-[#1877F2] text-white shadow-xs'
+                      : 'text-[#65676B] hover:text-[#050505]'
+                  }`}
+                >
+                  <span>🎠 Swiper 3D Cards</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setInspectionViewMode('list')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                    inspectionViewMode === 'list'
+                      ? 'bg-[#1877F2] text-white shadow-xs'
+                      : 'text-[#65676B] hover:text-[#050505]'
+                  }`}
+                >
+                  <span>📋 รายการปกติ</span>
+                </button>
+              </div>
+            </div>
+
             {/* List of items */}
             {activeRoomEquipment.length === 0 ? (
               <div className="p-8 text-center bg-white dark:bg-slate-900 rounded-3xl border border-dashed border-slate-200 dark:border-slate-800 text-slate-400 text-xs">
                 ยังไม่มีครุภัณฑ์ในห้องนี้ กดปุ่ม "+ เพิ่มครุภัณฑ์ในห้องนี้" ด้านบน
               </div>
+            ) : filteredRoomEquipment.length === 0 ? (
+              <div className="p-8 text-center bg-white dark:bg-slate-900 rounded-3xl border border-dashed border-slate-200 dark:border-slate-800 text-slate-400 text-xs font-medium">
+                ไม่พบรายการครุภัณฑ์ที่ตรงกับเงื่อนไขการค้นหา
+              </div>
+            ) : inspectionViewMode === 'carousel' ? (
+              /* Swiper 3D Cards Slider Carousel Mode */
+              <SwiperInspectionCarousel
+                title={`ตรวจเช็ค 3D: ${activeRoom.n}`}
+                subtitle="ปัดซ้าย-ขวา เพื่อเลือกครุภัณฑ์ และบันทึกผลได้ทันที"
+                items={filteredRoomEquipment.map((item, idx) => ({
+                  id: item.id ? `room_eq_${activeRoomId}_${item.id}_${idx}` : `room_eq_${activeRoomId}_${idx}`,
+                  name: item.name,
+                  no: item.no,
+                  code: item.code,
+                  sap: item.sap,
+                  spec: item.spec,
+                  location: item.location || activeRoom.n,
+                  img: item.img,
+                  exp: item.exp,
+                  category: 'equipment' as const,
+                  categoryName: activeRoom.n,
+                  itemKey: `${activeRoom.n}|${item.name}|${item.code || ''}`,
+                  rawItem: item,
+                }))}
+                checks={activeRoomChecks}
+                onToggleCheck={(itemKey, res, name) => handleToggleCheck(activeRoomId, itemKey, res, name)}
+                onUpdateNote={(itemKey, note) => handleUpdateItemNote(activeRoomId, itemKey, note)}
+                onOpenDetail={(item, check) => setSelectedItemDetail({ item, result: check?.result, note: check?.note })}
+                onZoomImage={(url) => setZoomedImageUrl(url)}
+                onOpenBarcodeScan={() => setIsGlobalBarcodeScannerOpen(true)}
+              />
             ) : (
-              <div className="space-y-2.5">
-                {activeRoomEquipment.map((item, idx) => {
-                  const itemKey = `${activeRoom.n}|${item.name}|${item.code || ''}`;
-                  const currentCheck = activeRoomChecks[itemKey] || { result: '' };
-                  const isOk = currentCheck.result === 'ปกติ';
-                  const isBad = currentCheck.result === 'ผิดปกติ';
+              /* Quick Checklist (Fast 120 FPS List View) for Equipment with Compartment Matrix Support */
+              <div className="space-y-6">
+                {(() => {
+                  // Group items if they are many, or if they have distinct categories
+                  const shouldGroup = filteredRoomEquipment.length > 30;
+                  
+                  const groups: Record<string, EquipmentItem[]> = {};
+                  if (shouldGroup) {
+                    filteredRoomEquipment.forEach(item => {
+                      // Heuristic: Use first word or spec as group
+                      const groupName = item.spec && !item.spec.includes('มาตรฐาน') 
+                        ? item.spec.split(' ')[0] 
+                        : item.name.split(' ')[0];
+                      if (!groups[groupName]) groups[groupName] = [];
+                      groups[groupName].push(item);
+                    });
+                  } else {
+                    groups['รายการครุภัณฑ์ทั้งหมด'] = filteredRoomEquipment;
+                  }
 
-                  return (
-                    <div
-                      key={idx}
-                      className={`p-3.5 sm:p-4 rounded-2xl bg-white dark:bg-slate-900 border transition shadow-xs ${
-                        isBad
-                          ? 'border-red-300 dark:border-red-900/60 bg-red-50/30 dark:bg-red-950/10'
-                          : isOk
-                          ? 'border-emerald-300 dark:border-emerald-900/50'
-                          : 'border-slate-200 dark:border-slate-800'
-                      }`}
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        {item.img && (
-                          <img
-                            src={item.img}
-                            alt={item.name}
-                            onClick={() => setZoomedImageUrl(item.img!)}
-                            className="w-11 h-11 rounded-xl object-cover shrink-0 cursor-pointer border border-slate-200 dark:border-slate-700"
-                            title="แตะดูภาพใหญ่"
-                          />
-                        )}
-
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            {item.no && (
-                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-sky-100 dark:bg-sky-950 text-sky-700 dark:text-sky-300 font-bold">
-                                #{item.no}
-                              </span>
-                            )}
-                            <h4 className="text-sm font-bold text-slate-900 dark:text-white">
-                              {item.name}
-                            </h4>
-                          </div>
-                        </div>
-
-                        {/* Check status buttons */}
-                        {eqMode === 'check' && (
-                          <div className="flex items-center gap-1.5 shrink-0">
-                            <button
-                              onClick={() =>
-                                handleToggleCheck(activeRoomId, itemKey, 'ปกติ', item.name)
-                              }
-                              className={`w-9 h-9 rounded-xl font-bold text-xs flex items-center justify-center transition border ${
-                                isOk
-                                  ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
-                                  : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700 hover:bg-emerald-50'
-                              }`}
-                              title="ใช้งานได้ปกติ"
-                            >
-                              ✓
-                            </button>
-                            <button
-                              onClick={() =>
-                                handleToggleCheck(activeRoomId, itemKey, 'ผิดปกติ', item.name)
-                              }
-                              className={`w-9 h-9 rounded-xl font-bold text-xs flex items-center justify-center transition border ${
-                                isBad
-                                  ? 'bg-red-600 text-white border-red-600 shadow-sm'
-                                  : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700 hover:bg-red-50'
-                              }`}
-                              title="ใช้งานไม่ได้ / มีปัญหา"
-                            >
-                              ✕
-                            </button>
-                          </div>
-                        )}
-
-                        {/* Detail modal button & Delete */}
-                        <div className="flex items-center gap-1 shrink-0">
-                          <button
-                            onClick={() =>
-                              setSelectedItemDetail({
-                                item,
-                                result: currentCheck.result,
-                                note: currentCheck.note,
-                              })
-                            }
-                            className="p-2 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition text-xs"
-                            title="ดูรายละเอียดทะเบียนครุภัณฑ์"
-                          >
-                            <MoreVertical className="w-4 h-4" />
-                          </button>
-
-                          {eqMode === 'explore' && (
-                            <button
-                              onClick={() => handleDeleteItem(activeRoomId, item)}
-                              className="p-2 rounded-xl text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 transition text-xs"
-                              title="ลบครุภัณฑ์"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Detail note input for defective items */}
-                      {isBad && (
-                        <div className="mt-2.5 pt-2 border-t border-red-200 dark:border-red-900/40">
-                          <input
-                            type="text"
-                            value={currentCheck.note || ''}
-                            onChange={(e) =>
-                              handleUpdateItemNote(activeRoomId, itemKey, e.target.value)
-                            }
-                            placeholder="ระบุรายละเอียดอาการเสีย หรือปัญหาที่พบ..."
-                            className="w-full px-3 py-1.5 text-xs rounded-xl bg-white dark:bg-slate-800 border border-red-300 dark:border-red-800 outline-none text-red-900 dark:text-red-200 placeholder:text-red-300"
-                          />
+                  return Object.entries(groups).map(([groupName, groupItems]) => (
+                    <div key={groupName} className="space-y-3">
+                      {shouldGroup && (
+                        <div className="flex items-center gap-2 px-1">
+                          <span className="w-1.5 h-4 bg-[#1877F2] rounded-full" />
+                          <h3 className="text-xs font-black text-slate-800 dark:text-slate-100 uppercase tracking-wider">
+                            {groupName} ({groupItems.length})
+                          </h3>
                         </div>
                       )}
+
+                      <div className="space-y-2.5">
+                        {groupItems.map((item, idx) => {
+                          const itemKey = `${activeRoom.n}|${item.name}|${item.code || ''}`;
+                          const currentCheck = activeRoomChecks[itemKey] || { result: '' };
+                          const isOk = currentCheck.result === 'ปกติ';
+                          const isBad = currentCheck.result === 'ผิดปกติ';
+
+                          return (
+                            <div
+                              key={`room_eq_row_${item.id || item.code || idx}_${idx}`}
+                              className={`p-3.5 rounded-2xl border transition-all duration-200 flex justify-between items-center shadow-sm active:scale-[0.98] checklist-item ${
+                                isBad
+                                  ? 'bg-rose-50 dark:bg-rose-950/20 border-rose-200 dark:border-rose-900/40'
+                                  : isOk
+                                  ? 'bg-emerald-50 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-900/40'
+                                  : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800'
+                              }`}
+                            >
+                              <div className="flex items-center gap-3 flex-1 min-w-0">
+                                {item.img && (
+                                  <img
+                                    src={item.img}
+                                    alt={item.name}
+                                    onClick={() => setZoomedImageUrl(item.img!)}
+                                    className="w-12 h-12 rounded-xl object-cover shrink-0 cursor-pointer border border-slate-200 dark:border-slate-700 shadow-xs"
+                                  />
+                                )}
+
+                                <div className="flex-1 min-w-0 space-y-0.5">
+                                  <div className="flex items-center gap-2">
+                                    {item.no && (
+                                      <span className="text-[9px] px-1.5 py-0.5 rounded-md bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 font-black border border-blue-100 dark:border-blue-900/50">
+                                        #{item.no}
+                                      </span>
+                                    )}
+                                    <h4 className="text-xs font-bold text-slate-800 dark:text-slate-100 truncate leading-tight">
+                                      {item.name}
+                                    </h4>
+                                  </div>
+                                  {item.code && (
+                                    <p className="text-[10px] text-slate-500 font-mono tracking-tight truncate opacity-80">
+                                      SN: {item.code}
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* 1-Tap Toggle Buttons & Actions */}
+                              <div className="flex items-center gap-2 shrink-0 ml-3">
+                                {eqMode === 'check' ? (
+                                  <div className="flex gap-1.5">
+                                    <button
+                                      onClick={() => handleToggleCheck(activeRoomId, itemKey, 'ปกติ', item.name)}
+                                      className={`status-btn ${
+                                        isOk
+                                          ? 'bg-emerald-500 text-white shadow-emerald-500/30'
+                                          : 'bg-slate-100 dark:bg-slate-800 text-slate-400 hover:text-slate-600'
+                                      }`}
+                                    >
+                                      ✓ ปกติ
+                                    </button>
+                                    <button
+                                      onClick={() => handleToggleCheck(activeRoomId, itemKey, 'ผิดปกติ', item.name)}
+                                      className={`status-btn ${
+                                        isBad
+                                          ? 'bg-rose-500 text-white shadow-rose-500/30'
+                                          : 'bg-slate-100 dark:bg-slate-800 text-slate-400 hover:text-slate-600'
+                                      }`}
+                                    >
+                                      ✕ ปัญหา
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <div className="flex items-center gap-1">
+                                    <button
+                                      onClick={() => setSelectedItemDetail({ item, result: currentCheck.result, note: currentCheck.note })}
+                                      className="p-2 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition"
+                                    >
+                                      <MoreVertical size={16} />
+                                    </button>
+                                    <button
+                                      onClick={() => handleDeleteItem(activeRoomId, item)}
+                                      className="p-2 rounded-xl text-rose-500 hover:bg-rose-50 transition"
+                                    >
+                                      <Trash2 size={16} />
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Floating Detail Note for Bad Status */}
+                              {isBad && currentCheck.note && (
+                                <div className="absolute -bottom-1 right-3 text-[9px] font-bold text-rose-600 bg-white px-2 py-0.5 rounded-full shadow-xs border border-rose-200 translate-y-1/2 z-10">
+                                  ⚠️ {currentCheck.note}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
-                  );
-                })}
+                  ));
+                })()}
               </div>
             )}
 
@@ -2807,11 +3048,29 @@ export default function App() {
               // Calculate items count
               let catTotal = 0;
               let catChecked = 0;
-              Object.values(cfg.groups).forEach((arr) => {
+              const allItems: any[] = [];
+              
+              Object.entries(cfg.groups).forEach(([groupName, arr]) => {
                 catTotal += arr.length;
-                arr.forEach((it) => {
+                arr.forEach((it, idx) => {
                   const k = `${categoryKey}|${it.name}|${it.code || ''}`;
                   if (catChecks[k] && catChecks[k].result) catChecked++;
+                  
+                  allItems.push({
+                    id: `${categoryKey}_${groupName}_${idx}`,
+                    name: it.name,
+                    no: it.no,
+                    code: it.code,
+                    sap: it.sap,
+                    spec: it.spec,
+                    location: `${cfg.title} - ${groupName}`,
+                    img: it.img,
+                    exp: it.exp,
+                    category: categoryKey as any,
+                    categoryName: groupName,
+                    itemKey: k,
+                    rawItem: it
+                  });
                 });
               });
               const pct = catTotal > 0 ? Math.round((catChecked / catTotal) * 100) : 0;
@@ -2839,375 +3098,162 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* Header & Progress (Minimalist & Clean) */}
-                  <div className="p-4 bg-white dark:bg-neutral-900 rounded-2xl border border-neutral-200 dark:border-neutral-800 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  {/* Header & Progress */}
+                  <div
+                    style={{
+                      background: categoryKey === 'bag' 
+                        ? 'linear-gradient(135deg, #fff7ed 0%, #ffedd5 100%)'
+                        : 'linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%)',
+                      border: categoryKey === 'bag' ? '1px solid #fed7aa' : '1px solid #bae6fd',
+                    }}
+                    className="dark:!bg-gradient-to-br dark:!from-[#2a1810] dark:!to-[#1c0f0a] dark:!border-[#451a03] p-4 sm:p-5 rounded-2xl shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                  >
                     <div>
-                      <h2 className="text-sm sm:text-base font-bold text-neutral-900 dark:text-white tracking-tight">
+                      <h2 className="text-sm sm:text-base font-extrabold text-amber-950 dark:text-amber-100 tracking-tight">
                         {cfg.title}
                       </h2>
-                      <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
-                        ตรวจเช็คความพร้อมยาและเวชภัณฑ์ประจำ{categoryKey === 'bag' ? 'กระเป๋าฉุกเฉิน' : 'รถฉุกเฉิน'} (รอบ 1 เดือน)
+                      <p className="text-xs text-amber-800/80 dark:text-amber-200/80 mt-0.5 font-medium">
+                        ตรวจเช็คความพร้อมยาและเวชภัณฑ์ประจำ{categoryKey === 'bag' ? 'กระเป๋าฉุกเฉิน' : 'รถฉุกเฉิน'}
                       </p>
                     </div>
 
                     <div className="w-full sm:w-56">
-                      <div className="flex justify-between items-center text-xs font-medium text-neutral-600 dark:text-neutral-300 mb-1">
+                      <div className="flex justify-between items-center text-xs font-bold text-amber-900 dark:text-amber-200 mb-1">
                         <span>ความคืบหน้า</span>
-                        <span className="font-bold text-neutral-900 dark:text-white">{pct}% ({catChecked}/{catTotal})</span>
+                        <span className="font-extrabold text-amber-950 dark:text-white">{pct}% ({catChecked}/{catTotal})</span>
                       </div>
-                      <div className="w-full bg-neutral-100 dark:bg-neutral-800 h-2 rounded-full overflow-hidden border border-neutral-200 dark:border-neutral-700">
+                      <div className="w-full bg-amber-200/60 dark:bg-amber-950/60 h-2.5 rounded-full overflow-hidden border border-amber-300/50 dark:border-amber-800/40">
                         <div
-                          className="bg-neutral-900 dark:bg-white h-full rounded-full transition-all duration-300"
-                          style={{ width: `${pct}%` }}
+                          className="h-full rounded-full transition-all duration-300"
+                          style={{
+                            width: `${pct}%`,
+                            background: 'linear-gradient(90deg, #10b981 0%, #34d399 100%)',
+                          }}
                         />
                       </div>
                     </div>
                   </div>
 
-                  {/* Weekly Selection & Batch Check Toolbar (Facebook Clean UI) */}
-                  <div className="p-3.5 bg-white dark:bg-[#242526] rounded-2xl border border-[#e4e6eb] dark:border-[#3a3b3c] shadow-xs flex flex-col sm:flex-row items-center justify-between gap-3">
-                    <div className="flex items-center gap-1.5 flex-wrap w-full sm:w-auto">
-                      <span className="text-xs font-semibold text-[#65676b] dark:text-[#b0b3b8] flex items-center gap-1 mr-1">
-                        <Calendar className="w-3.5 h-3.5 text-[#1877f2]" />
-                        <span>สัปดาห์ที่ตรวจ:</span>
-                      </span>
-                      {[1, 2, 3, 4, 5].map((wk) => (
-                        <button
-                          key={wk}
-                          onClick={() => setSelectedWeek(wk)}
-                          className={`px-3.5 py-2 min-h-[36px] rounded-xl text-xs font-bold transition cursor-pointer whitespace-nowrap leading-normal ${
-                            selectedWeek === wk
-                              ? 'bg-[#1877f2] text-white shadow-xs'
-                              : 'bg-[#f0f2f5] dark:bg-[#3a3b3c] text-[#65676b] dark:text-[#b0b3b8] hover:bg-[#e4e6eb] dark:hover:bg-[#4e4f50]'
-                          }`}
-                        >
-                          สัปดาห์ที่ {wk}
-                        </button>
-                      ))}
-                    </div>
-
-                    <button
-                      onClick={() => handleBatchCheckAllNormal(categoryKey)}
-                      className="w-full sm:w-auto px-4 py-2.5 min-h-[40px] rounded-xl bg-[#00a400] hover:bg-[#008a00] text-white font-semibold text-xs flex items-center justify-center gap-2 transition cursor-pointer shadow-xs shrink-0 whitespace-nowrap leading-normal active:scale-95"
-                      title="เติมค่ามาตรฐานและสถานะปกติให้ทุกรายการในสัปดาห์ที่เลือกอัตโนมัติ"
-                    >
-                      <span>✅ ติ๊กปกติทั้งหมด (สัปดาห์ที่ {selectedWeek})</span>
-                    </button>
-                  </div>
-
-                  {/* Expiration Filter Pills */}
-                  <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
-                    <span className="text-[#65676b] dark:text-[#b0b3b8] flex items-center gap-1 shrink-0 text-[11px] mr-1">
-                      <Filter className="w-3 h-3" />
-                      กรอง:
+                  {/* View Mode Switcher: 3D Slider Carousel vs Quick Checklist */}
+                  <div className="flex items-center justify-between gap-2 px-1 mb-2">
+                    <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                      รูปแบบการแสดงผล
                     </span>
-                    <button
-                      onClick={() => setExpFilter('all')}
-                      className={`px-3.5 py-1.5 min-h-[32px] rounded-xl font-medium shrink-0 transition cursor-pointer whitespace-nowrap leading-normal ${
-                        expFilter === 'all'
-                          ? 'bg-[#1877f2] text-white font-semibold shadow-xs'
-                          : 'bg-white dark:bg-[#242526] text-[#65676b] dark:text-[#b0b3b8] border border-[#e4e6eb] dark:border-[#3a3b3c] hover:bg-[#f0f2f5] dark:hover:bg-[#3a3b3c]'
-                      }`}
-                    >
-                      ทั้งหมด ({catTotal})
-                    </button>
-                    <button
-                      onClick={() => setExpFilter('expired')}
-                      className={`px-3.5 py-1.5 min-h-[32px] rounded-xl font-medium shrink-0 transition cursor-pointer whitespace-nowrap leading-normal ${
-                        expFilter === 'expired'
-                          ? 'bg-[#e41e3f] text-white font-semibold shadow-xs'
-                          : 'bg-white dark:bg-[#242526] text-[#e41e3f] border border-rose-200 dark:border-rose-950 hover:bg-rose-50 dark:hover:bg-rose-950/20'
-                      }`}
-                    >
-                      หมดอายุแล้ว
-                    </button>
-                    <button
-                      onClick={() => setExpFilter('warning')}
-                      className={`px-3.5 py-1.5 min-h-[32px] rounded-xl font-medium shrink-0 transition cursor-pointer whitespace-nowrap leading-normal ${
-                        expFilter === 'warning'
-                          ? 'bg-amber-600 text-white font-semibold shadow-xs'
-                          : 'bg-white dark:bg-[#242526] text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-950 hover:bg-amber-50 dark:hover:bg-amber-950/20'
-                      }`}
-                    >
-                      ใกล้หมดอายุ (&le; 30 วัน)
-                    </button>
-                    <button
-                      onClick={() => setExpFilter('good')}
-                      className={`px-3.5 py-1.5 min-h-[32px] rounded-xl font-medium shrink-0 transition cursor-pointer whitespace-nowrap leading-normal ${
-                        expFilter === 'good'
-                          ? 'bg-[#00a400] text-white font-semibold shadow-xs'
-                          : 'bg-white dark:bg-[#242526] text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-950 hover:bg-emerald-50 dark:hover:bg-emerald-950/20'
-                      }`}
-                    >
-                      ปกติ
-                    </button>
+                    <div className="flex items-center gap-1 p-1 bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm rounded-xl border border-slate-200 dark:border-slate-700">
+                      <button
+                        type="button"
+                        onClick={() => setInspectionViewMode('carousel')}
+                        className={`px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                          inspectionViewMode === 'carousel'
+                            ? 'bg-blue-600 text-white shadow-sm'
+                            : 'text-slate-500 dark:text-slate-400 hover:text-slate-800'
+                        }`}
+                      >
+                        <span>🎠 3D Cards</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setInspectionViewMode('list')}
+                        className={`px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                          inspectionViewMode === 'list'
+                            ? 'bg-blue-600 text-white shadow-sm'
+                            : 'text-slate-500 dark:text-slate-400 hover:text-slate-800'
+                        }`}
+                      >
+                        <span>📋 Checklist</span>
+                      </button>
+                    </div>
                   </div>
 
-                  {/* Groups and Items */}
-                  {Object.entries(cfg.groups).map(([groupName, items], gIdx) => {
-                    // Filter items by expiration filter if selected
-                    const displayedItems = items.filter((it) => {
-                      if (expFilter === 'all') return true;
-                      const { status } = calculateExpirationStatus(it.exp);
-                      return status === expFilter;
-                    });
-
-                    if (displayedItems.length === 0 && expFilter !== 'all') {
-                      return null;
-                    }
-
-                    return (
-                      <div key={groupName} className="space-y-2">
-                        <div className="flex items-center justify-between px-1">
-                          <h3 className="text-xs font-bold text-neutral-700 dark:text-neutral-300 tracking-wide flex items-center gap-1.5">
-                            <span>{groupName}</span>
-                            <span className="text-[10px] font-normal text-neutral-400">({items.length})</span>
-                          </h3>
-                          <button
-                            onClick={() => setAddingGroupIdx(addingGroupIdx === gIdx ? null : gIdx)}
-                            className="text-xs font-semibold text-neutral-600 dark:text-neutral-300 hover:text-neutral-900 dark:hover:text-white flex items-center gap-1 cursor-pointer"
-                          >
-                            <Plus className="w-3 h-3" />
-                            <span>เพิ่มรายการ</span>
-                          </button>
-                        </div>
-
-                        {/* Add Item to Group Drawer */}
-                        {addingGroupIdx === gIdx && (
-                          <div className="p-3.5 bg-white dark:bg-neutral-900 rounded-2xl border border-neutral-200 dark:border-neutral-800 shadow-2xs space-y-2.5 text-xs">
-                            <h4 className="font-bold text-neutral-800 dark:text-neutral-200">
-                              + เพิ่มรายการในกลุ่ม: {groupName}
-                            </h4>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                              <input
-                                type="text"
-                                value={newItemName}
-                                onChange={(e) => setNewItemName(e.target.value)}
-                                placeholder="ชื่ออุปกรณ์ / ยา *"
-                                className="px-3 py-1.5 rounded-xl bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 outline-none text-xs"
-                              />
-                              <input
-                                type="text"
-                                value={newItemCode}
-                                onChange={(e) => setNewItemCode(e.target.value)}
-                                placeholder="รหัสพัสดุ / รหัสยา (ถ้ามี)"
-                                className="px-3 py-1.5 rounded-xl bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 outline-none text-xs"
-                              />
-                              <div>
-                                <label className="block text-[10px] text-neutral-400 mb-0.5">วันหมดอายุ (ถ้ามี)</label>
-                                <input
-                                  type="date"
-                                  value={newItemExp}
-                                  onChange={(e) => setNewItemExp(e.target.value)}
-                                  className="w-full px-3 py-1.5 rounded-xl bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 outline-none text-xs"
-                                />
-                              </div>
-                              <input
-                                type="text"
-                                value={newItemQty}
-                                onChange={(e) => setNewItemQty(e.target.value)}
-                                placeholder="จำนวน (เช่น 2 หลอด)"
-                                className="px-3 py-1.5 rounded-xl bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 outline-none text-xs"
-                              />
-                              <label className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl bg-neutral-100 dark:bg-neutral-800 border border-dashed border-neutral-300 dark:border-neutral-700 cursor-pointer text-neutral-600 dark:text-neutral-300 text-xs">
-                                <Image className="w-3.5 h-3.5" />
-                                <span>{newItemImg ? 'แนบรูปถ่ายแล้ว' : 'แนบรูปภาพ (ถ้ามี)'}</span>
-                                <input
-                                  type="file"
-                                  accept="image/*"
-                                  className="hidden"
-                                  onChange={(e) => {
-                                    if (e.target.files?.[0]) handleNewItemImageUpload(e.target.files[0]);
-                                  }}
-                                />
-                              </label>
-                            </div>
-                            <div className="flex justify-end gap-2 pt-1">
-                              <button
-                                onClick={() => setAddingGroupIdx(null)}
-                                className="px-3 py-1 rounded-xl bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300 text-xs cursor-pointer"
-                              >
-                                ยกเลิก
-                              </button>
-                              <button
-                                onClick={() => handleAddItem(groupName, false, categoryKey)}
-                                className="px-4 py-1 rounded-xl bg-neutral-900 text-white dark:bg-slate-800 dark:text-white font-semibold text-xs cursor-pointer"
-                              >
-                                บันทึกรายการ
-                              </button>
-                            </div>
+                  {inspectionViewMode === 'carousel' ? (
+                    /* 3D Swiper Carousel for Bag/Cart */
+                    <SwiperInspectionCarousel
+                      title={`ตรวจเช็ค 3D: ${cfg.title}`}
+                      subtitle="ปัดซ้าย-ขวา เพื่อเลือกรายการ และบันทึกผลได้ทันที"
+                      items={allItems}
+                      checks={catChecks}
+                      onToggleCheck={(itemKey, res, name) => handleToggleCheck(categoryKey, itemKey, res, name)}
+                      onUpdateNote={(itemKey, note) => handleUpdateItemNote(categoryKey, itemKey, note)}
+                      onOpenDetail={(item, check) => setSelectedItemDetail({ item, result: check?.result, note: check?.note })}
+                      onZoomImage={(url) => setZoomedImageUrl(url)}
+                      onOpenBarcodeScan={() => setIsGlobalBarcodeScannerOpen(true)}
+                    />
+                  ) : (
+                    /* Visual Compartment Matrix (Quick Checklist View) */
+                    <div className="space-y-6">
+                      {Object.entries(cfg.groups).map(([groupName, groupItems]) => (
+                        <div key={groupName} className="space-y-3">
+                          <div className="flex items-center gap-2 px-1">
+                            <span className="w-1.5 h-4 bg-blue-500 rounded-full" />
+                            <h3 className="text-xs font-black text-slate-800 dark:text-slate-100 uppercase tracking-wider">
+                              {groupName} ({groupItems.length})
+                            </h3>
                           </div>
-                        )}
-
-                        {/* Items in this group */}
-                        <div className="space-y-2">
-                          {displayedItems.map((item, itemIdx) => {
-                            const originalIdx = items.indexOf(item);
-                            const itemKey = `${categoryKey}|${item.name}|${item.code || ''}`;
-                            const currentCheck = catChecks[itemKey] || { result: '' };
-                            const isOk = currentCheck.result === 'ปกติ';
-                            const isBad = currentCheck.result === 'ผิดปกติ';
-
-                            const { daysRemaining, status: expStatus } = calculateExpirationStatus(item.exp);
-                            const isExpired = expStatus === 'expired';
-                            const isWarning = expStatus === 'warning';
-
-                            return (
-                              <div
-                                key={originalIdx}
-                                className={`p-3 sm:p-3.5 rounded-2xl bg-white dark:bg-neutral-900 border transition-all duration-150 shadow-2xs ${
-                                  isBad
-                                    ? 'border-rose-300 dark:border-rose-900/60 bg-rose-50/15 dark:bg-rose-950/10'
-                                    : isOk
-                                    ? 'border-emerald-300 dark:border-emerald-900/50 bg-emerald-50/10 dark:bg-emerald-950/5'
-                                    : 'border-neutral-200 dark:border-neutral-800'
-                                }`}
-                              >
-                                <div className="flex items-start justify-between gap-3">
-                                  {item.img && (
-                                    <img
-                                      src={item.img}
-                                      alt={item.name}
-                                      onClick={() => setZoomedImageUrl(item.img!)}
-                                      className="w-10 h-10 rounded-xl object-cover shrink-0 cursor-pointer border border-neutral-200 dark:border-neutral-700 shadow-2xs"
-                                      title="แตะดูภาพใหญ่"
-                                    />
-                                  )}
-                                  <div className="flex-1 min-w-0">
-                                    <div className="flex items-center gap-2 flex-wrap">
-                                      {item.no && (
-                                        <span className="text-xs px-2.5 py-0.5 rounded-lg bg-blue-600 dark:bg-blue-500 text-white font-bold shadow-xs shrink-0">
-                                          #{item.no}
-                                        </span>
-                                      )}
-                                      <h4 className="text-sm font-semibold text-neutral-900 dark:text-white leading-snug">
-                                        {item.name}
-                                      </h4>
-
-                                      {/* Expiration Tag (Clean, Non-blinking Minimalist Tag) */}
-                                      {item.exp && (
-                                        <span
-                                          className={`text-[10px] font-medium px-2 py-0.5 rounded-md ${
-                                            isExpired
-                                              ? 'bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-900/40'
-                                              : isWarning
-                                              ? 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-900/40'
-                                              : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400'
-                                          }`}
-                                        >
-                                          {isExpired
-                                            ? `หมดอายุแล้ว (${Math.abs(daysRemaining)} วัน)`
-                                            : isWarning
-                                            ? `ใกล้หมดอายุ (${daysRemaining} วัน)`
-                                            : 'ปกติ'}
-                                        </span>
-                                      )}
-                                    </div>
-
-                                    <div className="flex items-center gap-3 mt-1.5 text-xs text-neutral-500 dark:text-neutral-400 flex-wrap">
-                                      <label className="flex items-center gap-1.5 text-[11px] font-medium">
-                                        <Calendar className="w-3 h-3 text-neutral-400" />
-                                        <span>วันหมดอายุ:</span>
-                                        <input
-                                          type="date"
-                                          value={item.exp || ''}
-                                          onChange={(e) =>
-                                            handleUpdateExpDate(categoryKey, groupName, originalIdx, e.target.value)
-                                          }
-                                          className="px-2 py-0.5 rounded-md bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 text-xs outline-none cursor-pointer"
-                                        />
-                                      </label>
-                                    </div>
+                          
+                          <div className="space-y-2.5">
+                            {groupItems.map((item, idx) => {
+                              const k = `${categoryKey}|${item.name}|${item.code || ''}`;
+                              const isOk = catChecks[k]?.result === 'ปกติ';
+                              const isBad = catChecks[k]?.result === 'ผิดปกติ';
+                              
+                              return (
+                                <div 
+                                  key={`${groupName}_${idx}`}
+                                  className={`p-3.5 rounded-2xl border transition-all duration-200 flex justify-between items-center shadow-sm active:scale-[0.98] checklist-item ${
+                                    isBad 
+                                      ? 'bg-rose-50 dark:bg-rose-950/20 border-rose-200 dark:border-rose-900/40' 
+                                      : isOk 
+                                      ? 'bg-emerald-50 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-900/40'
+                                      : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800'
+                                  }`}
+                                >
+                                  <div className="space-y-0.5 max-w-[55%] min-w-0">
+                                    <h3 className="text-xs font-bold text-slate-800 dark:text-slate-100 truncate leading-tight">
+                                      {item.name}
+                                    </h3>
+                                    {item.exp && (
+                                      <p className="text-[10px] font-medium text-slate-500 opacity-80">Exp: {item.exp}</p>
+                                    )}
                                   </div>
 
-                                  {/* Minimalist Check Buttons & Custom Reading Input */}
-                                  <div className="flex items-center gap-1.5 shrink-0 flex-wrap sm:flex-nowrap justify-end">
-                                    <div className="relative">
-                                      <input
-                                        type="text"
-                                        value={currentCheck.val !== undefined ? currentCheck.val : ''}
-                                        onChange={(e) =>
-                                          handleUpdateCheckValue(categoryKey, itemKey, e.target.value)
-                                        }
-                                        placeholder={item.qty ? `${item.qty}` : 'ระบุค่า/จำนวน'}
-                                        className="w-24 sm:w-28 h-8 px-2 text-xs rounded-xl font-medium text-center bg-white dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-700 text-neutral-800 dark:text-neutral-200 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition shadow-2xs"
-                                        title="ระบุจำนวนคงเหลือหรือค่าที่วัดได้จริง (เช่น 1, 2, 1400/1700 PSI หรือ ✓)"
-                                      />
-                                    </div>
-
+                                  {/* 1-Tap Toggle Buttons */}
+                                  <div className="flex gap-1.5 shrink-0">
                                     <button
-                                      onClick={() =>
-                                        handleToggleCheck(categoryKey, itemKey, 'ปกติ', item.name, item.qty || '✓')
-                                      }
-                                      className={`h-8 px-2.5 rounded-xl font-semibold text-xs flex items-center gap-1 transition border cursor-pointer ${
+                                      onClick={() => handleToggleCheck(categoryKey, k, 'ปกติ', item.name)}
+                                      className={`status-btn ${
                                         isOk
-                                          ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs'
-                                          : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400 border-neutral-200 dark:border-neutral-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 hover:text-emerald-700'
+                                          ? 'bg-emerald-500 text-white shadow-emerald-500/30'
+                                          : 'bg-slate-100 dark:bg-slate-800 text-slate-400 hover:text-slate-600'
                                       }`}
-                                      title="ใช้งานได้ปกติ"
                                     >
-                                      <Check className="w-3.5 h-3.5" />
-                                      <span className="hidden sm:inline">ปกติ</span>
+                                      ✓ ปกติ
                                     </button>
                                     <button
-                                      onClick={() =>
-                                        handleToggleCheck(categoryKey, itemKey, 'ผิดปกติ', item.name)
-                                      }
-                                      className={`h-8 px-2.5 rounded-xl font-semibold text-xs flex items-center gap-1 transition border cursor-pointer ${
+                                      onClick={() => handleToggleCheck(categoryKey, k, 'ผิดปกติ', item.name)}
+                                      className={`status-btn ${
                                         isBad
-                                          ? 'bg-rose-600 text-white border-rose-600 shadow-2xs'
-                                          : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400 border-neutral-200 dark:border-neutral-700 hover:bg-rose-50 dark:hover:bg-rose-950/30 hover:text-rose-700'
+                                          ? 'bg-rose-500 text-white shadow-rose-500/30'
+                                          : 'bg-slate-100 dark:bg-slate-800 text-slate-400 hover:text-slate-600'
                                       }`}
-                                      title="ใช้งานไม่ได้ / มีปัญหา"
                                     >
-                                      <X className="w-3.5 h-3.5" />
-                                      <span className="hidden sm:inline">ผิดปกติ</span>
-                                    </button>
-
-                                    {/* Delete item button (Eye icon removed completely) */}
-                                    <button
-                                      onClick={() =>
-                                        handleDeleteItem(categoryKey, item, groupName, originalIdx)
-                                      }
-                                      className="p-1.5 rounded-lg text-neutral-400 hover:text-rose-500 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition text-xs cursor-pointer ml-0.5"
-                                      title="ลบรายการ"
-                                    >
-                                      <Trash2 className="w-3.5 h-3.5" />
+                                      ✕ ปัญหา
                                     </button>
                                   </div>
                                 </div>
-
-                                {isBad && (
-                                  <div className="mt-2.5 pt-2 border-t border-rose-200 dark:border-rose-900/40">
-                                    <input
-                                      type="text"
-                                      value={currentCheck.note || ''}
-                                      onChange={(e) =>
-                                        handleUpdateItemNote(categoryKey, itemKey, e.target.value)
-                                      }
-                                      placeholder="ระบุรายละเอียดปัญหา เช่น ยาขาด, ไฟไม่ติด, ชำรุด..."
-                                      className="w-full px-3 py-1.5 text-xs rounded-xl bg-white dark:bg-neutral-800 border border-rose-300 dark:border-rose-800 outline-none text-rose-900 dark:text-rose-200"
-                                    />
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })}
+                              );
+                            })}
+                          </div>
                         </div>
-                      </div>
-                    );
-                  })}
+                      ))}
+                    </div>
+                  )}
 
-                  {/* Submission Form */}
+                  {/* Submission form */}
                   <div className="p-4 sm:p-5 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-3 text-xs">
-                    <h3 className="font-bold text-slate-800 dark:text-slate-200">
-                      ส่งข้อมูลการตรวจสอบเข้า Google Sheet (แยกตามเดือนและปี)
-                    </h3>
-
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
                         <label className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1">
-                          วันที่ตรวจเช็ค (จะถูกนำไปตั้งชื่อชีตรายเดือนและรายปี)
+                          วันที่ตรวจเช็ค
                         </label>
                         <input
                           type="date"
@@ -3216,7 +3262,6 @@ export default function App() {
                           className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 outline-none font-medium"
                         />
                       </div>
-
                       <div>
                         <label className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1">
                           ชื่อผู้ตรวจสอบ
@@ -3230,41 +3275,21 @@ export default function App() {
                         />
                       </div>
                     </div>
-
-                    <div>
-                      <label className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1">
-                        หมายเหตุเพิ่มเติม
-                      </label>
-                      <input
-                        type="text"
-                        value={generalNote}
-                        onChange={(e) => setGeneralNote(e.target.value)}
-                        placeholder="เช่น เติมยาครบแล้ว ซีลล็อกพร้อมใช้งาน"
-                        className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 outline-none"
-                      />
-                    </div>
-
-                    <div className="pt-2 flex flex-col sm:flex-row items-center justify-between gap-3">
-                      <span className="text-[11px] text-slate-400">
-                        {pct < 100
-                          ? `ตรวจเช็คแล้ว ${pct}% (${catChecked}/${catTotal})`
-                          : '🎉 ตรวจเช็คครบ 100% แล้ว'}
-                      </span>
-
-                      <button
-                        onClick={() => handleSubmitInspection(categoryKey)}
-                        className="w-full sm:w-auto px-6 py-3 min-h-[44px] rounded-xl bg-[#1877f2] hover:bg-[#166fe5] text-white font-semibold shadow-xs transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-[0.98] text-xs whitespace-nowrap leading-normal"
-                      >
-                        <Send className="w-4 h-4 transform -rotate-45" />
-                        <span>บันทึกผลและส่งเข้า Google Sheet</span>
-                      </button>
-                    </div>
+                    <button
+                      onClick={() => handleSubmitInspection(categoryKey)}
+                      className="w-full px-6 py-3 min-h-[44px] rounded-xl bg-[#1877f2] hover:bg-[#166fe5] text-white font-semibold shadow-xs transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-[0.98] text-xs"
+                    >
+                      <Send className="w-4 h-4 transform -rotate-45" />
+                      <span>บันทึกผลและส่งรายงานเข้า Google Sheets</span>
+                    </button>
                   </div>
                 </>
               );
             })()}
           </div>
         )}
+
+
 
         {/* View: User Management (Admin only) */}
         {currentView === 'users' && currentUser.role === 'admin' && (
@@ -3282,19 +3307,70 @@ export default function App() {
 
         {/* View: Drug Inventory */}
         {currentView === 'drug_check' && (
-          <DrugInventoryView
-            currentUser={currentUser}
-            onBack={() => setCurrentView('home')}
-            sheetUrl={sheetUrl}
-            apiUrl={apiUrl}
-            onCelebrate={celebrateCompletion}
-            onOpenPreview={(category) => handleOpenPrintReport('drug', category)}
-            drugs={drugs}
-            onDrugsChange={(updatedDrugs) => {
-              setDrugs(updatedDrugs);
-              setStored(STORAGE_KEYS.DRUGS, updatedDrugs);
-            }}
-          />
+          <div className="space-y-4">
+            <div className="flex items-center justify-between gap-3">
+              <button
+                onClick={() => setCurrentView('home')}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 text-xs font-semibold text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition shadow-2xs cursor-pointer"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" />
+                <span>กลับหน้าหลัก</span>
+              </button>
+              
+              <button
+                onClick={() => handleOpenPrintReport('drug')}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white dark:bg-neutral-900 text-neutral-800 dark:text-neutral-200 border border-neutral-200 dark:border-neutral-800 text-xs font-semibold hover:bg-neutral-100 dark:hover:bg-neutral-800 transition shadow-2xs cursor-pointer"
+              >
+                <Printer className="w-3.5 h-3.5" />
+                <span>รายงานคลังยา</span>
+              </button>
+            </div>
+
+            {/* 3D Swiper Carousel for Drugs */}
+            <SwiperInspectionCarousel
+              title="ตรวจเช็ค 3D: คลังยา & สารน้ำ"
+              subtitle="ปัดเพื่อตรวจเช็คสต็อกและวันหมดอายุของยา"
+              items={drugs.map((d, idx) => ({
+                id: d.id || `drug_${idx}`,
+                name: d.name,
+                code: d.barcode,
+                spec: `${d.unit || 'หน่วย'} (คงเหลือ ${d.remaining})`,
+                location: 'คลังยา OR',
+                img: d.img,
+                exp: d.expDate,
+                category: 'drugs' as const,
+                categoryName: 'คลังยา',
+                itemKey: `drugs|${d.id || d.name}`,
+                rawItem: d
+              }))}
+              checks={globalChecks['drugs'] || {}}
+              onToggleCheck={(itemKey, res, name) => handleToggleCheck('drugs', itemKey, res, name)}
+              onUpdateNote={(itemKey, note) => handleUpdateItemNote('drugs', itemKey, note)}
+              onOpenDetail={(item, check) => setSelectedItemDetail({ item, result: check?.result, note: check?.note })}
+              onZoomImage={(url) => setZoomedImageUrl(url)}
+              onOpenBarcodeScan={() => setIsGlobalBarcodeScannerOpen(true)}
+            />
+
+            {/* Drug Inventory Management Toggle (Optional) */}
+            <div className="mt-8 pt-8 border-t border-slate-200 dark:border-slate-800">
+              <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200 mb-4 px-1">
+                จัดการรายการยา (Inventory Management)
+              </h3>
+              <DrugInventoryView
+                currentUser={currentUser}
+                onBack={() => setCurrentView('home')}
+                sheetUrl={sheetUrl}
+                apiUrl={apiUrl}
+                onCelebrate={celebrateCompletion}
+                onOpenPreview={(category) => handleOpenPrintReport('drug', category)}
+                drugs={drugs}
+                onDrugsChange={(updatedDrugs) => {
+                  setDrugs(updatedDrugs);
+                  setStored(STORAGE_KEYS.DRUGS, updatedDrugs);
+                }}
+              />
+            </div>
+          </div>
         )}
         </div>
       </main>
@@ -3302,9 +3378,8 @@ export default function App() {
       {/* Bottom Navigation Bar with auto-hide on scroll */}
       <BottomBar
         currentView={currentView}
-        currentUser={currentUser}
-        onGoHome={() => {
-          setCurrentView('home');
+        onNavigate={(view) => {
+          setCurrentView(view as any);
           window.scrollTo({ top: 0, behavior: 'smooth' });
         }}
         onOpenReport={() => {
@@ -3314,8 +3389,46 @@ export default function App() {
           else handleOpenPrintReport('eq');
         }}
         onOpenGoogleSheet={handleOpenGoogleSheet}
+        onOpenDrawer={() => setIsDrawerOpen(true)}
+        isDrawerOpen={isDrawerOpen}
+        onOpenBarcodeScanner={() => setIsGlobalBarcodeScannerOpen(true)}
         sheetUrl={sheetUrl}
         isVisible={isNavVisible}
+      />
+
+      {/* Global Quick Barcode Scanner Modal (Triggered from Bottom Floating Button) */}
+      <BarcodeScannerModal
+        isOpen={isGlobalBarcodeScannerOpen}
+        onClose={() => setIsGlobalBarcodeScannerOpen(false)}
+        onScanSuccess={(code) => {
+          setIsGlobalBarcodeScannerOpen(false);
+          const matchedDrug = drugs.find(
+            (d) => d.barcode === code || d.id === code || d.name.toLowerCase().includes(code.toLowerCase())
+          );
+          if (matchedDrug) {
+            setCurrentView('drug_check');
+            setResetToast(`🔍 สแกนพบยา: ${matchedDrug.name} (คงเหลือ ${matchedDrug.remaining} ${matchedDrug.unit || 'หน่วย'})`);
+          } else {
+            let foundEqName = '';
+            let foundRoom = '';
+            for (const [roomId, items] of Object.entries(equipment)) {
+              const match = items.find((i) => i.code === code || i.sap === code || (i.id && i.id === code));
+              if (match) {
+                foundEqName = match.name;
+                foundRoom = roomId;
+                break;
+              }
+            }
+            if (foundRoom) {
+              setActiveRoomId(foundRoom);
+              setCurrentView('room_check');
+              setResetToast(`🔍 สแกนพบคะแนนครุภัณฑ์: ${foundEqName} ในห้อง ${foundRoom.toUpperCase()}`);
+            } else {
+              setCurrentView('drug_check');
+              setResetToast(`📷 สแกนบาร์โค้ด: ${code}`);
+            }
+          }
+        }}
       />
 
       {/* Profile Modal */}

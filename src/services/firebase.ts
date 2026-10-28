@@ -1,4 +1,5 @@
 import { initializeApp, getApps } from 'firebase/app';
+import { getAuth } from 'firebase/auth';
 import {
   getFirestore,
   doc,
@@ -20,24 +21,56 @@ import { User, AuditLogEntry, InspectionHistoryRecord } from '../types';
 // Initialize Firebase App
 export const app = getApps().length === 0 ? initializeApp(config) : getApps()[0];
 
-// Initialize Firestore targeting the provisioned database ID
-export const db = getFirestore(app, config.firestoreDatabaseId || '(default)');
+// Initialize Auth
+export const auth = getAuth(app);
 
-// Validate connection on boot
-(async function testConnection() {
-  try {
-    await getDocFromServer(doc(db, 'settings', 'config'));
-  } catch (error) {
-    if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.warn('Firebase client is connecting offline or initial setup pending.');
-    }
-  }
-})();
+// Initialize Firestore targeting the provisioned database ID
+export const db = getFirestore(app);
+
+// Export a promise that resolves when auth is ready (no-op as anonymous auth is not enabled)
+export const authReadyPromise: Promise<void> = Promise.resolve();
+
+
+// Standardized Firestore Error Handling as per system skills
+export enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId?: string | null;
+    email?: string | null;
+  };
+}
+
+function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: auth.currentUser?.uid,
+      email: auth.currentUser?.email,
+    },
+    operationType,
+    path,
+  };
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
+}
 
 // Real-time listener for Inspection Records
-export function subscribeInspectionHistory(callback: (records: InspectionHistoryRecord[]) => void) {
+export async function subscribeInspectionHistory(callback: (records: InspectionHistoryRecord[]) => void) {
+  if (authReadyPromise) await authReadyPromise;
+  const path = 'inspection_records';
   try {
-    const q = query(collection(db, 'inspection_records'), orderBy('timestamp', 'desc'), limit(50));
+    const q = query(collection(db, path), orderBy('timestamp', 'desc'), limit(50));
     return onSnapshot(
       q,
       (snapshot) => {
@@ -48,43 +81,48 @@ export function subscribeInspectionHistory(callback: (records: InspectionHistory
         callback(records);
       },
       (err) => {
-        console.warn('Firestore subscription fallback:', err.message);
+        handleFirestoreError(err, OperationType.GET, path);
       }
     );
   } catch (e) {
-    console.warn('Failed to start Firestore subscription:', e);
     return () => {};
   }
 }
 
 // Save inspection record to Firebase Firestore
 export async function saveInspectionToFirebase(record: InspectionHistoryRecord) {
+  if (authReadyPromise) await authReadyPromise;
+  const path = `inspection_records/${record.id}`;
   try {
     const docRef = doc(db, 'inspection_records', record.id);
     await setDoc(docRef, record, { merge: true });
     return true;
   } catch (e) {
-    console.error('Error saving inspection to Firebase:', e);
+    handleFirestoreError(e, OperationType.WRITE, path);
     return false;
   }
 }
 
 // Delete inspection record from Firebase Firestore
 export async function deleteInspectionFromFirebase(id: string): Promise<boolean> {
+  if (authReadyPromise) await authReadyPromise;
+  const path = `inspection_records/${id}`;
   try {
     const docRef = doc(db, 'inspection_records', id);
     await deleteDoc(docRef);
     return true;
   } catch (e) {
-    console.error('Error deleting inspection from Firebase:', e);
+    handleFirestoreError(e, OperationType.DELETE, path);
     return false;
   }
 }
 
 // Fetch all inspection records from Firebase
 export async function fetchInspectionsFromFirebase(): Promise<InspectionHistoryRecord[]> {
+  if (authReadyPromise) await authReadyPromise;
+  const path = 'inspection_records';
   try {
-    const q = query(collection(db, 'inspection_records'), orderBy('timestamp', 'desc'), limit(50));
+    const q = query(collection(db, path), orderBy('timestamp', 'desc'), limit(50));
     const snap = await getDocs(q);
     const records: InspectionHistoryRecord[] = [];
     snap.forEach((d) => {
@@ -92,15 +130,17 @@ export async function fetchInspectionsFromFirebase(): Promise<InspectionHistoryR
     });
     return records;
   } catch (e) {
-    console.warn('Could not fetch from Firebase:', e);
+    handleFirestoreError(e, OperationType.LIST, path);
     return [];
   }
 }
 
 // Real-time listener for Audit Logs
-export function subscribeAuditLogs(callback: (logs: AuditLogEntry[]) => void) {
+export async function subscribeAuditLogs(callback: (logs: AuditLogEntry[]) => void) {
+  if (authReadyPromise) await authReadyPromise;
+  const path = 'audit_logs';
   try {
-    const q = query(collection(db, 'audit_logs'), orderBy('timestamp', 'desc'), limit(100));
+    const q = query(collection(db, path), orderBy('timestamp', 'desc'), limit(100));
     return onSnapshot(
       q,
       (snapshot) => {
@@ -111,7 +151,7 @@ export function subscribeAuditLogs(callback: (logs: AuditLogEntry[]) => void) {
         callback(logs);
       },
       (err) => {
-        console.warn('Firestore audit logs subscription error:', err.message);
+        handleFirestoreError(err, OperationType.GET, path);
       }
     );
   } catch (e) {
@@ -121,44 +161,52 @@ export function subscribeAuditLogs(callback: (logs: AuditLogEntry[]) => void) {
 
 // Add audit log to Firebase
 export async function addAuditLogToFirebase(log: AuditLogEntry) {
+  if (authReadyPromise) await authReadyPromise;
+  const path = `audit_logs/${log.id}`;
   try {
     const docRef = doc(db, 'audit_logs', log.id);
     await setDoc(docRef, log);
     return true;
   } catch (e) {
-    console.error('Error saving audit log to Firebase:', e);
+    handleFirestoreError(e, OperationType.WRITE, path);
     return false;
   }
 }
 
 // Delete single audit log from Firebase
 export async function deleteAuditLogInFirebase(id: string) {
+  if (authReadyPromise) await authReadyPromise;
+  const path = `audit_logs/${id}`;
   try {
     const docRef = doc(db, 'audit_logs', id);
     await deleteDoc(docRef);
     return true;
   } catch (e) {
-    console.warn('Error deleting audit log in Firebase:', e);
+    handleFirestoreError(e, OperationType.DELETE, path);
     return false;
   }
 }
 
 // Clear all audit logs from Firebase
 export async function clearAllAuditLogsInFirebase() {
+  if (authReadyPromise) await authReadyPromise;
+  const path = 'audit_logs';
   try {
-    const snap = await getDocs(collection(db, 'audit_logs'));
+    const snap = await getDocs(collection(db, path));
     const batch = writeBatch(db);
     snap.forEach((d) => batch.delete(d.ref));
     await batch.commit();
     return true;
   } catch (e) {
-    console.warn('Error clearing audit logs in Firebase:', e);
+    handleFirestoreError(e, OperationType.DELETE, path);
     return false;
   }
 }
 
 // Sync users collection to Firebase
 export async function syncUsersToFirebase(users: User[]) {
+  if (authReadyPromise) await authReadyPromise;
+  const path = 'users';
   try {
     const batch = writeBatch(db);
     users.forEach((user) => {
@@ -168,22 +216,24 @@ export async function syncUsersToFirebase(users: User[]) {
     await batch.commit();
     return true;
   } catch (e) {
-    console.error('Error syncing users to Firebase:', e);
+    handleFirestoreError(e, OperationType.WRITE, path);
     return false;
   }
 }
 
 // Fetch users from Firebase
 export async function fetchUsersFromFirebase(): Promise<User[]> {
+  if (authReadyPromise) await authReadyPromise;
+  const path = 'users';
   try {
-    const snap = await getDocs(collection(db, 'users'));
+    const snap = await getDocs(collection(db, path));
     const users: User[] = [];
     snap.forEach((d) => {
       users.push(d.data() as User);
     });
     return users;
   } catch (e) {
-    console.warn('Could not fetch users from Firebase:', e);
+    handleFirestoreError(e, OperationType.LIST, path);
     return [];
   }
 }
@@ -194,18 +244,22 @@ export async function saveSettingsToFirebase(settings: {
   theme?: string;
   updatedAt?: string;
 }) {
+  if (authReadyPromise) await authReadyPromise;
+  const path = 'settings/config';
   try {
     const docRef = doc(db, 'settings', 'config');
     await setDoc(docRef, { ...settings, updatedAt: new Date().toISOString() }, { merge: true });
     return true;
   } catch (e) {
-    console.error('Error saving settings to Firebase:', e);
+    handleFirestoreError(e, OperationType.WRITE, path);
     return false;
   }
 }
 
 // Load app settings from Firebase
 export async function loadSettingsFromFirebase(): Promise<{ sheetUrl?: string; theme?: string } | null> {
+  if (authReadyPromise) await authReadyPromise;
+  const path = 'settings/config';
   try {
     const docRef = doc(db, 'settings', 'config');
     const snap = await getDoc(docRef);
@@ -214,7 +268,69 @@ export async function loadSettingsFromFirebase(): Promise<{ sheetUrl?: string; t
     }
     return null;
   } catch (e) {
-    console.warn('Could not load settings from Firebase:', e);
+    handleFirestoreError(e, OperationType.GET, path);
+    return null;
+  }
+}
+
+// Sync Global Checks to Firebase
+export async function saveGlobalChecksToFirebase(data: Record<string, any>) {
+  if (authReadyPromise) await authReadyPromise;
+  const path = 'settings/global_checks';
+  try {
+    const docRef = doc(db, 'settings', 'global_checks');
+    await setDoc(docRef, { data, updatedAt: new Date().toISOString() });
+    return true;
+  } catch (e) {
+    handleFirestoreError(e, OperationType.WRITE, path);
+    return false;
+  }
+}
+
+// Load Global Checks from Firebase
+export async function loadGlobalChecksFromFirebase(): Promise<Record<string, any> | null> {
+  if (authReadyPromise) await authReadyPromise;
+  const path = 'settings/global_checks';
+  try {
+    const docRef = doc(db, 'settings', 'global_checks');
+    const snap = await getDoc(docRef);
+    if (snap.exists()) {
+      return snap.data().data;
+    }
+    return null;
+  } catch (e) {
+    handleFirestoreError(e, OperationType.GET, path);
+    return null;
+  }
+}
+
+// Sync Last Submitted to Firebase
+export async function saveLastSubmittedToFirebase(data: Record<string, string>) {
+  if (authReadyPromise) await authReadyPromise;
+  const path = 'settings/last_submitted';
+  try {
+    const docRef = doc(db, 'settings', 'last_submitted');
+    await setDoc(docRef, { data, updatedAt: new Date().toISOString() });
+    return true;
+  } catch (e) {
+    handleFirestoreError(e, OperationType.WRITE, path);
+    return false;
+  }
+}
+
+// Load Last Submitted from Firebase
+export async function loadLastSubmittedFromFirebase(): Promise<Record<string, string> | null> {
+  if (authReadyPromise) await authReadyPromise;
+  const path = 'settings/last_submitted';
+  try {
+    const docRef = doc(db, 'settings', 'last_submitted');
+    const snap = await getDoc(docRef);
+    if (snap.exists()) {
+      return snap.data().data;
+    }
+    return null;
+  } catch (e) {
+    handleFirestoreError(e, OperationType.GET, path);
     return null;
   }
 }
