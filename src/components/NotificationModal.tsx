@@ -17,9 +17,11 @@ interface NotificationModalProps {
   isOpen: boolean;
   currentUser?: User | null;
   onClose: () => void;
-  expiryAlerts: ExpiryAlertItem[];
-  auditLogs: AuditLogEntry[];
-  onNavigateToCategory: (category: 'bag' | 'cart') => void;
+  expiryAlerts?: ExpiryAlertItem[];
+  alerts?: ExpiryAlertItem[];
+  auditLogs?: AuditLogEntry[];
+  onNavigateToCategory?: (category: 'bag' | 'cart') => void;
+  onOpenReport?: () => void;
   onOpenQuickReplace?: (alert: ExpiryAlertItem) => void;
   onClearLogs?: () => void;
   onDeleteSingleLog?: (logId: string) => void;
@@ -29,13 +31,16 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
   isOpen,
   currentUser,
   onClose,
-  expiryAlerts,
-  auditLogs,
+  expiryAlerts = [],
+  alerts = [],
+  auditLogs = [],
   onNavigateToCategory,
+  onOpenReport,
   onOpenQuickReplace,
   onClearLogs,
   onDeleteSingleLog,
 }) => {
+  const effectiveExpiryAlerts = expiryAlerts.length > 0 ? expiryAlerts : alerts;
   const isAdmin = currentUser?.role === 'admin';
   const [activeTab, setActiveTab] = useState<'alerts' | 'history'>('alerts');
   const [searchFilter, setSearchFilter] = useState('');
@@ -58,7 +63,7 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
   const getAlertKey = (alert: ExpiryAlertItem) =>
     `${alert.category}_${alert.groupName || ''}_${alert.item.name}_${alert.item.exp || ''}`;
 
-  const visibleAlerts = expiryAlerts.filter(
+  const visibleAlerts = effectiveExpiryAlerts.filter(
     (a) => !dismissedAlertKeys.includes(getAlertKey(a))
   );
 
@@ -265,7 +270,7 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
                           <button
                             onClick={() => {
                               onClose();
-                              onNavigateToCategory(alert.category);
+                              if (onNavigateToCategory) onNavigateToCategory(alert.category);
                             }}
                             className="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-medium flex items-center gap-1 transition cursor-pointer"
                           >

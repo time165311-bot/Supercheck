@@ -129,6 +129,55 @@ export default function App() {
   // Selected Room ID for Room Check
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>('or1');
 
+  // Drawer Touch Drag Gesture Handler
+  const [drawerDragY, setDrawerDragY] = useState<number>(0);
+  const touchStartYRef = React.useRef<number>(0);
+
+  const handleTouchStartDrawer = (e: React.TouchEvent) => {
+    touchStartYRef.current = e.touches[0].clientY;
+  };
+
+  const handleTouchMoveDrawer = (e: React.TouchEvent) => {
+    const diff = e.touches[0].clientY - touchStartYRef.current;
+    if (diff > 0) {
+      setDrawerDragY(diff);
+    }
+  };
+
+  const handleTouchEndDrawer = () => {
+    if (drawerDragY > 70) {
+      setIsDrawerOpen(false);
+    }
+    setDrawerDragY(0);
+  };
+
+  // Mouse Drag Gesture Handler for PC
+  const [isMouseDragging, setIsMouseDragging] = useState(false);
+  const mouseStartYRef = React.useRef<number>(0);
+
+  const handleMouseDownDrawer = (e: React.MouseEvent) => {
+    setIsMouseDragging(true);
+    mouseStartYRef.current = e.clientY;
+  };
+
+  const handleMouseMoveDrawer = (e: React.MouseEvent) => {
+    if (!isMouseDragging) return;
+    const diff = e.clientY - mouseStartYRef.current;
+    if (diff > 0) {
+      setDrawerDragY(diff);
+    }
+  };
+
+  const handleMouseUpDrawer = () => {
+    if (isMouseDragging) {
+      setIsMouseDragging(false);
+      if (drawerDragY > 70) {
+        setIsDrawerOpen(false);
+      }
+      setDrawerDragY(0);
+    }
+  };
+
   // Toggle Theme
   const toggleTheme = () => {
     const nextTheme = theme === 'dark' ? 'light' : 'dark';
@@ -151,7 +200,7 @@ export default function App() {
     setGlobalChecks((prev) => {
       const currentCategory = prev[categoryOrRoomId] || {};
       const existing = currentCategory[itemKey];
-      const nextResult = existing?.result === result ? '' : result;
+      const nextResult: 'ปกติ' | 'ผิดปกติ' | '' = (existing?.result === result ? '' : result) as 'ปกติ' | 'ผิดปกติ' | '';
 
       const updatedCategory = {
         ...currentCategory,
@@ -341,7 +390,7 @@ export default function App() {
     const items: InspectionSlideItem[] = [];
     Object.entries(equipment).forEach(([roomId, roomList]) => {
       const roomObj = ROOMS.find((r) => r.id === roomId);
-      const roomName = roomObj ? roomObj.name : roomId;
+      const roomName = roomObj ? roomObj.n : roomId;
       roomList.forEach((eq, idx) => {
         const itemKey = eq.id || `${roomId}_${idx}`;
         items.push({
@@ -436,9 +485,22 @@ export default function App() {
         />
       </div>
 
+      {/* Desktop Header Navbar */}
+      <header className="hidden lg:flex fixed top-0 left-0 right-0 z-30 px-8 py-6 items-center justify-between">
+        <div className="font-valorant text-3xl font-bold tracking-wider">
+          <span className="text-[#3B82F6]">ANESTHESIA</span>
+          <span className={isDark ? 'text-white' : 'text-slate-900'}>CARE</span>
+        </div>
+        <div className="flex items-center gap-4">
+          <button onClick={() => setCurrentView('home')} className="font-bold">หน้าหลัก</button>
+          <button onClick={() => setIsOfficialReportOpen(true)} className="font-bold">รายงาน</button>
+          <button onClick={toggleTheme} className="p-2 bg-slate-800 rounded-full">{isDark ? <Sun size={20}/> : <Moon size={20}/>}</button>
+        </div>
+      </header>
+
       {/* MAIN VIEW CONTENT CONTAINER (Safe Area + Samsung One UI) */}
       <main 
-        className="relative z-10 max-w-md mx-auto p-3 sm:p-4 pb-28"
+        className="relative z-10 max-w-md lg:max-w-[1400px] w-full mx-auto px-3 sm:px-6 lg:px-8 py-4 lg:py-8 pb-28"
         style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 16px)' }}
       >
         {/* 1. HOME DASHBOARD */}
@@ -512,10 +574,12 @@ export default function App() {
           />
         )}
 
-        {/* 5. EQUIPMENT OVERVIEW (ภาพรวมครุภัณฑ์ห้องผ่าตัด) */}
-        {currentView === 'eq_overview' && (
+        {/* 5. ROOM EQUIPMENT CHECK (ผังห้องผ่าตัด FLOOR MAP - Primary Equipment View) */}
+        {(currentView === 'room_check' || currentView === 'eq_overview') && (
           <div className="space-y-4 animate-in fade-in duration-300">
-            <div className="flex justify-between items-center bg-[#181A20]/90 backdrop-blur-2xl p-4 rounded-[2rem] border border-white/10 shadow-xl">
+            <div className={`flex justify-between items-center backdrop-blur-2xl p-4 rounded-[2rem] border shadow-xl ${
+              isDark ? 'bg-[#181A20]/90 border-white/10 text-white' : 'bg-white border-slate-200 text-slate-900'
+            }`}>
               <button
                 type="button"
                 onClick={() => setCurrentView('home')}
@@ -523,51 +587,7 @@ export default function App() {
               >
                 &larr; กลับหน้าหลัก
               </button>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setCurrentView('room_check')}
-                  className="px-3.5 py-2 rounded-2xl bg-[#3B82F6] text-white text-xs font-bold hover:bg-blue-600 transition flex items-center gap-1.5 cursor-pointer shadow-md active:scale-95"
-                >
-                  <MapPin size={14} />
-                  <span>สลับดูผังห้องผ่าตัด</span>
-                </button>
-              </div>
-            </div>
-
-            <SwiperInspectionCarousel
-              title="ภาพรวมครุภัณฑ์วิสัญญีประจำห้องผ่าตัด"
-              subtitle="เลื่อนการ์ดเพื่อตรวจเช็กครุภัณฑ์วิสัญญีทุกห้องผ่าตัด"
-              items={equipmentOverviewItems}
-              checks={flattenedEquipmentChecks}
-              onToggleCheck={(itemKey, result, itemName) => {
-                const item = equipmentOverviewItems.find((i) => i.itemKey === itemKey);
-                const roomId = item?.roomId || 'or1';
-                handleToggleCheck(roomId, itemKey, result, itemName);
-              }}
-              onUpdateNote={(itemKey, note) => {
-                const item = equipmentOverviewItems.find((i) => i.itemKey === itemKey);
-                const roomId = item?.roomId || 'or1';
-                handleUpdateNote(roomId, itemKey, note);
-              }}
-              onOpenBarcodeScan={() => setIsBarcodeScannerOpen(true)}
-              onZoomImage={(imgUrl) => setZoomedImgUrl(imgUrl)}
-            />
-          </div>
-        )}
-
-        {/* 6. ROOM EQUIPMENT CHECK (ผังห้องผ่าตัด FLOOR MAP) */}
-        {currentView === 'room_check' && (
-          <div className="space-y-4 animate-in fade-in duration-300">
-            <div className="flex justify-between items-center bg-[#181A20]/90 backdrop-blur-2xl p-4 rounded-[2rem] border border-white/10 shadow-xl">
-              <button
-                type="button"
-                onClick={() => setCurrentView('home')}
-                className="px-4 py-2.5 rounded-2xl bg-slate-800 text-white text-xs font-bold hover:bg-slate-700 transition flex items-center gap-1.5 cursor-pointer active:scale-95"
-              >
-                &larr; กลับหน้าหลัก
-              </button>
-              <h2 className="text-sm font-bold text-white flex items-center gap-1.5">
+              <h2 className={`text-sm font-bold flex items-center gap-1.5 ${isDark ? 'text-white' : 'text-slate-900'}`}>
                 <MapPin size={16} className="text-[#3B82F6]" />
                 <span>ผังห้องผ่าตัด (Floor Map)</span>
               </h2>
@@ -588,10 +608,12 @@ export default function App() {
           </div>
         )}
 
-        {/* 7. USER MANAGEMENT (เฉพาะ ADMIN) */}
+        {/* 6. USER MANAGEMENT (เฉพาะ ADMIN) */}
         {currentView === 'users' && currentUser?.role === 'admin' && (
           <div className="space-y-4 animate-in fade-in duration-300">
-            <div className="flex justify-between items-center bg-[#181A20]/90 backdrop-blur-2xl p-4 rounded-[2rem] border border-white/10 shadow-xl">
+            <div className={`flex justify-between items-center backdrop-blur-2xl p-4 rounded-[2rem] border shadow-xl ${
+              isDark ? 'bg-[#181A20]/90 border-white/10 text-white' : 'bg-white border-slate-200 text-slate-900'
+            }`}>
               <button
                 type="button"
                 onClick={() => setCurrentView('home')}
@@ -599,7 +621,7 @@ export default function App() {
               >
                 &larr; กลับหน้าหลัก
               </button>
-              <h2 className="text-base font-bold text-white flex items-center gap-1.5">
+              <h2 className={`text-base font-bold flex items-center gap-1.5 ${isDark ? 'text-white' : 'text-slate-900'}`}>
                 <UsersIcon size={18} className="text-purple-400" />
                 <span>จัดการผู้ใช้งานระบบ</span>
               </h2>
@@ -617,7 +639,7 @@ export default function App() {
         )}
       </main>
 
-      {/* 📂 SAMSUNG ONE UI BOTTOM SHEET DRAWER (ย้ายเมนูจากขวาบนลงมาไว้ตรงนี้) */}
+      {/* 📂 SAMSUNG ONE UI BOTTOM SHEET DRAWER (Touch Swipe Down to Dismiss) */}
       {isDrawerOpen && (
         <div
           className="fixed inset-0 z-50 flex items-end justify-center bg-black/75 backdrop-blur-md transition-opacity animate-in fade-in duration-200"
@@ -627,12 +649,24 @@ export default function App() {
             className={`w-full max-w-md rounded-t-[2.5rem] p-6 space-y-4 border-t shadow-2xl transition-transform transform translate-y-0 animate-in slide-in-from-bottom duration-300 max-h-[85vh] overflow-y-auto no-scrollbar ${
               isDark ? 'bg-[#181A20] border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-900'
             }`}
+            style={drawerDragY > 0 ? { transform: `translateY(${drawerDragY}px)`, transition: 'none' } : undefined}
             onClick={(e) => e.stopPropagation()}
           >
-            {/* One UI Drag Handle */}
-            <div className="w-12 h-1.5 bg-slate-600/50 rounded-full mx-auto mb-1" />
+            {/* One UI Touch Drag Handle Bar (Swipe up/down to drag/close) */}
+            <div
+              className="py-2.5 -mt-2 cursor-grab active:cursor-grabbing touch-none select-none flex justify-center items-center"
+              onTouchStart={handleTouchStartDrawer}
+              onTouchMove={handleTouchMoveDrawer}
+              onTouchEnd={handleTouchEndDrawer}
+              onMouseDown={handleMouseDownDrawer}
+              onMouseMove={handleMouseMoveDrawer}
+              onMouseUp={handleMouseUpDrawer}
+              onMouseLeave={handleMouseUpDrawer}
+            >
+              <div className="w-12 h-1.5 bg-slate-500/60 hover:bg-slate-400 rounded-full mx-auto" />
+            </div>
 
-            {/* Drawer Header */}
+            {/* Drawer Header (Removed [✕] button) */}
             <div className="flex justify-between items-center pb-3 border-b border-slate-700/30">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-full bg-[#3B82F6] text-white font-bold flex items-center justify-center text-sm shadow-md">
@@ -643,14 +677,6 @@ export default function App() {
                   <span className="text-[11px] opacity-60">Anesthesia Care • Samsung One UI</span>
                 </div>
               </div>
-
-              <button
-                type="button"
-                onClick={() => setIsDrawerOpen(false)}
-                className="w-8 h-8 rounded-full bg-slate-800 text-slate-300 flex items-center justify-center font-bold text-sm cursor-pointer hover:bg-slate-700"
-              >
-                ✕
-              </button>
             </div>
 
             {/* One UI Quick Actions Menu */}
@@ -809,6 +835,30 @@ export default function App() {
           isOpen={isProfileOpen}
           onClose={() => setIsProfileOpen(false)}
           currentUser={currentUser}
+          onUpdateAvatar={(newAvatar) => {
+            const updated = { ...currentUser, avatar: newAvatar };
+            setCurrentUser(updated);
+            setStored(STORAGE_KEYS.SESSION, updated);
+            const nextUsers = allUsers.map((u) => (u.id === updated.id ? updated : u));
+            setAllUsers(nextUsers);
+            setStored(STORAGE_KEYS.USERS, nextUsers);
+          }}
+          onUpdatePosition={(newPos) => {
+            const updated = { ...currentUser, position: newPos };
+            setCurrentUser(updated);
+            setStored(STORAGE_KEYS.SESSION, updated);
+            const nextUsers = allUsers.map((u) => (u.id === updated.id ? updated : u));
+            setAllUsers(nextUsers);
+            setStored(STORAGE_KEYS.USERS, nextUsers);
+          }}
+          onUpdateSignature={(newSig) => {
+            const updated = { ...currentUser, signature: newSig };
+            setCurrentUser(updated);
+            setStored(STORAGE_KEYS.SESSION, updated);
+            const nextUsers = allUsers.map((u) => (u.id === updated.id ? updated : u));
+            setAllUsers(nextUsers);
+            setStored(STORAGE_KEYS.USERS, nextUsers);
+          }}
           onUpdateUser={(updated) => {
             setCurrentUser(updated);
             setStored(STORAGE_KEYS.SESSION, updated);

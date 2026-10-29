@@ -63,7 +63,8 @@ interface ProfileModalProps {
   isOpen: boolean;
   currentUser: User | null;
   onClose: () => void;
-  onUpdateAvatar: (newAvatar: string) => void;
+  onUpdateAvatar?: (newAvatar: string) => void;
+  onUpdateUser?: (updatedUser: User) => void;
   onUpdateSignature?: (newSignature: string) => void;
   onUpdatePosition?: (newPosition: string) => void;
   onOpenPasswordModal?: () => void;
@@ -75,6 +76,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
   currentUser,
   onClose,
   onUpdateAvatar,
+  onUpdateUser,
   onUpdateSignature,
   onUpdatePosition,
   onOpenPasswordModal,
@@ -269,21 +271,47 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
     setIsDragging(false);
   };
 
-  const handleApplyCrop = () => {
-    const canvas = previewCanvasRef.current;
-    if (!canvas) return;
-    const finalCanvas = document.createElement('canvas');
-    finalCanvas.width = 180;
-    finalCanvas.height = 180;
-    const ctx = finalCanvas.getContext('2d');
-    if (!ctx) return;
-    ctx.drawImage(canvas, 0, 0, 180, 180);
+  const handleAvatarChange = (newAvatarUrl: string) => {
+    try {
+      setAvatar(newAvatarUrl);
+      setAvatarSaved(true);
+      if (onUpdateAvatar) {
+        try {
+          onUpdateAvatar(newAvatarUrl);
+        } catch (e1) {
+          console.warn('onUpdateAvatar call error:', e1);
+        }
+      }
+      if (currentUser && onUpdateUser) {
+        try {
+          onUpdateUser({ ...currentUser, avatar: newAvatarUrl });
+        } catch (e2) {
+          console.warn('onUpdateUser call error:', e2);
+        }
+      }
+    } catch (err) {
+      console.error('Error changing avatar:', err);
+    }
+  };
 
-    const croppedDataUrl = finalCanvas.toDataURL('image/jpeg', 0.88);
-    setAvatar(croppedDataUrl);
-    onUpdateAvatar(croppedDataUrl);
-    setAvatarSaved(true);
-    setRawImageForCrop(null);
+  const handleApplyCrop = () => {
+    try {
+      const canvas = previewCanvasRef.current;
+      if (!canvas) return;
+      const finalCanvas = document.createElement('canvas');
+      finalCanvas.width = 150;
+      finalCanvas.height = 150;
+      const ctx = finalCanvas.getContext('2d');
+      if (!ctx) return;
+      ctx.drawImage(canvas, 0, 0, 150, 150);
+
+      const croppedDataUrl = finalCanvas.toDataURL('image/jpeg', 0.82);
+      handleAvatarChange(croppedDataUrl);
+      setRawImageForCrop(null);
+    } catch (err) {
+      console.error('Error cropping image:', err);
+      setRawImageForCrop(null);
+    }
   };
 
   // Signature Pad Handlers
@@ -1000,9 +1028,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                             <button
                               type="button"
                               onClick={() => {
-                                setAvatar('');
-                                onUpdateAvatar('');
-                                setAvatarSaved(true);
+                                handleAvatarChange('');
                               }}
                               className="px-3 py-1.5 rounded-xl text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 border border-red-200 dark:border-red-900/50 font-bold transition cursor-pointer flex items-center gap-1 text-xs"
                             >
@@ -1025,9 +1051,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                             key={idx}
                             type="button"
                             onClick={() => {
-                              setAvatar(p.url);
-                              onUpdateAvatar(p.url);
-                              setAvatarSaved(true);
+                              handleAvatarChange(p.url);
                             }}
                             className={`p-2 rounded-xl border transition cursor-pointer flex flex-col items-center gap-1.5 text-center ${
                               avatar === p.url

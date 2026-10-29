@@ -19,18 +19,20 @@ import { UserAvatarBadge } from './UserAvatarBadge';
 interface UserManagementProps {
   currentUser: User;
   users: User[];
-  onBack: () => void;
-  onAddUser: (username: string, name: string, password: string, role: Role) => Promise<{ success: boolean; message: string }>;
-  onUpdateRole: (userId: string, role: Role) => void;
-  onToggleActive: (userId: string) => void;
-  onResetPassword: (userId: string, newPw: string) => Promise<void>;
-  onDeleteUser: (userId: string) => void;
+  onBack?: () => void;
+  onUsersChange?: (updatedUsers: User[]) => void;
+  onAddUser?: (username: string, name: string, password: string, role: Role) => Promise<{ success: boolean; message: string }>;
+  onUpdateRole?: (userId: string, role: Role) => void;
+  onToggleActive?: (userId: string) => void;
+  onResetPassword?: (userId: string, newPw: string) => Promise<void>;
+  onDeleteUser?: (userId: string) => void;
 }
 
 export const UserManagement: React.FC<UserManagementProps> = ({
   currentUser,
   users,
   onBack,
+  onUsersChange,
   onAddUser,
   onUpdateRole,
   onToggleActive,
@@ -55,16 +57,38 @@ export const UserManagement: React.FC<UserManagementProps> = ({
       return;
     }
 
-    const res = await onAddUser(username.trim(), name.trim(), password, role);
-    if (res.success) {
+    if (onAddUser) {
+      const res = await onAddUser(username.trim(), name.trim(), password, role);
+      if (res.success) {
+        setUsername('');
+        setName('');
+        setPassword('');
+        setRole('user');
+        setSuccess('เพิ่มผู้ใช้งานสำเร็จ');
+        setTimeout(() => setSuccess(''), 2000);
+      } else {
+        setError(res.message);
+      }
+    } else {
+      const newUser: User = {
+        id: `user_${Date.now()}`,
+        username: username.trim(),
+        name: name.trim(),
+        role,
+        active: true,
+        salt: '',
+        hash: password,
+        must: false,
+        created: new Date().toISOString(),
+        last: '',
+      };
+      const next = [...users, newUser];
+      if (onUsersChange) onUsersChange(next);
       setUsername('');
       setName('');
       setPassword('');
-      setRole('user');
       setSuccess('เพิ่มผู้ใช้งานสำเร็จ');
       setTimeout(() => setSuccess(''), 2000);
-    } else {
-      setError(res.message);
     }
   };
 
@@ -75,7 +99,12 @@ export const UserManagement: React.FC<UserManagementProps> = ({
       alert('รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร');
       return;
     }
-    await onResetPassword(user.id, pw);
+    if (onResetPassword) {
+      await onResetPassword(user.id, pw);
+    } else {
+      const next = users.map((u) => (u.id === user.id ? { ...u, hash: pw, must: true } : u));
+      if (onUsersChange) onUsersChange(next);
+    }
     alert(`รีเซ็ตรหัสผ่านของ ${user.name} สำเร็จแล้ว`);
   };
 
@@ -251,7 +280,14 @@ export const UserManagement: React.FC<UserManagementProps> = ({
               <div className="flex items-center gap-1.5 flex-wrap">
                 <select
                   value={u.role}
-                  onChange={(e) => onUpdateRole(u.id, e.target.value as Role)}
+                  onChange={(e) => {
+                    const newRole = e.target.value as Role;
+                    if (onUpdateRole) {
+                      onUpdateRole(u.id, newRole);
+                    } else if (onUsersChange) {
+                      onUsersChange(users.map((x) => (x.id === u.id ? { ...x, role: newRole } : x)));
+                    }
+                  }}
                   className="px-2.5 py-1.5 rounded-xl bg-[#f0f2f5] dark:bg-[#3a3b3c] border border-[#e4e6eb] dark:border-[#4e4f50] text-[#050505] dark:text-[#e4e6eb] font-semibold text-xs outline-none cursor-pointer"
                 >
                   <option value="user">เจ้าหน้าที่</option>
@@ -260,7 +296,13 @@ export const UserManagement: React.FC<UserManagementProps> = ({
 
                 <button
                   type="button"
-                  onClick={() => onToggleActive(u.id)}
+                  onClick={() => {
+                    if (onToggleActive) {
+                      onToggleActive(u.id);
+                    } else if (onUsersChange) {
+                      onUsersChange(users.map((x) => (x.id === u.id ? { ...x, active: !x.active } : x)));
+                    }
+                  }}
                   className="px-2.5 py-1.5 rounded-xl bg-[#f0f2f5] dark:bg-[#3a3b3c] hover:bg-[#e4e6eb] text-[#050505] dark:text-[#e4e6eb] font-bold transition cursor-pointer"
                 >
                   {u.active ? '⏸ ระงับ' : '▶ เปิดใช้งาน'}
@@ -278,7 +320,11 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                   type="button"
                   onClick={() => {
                     if (confirmDeleteId === u.id) {
-                      onDeleteUser(u.id);
+                      if (onDeleteUser) {
+                        onDeleteUser(u.id);
+                      } else if (onUsersChange) {
+                        onUsersChange(users.filter((x) => x.id !== u.id));
+                      }
                       setConfirmDeleteId(null);
                     } else {
                       setConfirmDeleteId(u.id);

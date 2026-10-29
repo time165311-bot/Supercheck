@@ -85,7 +85,7 @@ export const EquipmentReportPreview: React.FC<EquipmentReportPreviewProps> = ({
         </table>
       </div>
 
-      <div className="mt-12 flex justify-between text-[14px]" style={{ display: 'flex', justifyContent: 'space-around', width: '100%', marginTop: '48px' }}>
+      <div className="mt-20 flex justify-between text-[14px]" style={{ display: 'flex', justifyContent: 'space-around', width: '100%', marginTop: '80px', pageBreakBefore: 'always' }}>
         <div className="text-center" style={{ textAlign: 'center' }}>
           <div className="h-16 flex items-end justify-center mb-2">
             {signature && <img src={signature} style={{ maxHeight: '60px', maxWidth: '160px', objectFit: 'contain' }} alt="signature" />}
@@ -134,8 +134,8 @@ export function generateEquipmentPrintHtml(
           <td style="text-align: center; border: 1px solid #000;">${idx + 1}</td>
           <td style="text-align: center; border: 1px solid #000; font-family: monospace; font-size: 9pt;">${item.code || '-'}</td>
           <td style="text-align: center; border: 1px solid #000; font-family: monospace; font-size: 9pt;">${item.sap || '-'}</td>
-          <td style="text-align: left; border: 1px solid #000; padding-left: 5px; word-break: keep-all;">${item.name || '-'}</td>
-          <td style="text-align: left; border: 1px solid #000; padding-left: 5px; font-size: 9pt; word-break: keep-all;">${item.spec || '-'}</td>
+          <td style="text-align: left; border: 1px solid #000; padding-left: 5px; word-break: keep-all; white-space: nowrap;">${item.name || '-'}</td>
+          <td style="text-align: left; border: 1px solid #000; padding-left: 5px; font-size: 9pt; word-break: keep-all; white-space: nowrap;">${item.spec || '-'}</td>
           <td style="text-align: center; border: 1px solid #000; font-size: 9pt;">${item.source || '-'}</td>
           <td style="text-align: center; border: 1px solid #000; font-size: 9pt; white-space: nowrap;">${formatAcquiredDate(item.date)}</td>
           <td style="text-align: center; border: 1px solid #000;">${formatRealQuantity(item.qty, item.name, item.spec)}</td>
@@ -237,10 +237,10 @@ export function generateEquipmentPrintHtml(
           }
 
           .signature-section {
-            margin-top: 24px;
+            margin-top: 80px;
             display: flex;
             justify-content: space-around;
-            page-break-inside: avoid;
+            page-break-before: always;
             font-size: 11pt;
           }
 

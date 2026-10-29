@@ -213,7 +213,7 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
   const [drugSubCategory, setDrugSubCategory] = useState<'all' | 'monthly' | 'quarterly' | 'adhoc'>(initialDrugSubCategory);
   const [drugHeaderNote, setDrugHeaderNote] = useState<string>('(เพิ่ม Column Exp.)');
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
-  const [isFitToScreen, setIsFitToScreen] = useState<boolean>(false);
+  const [isFitToScreen, setIsFitToScreen] = useState<boolean>(true);
   const [orientation] = useState<'landscape' | 'portrait'>('landscape');
 
   const [weekItemValues] = useState<{ [itemKey: string]: { [week: number]: string } }>({});
@@ -686,7 +686,7 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
         <div
           style={{
             flex: 1,
-            overflow: 'auto',
+            overflow: 'hidden',
             padding: '16px',
             WebkitOverflowScrolling: 'touch',
             display: 'flex',
@@ -701,31 +701,34 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
           </div>
 
           {/* Printable A4 Paper Sheet Container (With Dynamic Fit-to-Screen Toggle) */}
-          {(() => {
-            const targetPaperWidth = selectedCategory === 'eq' ? 1080 : 900;
-            return (
-              <div
-                style={{
-                  width: `${targetPaperWidth}px`,
-                  minWidth: `${targetPaperWidth}px`,
-                  maxWidth: isFitToScreen ? 'none' : `${targetPaperWidth}px`,
-                  margin: '0 auto',
-                  padding: '24px 16px',
-                  boxSizing: 'border-box',
-                  background: '#ffffff',
-                  borderRadius: '8px',
-                  boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
-                  ...(isFitToScreen
-                    ? {
-                        transform: `scale(calc(min(1, (100vw - 32px) / ${targetPaperWidth})))`,
-                        transformOrigin: 'top center',
-                        overflowX: 'hidden',
-                      }
-                    : {
-                        overflowX: 'visible',
-                      }),
-                }}
-              >
+          <div
+            style={{
+              width: '100%',
+              display: 'flex',
+              justifyContent: 'center',
+              padding: isFitToScreen ? '0' : '20px 0',
+              overflow: 'hidden',
+            }}
+          >
+            <div
+              style={{
+                width: '900px', // Native A4 container width
+                transform: isFitToScreen 
+                  ? `scale(min(1, ${(typeof window !== 'undefined' ? window.innerWidth - 32 : 800) / 900}))`
+                  : 'none',
+                transformOrigin: 'top center',
+                background: '#ffffff',
+                borderRadius: '12px',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+                margin: isFitToScreen ? '0 auto' : '0 auto',
+                boxSizing: 'border-box',
+                padding: '20px',
+                minHeight: '1200px',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'space-between',
+              }}
+            >
             {/* Unified Report Content Switcher */}
             {selectedCategory === 'drug' ? (
               <div className="space-y-4">
@@ -791,9 +794,8 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
               />
             )}
           </div>
-        );
-      })()}
         </div>
+      </div>
 
         {/* Delete Confirmation Modal */}
         {recordToDelete && (

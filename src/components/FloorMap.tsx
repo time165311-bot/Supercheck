@@ -374,17 +374,17 @@ export const FloorMap: React.FC<FloorMapProps> = ({
         className={`p-4 rounded-3xl border shadow-xl space-y-3 transition-colors duration-500 ${
           isDark
             ? 'bg-[#09090B]/90 backdrop-blur-xl border-zinc-800 text-white'
-            : 'bg-white/90 backdrop-blur-xl border-white/80 text-slate-800'
+            : 'bg-white backdrop-blur-xl border-slate-200 text-slate-900 shadow-slate-200/50'
         }`}
       >
         <div className="flex items-center justify-between gap-2 flex-wrap pb-2 border-b border-zinc-700/30">
           <div className="flex items-center gap-2">
             <MapPin className="w-5 h-5 text-[#1877F2] animate-bounce" />
             <div>
-              <h3 className="font-bold text-sm sm:text-base leading-none">
+              <h3 className={`font-bold text-sm sm:text-base leading-none ${isDark ? 'text-white' : 'text-slate-900'}`}>
                 สถานะการตรวจเช็กห้องผ่าตัด
               </h3>
-              <p className="text-xs text-zinc-400 mt-0.5">
+              <p className={`text-xs mt-0.5 ${isDark ? 'text-zinc-400' : 'text-slate-500'}`}>
                 {pendingRooms.length === 0
                   ? '🎉 ตรวจเช็กครบถ้วนแล้วทุกห้องผ่าตัด!'
                   : `⚠️ มีห้องที่ยังไม่ได้ตรวจเช็กอีก ${pendingRooms.length} ห้อง`}
@@ -393,14 +393,14 @@ export const FloorMap: React.FC<FloorMapProps> = ({
           </div>
 
           {/* Filter Pills: Pending / Defective / All */}
-          <div className="flex items-center gap-1 bg-zinc-800/80 p-1 rounded-2xl text-xs shrink-0">
+          <div className={`flex items-center gap-1 p-1 rounded-2xl text-xs shrink-0 ${isDark ? 'bg-zinc-800/80' : 'bg-slate-100'}`}>
             <button
               type="button"
               onClick={() => setRoomFilterMode('pending')}
               className={`px-3 py-1 rounded-xl transition font-bold cursor-pointer active:scale-95 ${
                 roomFilterMode === 'pending'
                   ? 'bg-[#1877F2] text-white shadow-xs'
-                  : 'text-zinc-400 hover:text-white'
+                  : isDark ? 'text-zinc-400 hover:text-white' : 'text-slate-600 hover:text-slate-900'
               }`}
             >
               ค้างตรวจ ({pendingRooms.length})
@@ -411,7 +411,7 @@ export const FloorMap: React.FC<FloorMapProps> = ({
               className={`px-3 py-1 rounded-xl transition font-bold cursor-pointer active:scale-95 ${
                 roomFilterMode === 'defective'
                   ? 'bg-rose-600 text-white shadow-xs'
-                  : 'text-zinc-400 hover:text-white'
+                  : isDark ? 'text-zinc-400 hover:text-white' : 'text-slate-600 hover:text-slate-900'
               }`}
             >
               พบชำรุด ({defectiveRooms.length})
@@ -421,8 +421,8 @@ export const FloorMap: React.FC<FloorMapProps> = ({
               onClick={() => setRoomFilterMode('all')}
               className={`px-3 py-1 rounded-xl transition font-bold cursor-pointer active:scale-95 ${
                 roomFilterMode === 'all'
-                  ? 'bg-zinc-700 text-white shadow-xs'
-                  : 'text-zinc-400 hover:text-white'
+                  ? isDark ? 'bg-zinc-700 text-white' : 'bg-slate-300 text-slate-900'
+                  : isDark ? 'text-zinc-400 hover:text-white' : 'text-slate-600 hover:text-slate-900'
               }`}
             >
               ทั้งหมด ({interactiveRooms.length})
@@ -456,7 +456,9 @@ export const FloorMap: React.FC<FloorMapProps> = ({
                       ? 'bg-rose-500/20 text-rose-300 border-rose-500/40 hover:bg-rose-500/30'
                       : isComp
                       ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/25'
-                      : 'bg-zinc-800/80 text-zinc-200 border-zinc-700 hover:border-zinc-500'
+                      : isDark
+                      ? 'bg-zinc-800/80 text-zinc-200 border-zinc-700 hover:border-zinc-500'
+                      : 'bg-slate-100 text-slate-800 border-slate-200 hover:bg-slate-200'
                   }`}
                 >
                   <span className="font-bold">{r.n}</span>
@@ -723,7 +725,7 @@ export const FloorMap: React.FC<FloorMapProps> = ({
         className={`p-4 rounded-3xl border shadow-2xl space-y-4 transition-all duration-500 ${
           isDark
             ? 'bg-[#09090B]/95 backdrop-blur-xl border-zinc-800 text-white'
-            : 'bg-white/95 backdrop-blur-xl border-white/80 text-slate-800'
+            : 'bg-white backdrop-blur-xl border-slate-200 text-slate-900 shadow-slate-200/60'
         }`}
       >
         {/* Selected Room Header */}
@@ -731,7 +733,7 @@ export const FloorMap: React.FC<FloorMapProps> = ({
           <div>
             <div className="flex items-center gap-2">
               <span className="w-3 h-3 rounded-full bg-[#1877F2] animate-pulse" />
-              <h3 className="text-base sm:text-lg font-bold text-white">
+              <h3 className={`text-base sm:text-lg font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>
                 📍 {currentRoomDef?.n || activeRoomId} ({currentRoomItems.length} รายการครุภัณฑ์)
               </h3>
             </div>

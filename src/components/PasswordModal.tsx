@@ -1,16 +1,20 @@
 import React, { useState } from 'react';
 import { Eye, EyeOff, Key, Lock, X } from 'lucide-react';
 
+import { User } from '../types';
+
 interface PasswordModalProps {
   isOpen: boolean;
   forced?: boolean;
+  currentUser?: User | null;
   onClose: () => void;
-  onSubmit: (oldPw: string, newPw: string) => Promise<{ success: boolean; message: string }>;
+  onSubmit?: (oldPw: string, newPw: string) => Promise<{ success: boolean; message: string }>;
 }
 
 export const PasswordModal: React.FC<PasswordModalProps> = ({
   isOpen,
   forced = false,
+  currentUser,
   onClose,
   onSubmit,
 }) => {
@@ -47,7 +51,10 @@ export const PasswordModal: React.FC<PasswordModalProps> = ({
     }
 
     setLoading(true);
-    const res = await onSubmit(oldPw, newPw);
+    let res = { success: true, message: '' };
+    if (onSubmit) {
+      res = await onSubmit(oldPw, newPw);
+    }
     setLoading(false);
 
     if (res.success) {
