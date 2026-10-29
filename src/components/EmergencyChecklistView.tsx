@@ -9,6 +9,8 @@ import {
   Camera,
   Search,
   Maximize2,
+  ArrowLeft,
+  MoreVertical,
 } from 'lucide-react';
 import { CheckItemState, ListConfig } from '../types';
 
@@ -28,7 +30,7 @@ export interface EmergencyChecklistProps {
 export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
   type,
   title,
-  subtitle,
+  subtitle: _subtitle,
   listConfig,
   checks,
   onToggleCheck,
@@ -39,6 +41,7 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
 }) => {
   const [selectedGroup, setSelectedGroup] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [activeMenuKey, setActiveMenuKey] = useState<string | null>(null);
 
   const groups = useMemo(() => {
     if (!listConfig || !listConfig.groups) return [];
@@ -114,27 +117,25 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
 
   return (
     <div className="space-y-4 font-['TH_Sarabun_New','Sarabun',sans-serif] pb-28 animate-in fade-in duration-300">
-      {/* Header Banner */}
+      {/* Clean Header Banner */}
       <div className="flex justify-between items-center bg-[#181A20] backdrop-blur-2xl p-4 rounded-[2rem] border border-white/10 shadow-xl flex-wrap gap-3">
         <div className="flex items-center gap-3">
           <button
             type="button"
             onClick={onBack}
-            className="px-3.5 py-2 rounded-2xl bg-slate-800 hover:bg-slate-700 text-[#F8FAFC] font-bold text-xs transition cursor-pointer active:scale-95 border border-slate-700"
+            className="p-2.5 rounded-2xl bg-slate-800 hover:bg-slate-700 text-[#F8FAFC] font-bold transition cursor-pointer active:scale-95 border border-slate-700 flex items-center justify-center"
+            title="ย้อนกลับ"
           >
-            &larr; กลับ
+            <ArrowLeft size={18} />
           </button>
-          <div>
-            <h2 className="text-base sm:text-lg font-bold text-[#F8FAFC] flex items-center gap-2">
-              {type === 'bag' ? (
-                <BriefcaseMedical size={20} className="text-rose-400" />
-              ) : (
-                <Truck size={20} className="text-amber-400" />
-              )}
-              <span>{title}</span>
-            </h2>
-            <p className="text-xs text-[#E2E8F0] mt-0.5">{subtitle}</p>
-          </div>
+          <h2 className="text-base sm:text-lg font-bold text-[#F8FAFC] flex items-center gap-2">
+            {type === 'bag' ? (
+              <BriefcaseMedical size={20} className="text-rose-400" />
+            ) : (
+              <Truck size={20} className="text-amber-400" />
+            )}
+            <span>{title}</span>
+          </h2>
         </div>
 
         <div className="flex items-center gap-2">
@@ -267,20 +268,32 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
                 {/* Header & Meta Row */}
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0 flex-1 space-y-1">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-[#E2E8F0] font-bold border border-slate-700">
-                        {item.groupName}
-                      </span>
-                      {item.no && (
-                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#3B82F6] text-white font-mono font-bold">
-                          #{item.no}
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-[#E2E8F0] font-bold border border-slate-700">
+                          {item.groupName}
                         </span>
-                      )}
-                      {item.code && (
-                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-zinc-800 text-[#F8FAFC] font-mono">
-                          {item.code}
-                        </span>
-                      )}
+                        {item.no && (
+                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#3B82F6] text-white font-mono font-bold">
+                            #{item.no}
+                          </span>
+                        )}
+                        {item.code && (
+                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-zinc-800 text-[#F8FAFC] font-mono">
+                            {item.code}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* 3-Dots Menu Button [⋮] */}
+                      <button
+                        type="button"
+                        onClick={() => setActiveMenuKey(activeMenuKey === item.itemKey ? null : item.itemKey)}
+                        className="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition cursor-pointer"
+                        title="ตัวเลือกเพิ่มเติม / รายละเอียด"
+                      >
+                        <MoreVertical size={16} />
+                      </button>
                     </div>
 
                     <h3 className="text-base font-bold text-[#F8FAFC] leading-snug">
@@ -312,6 +325,27 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
                     </div>
                   )}
                 </div>
+
+                {/* 3-Dots Dropdown Detail Menu */}
+                {activeMenuKey === item.itemKey && (
+                  <div className="p-3 rounded-2xl bg-slate-900 border border-slate-700 text-xs space-y-2 animate-in zoom-in-95">
+                    <div className="flex justify-between items-center border-b border-slate-800 pb-1.5 font-bold text-white">
+                      <span>รายละเอียดอุปกรณ์</span>
+                      <button
+                        type="button"
+                        onClick={() => setActiveMenuKey(null)}
+                        className="text-slate-400 hover:text-white font-bold"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                    <p className="text-slate-300"><b>ชื่อ:</b> {item.name}</p>
+                    {item.code && <p className="text-slate-300"><b>รหัส:</b> {item.code}</p>}
+                    {item.spec && <p className="text-slate-300"><b>คุณลักษณะ:</b> {item.spec}</p>}
+                    {item.location && <p className="text-slate-300"><b>ตำแหน่ง:</b> {item.location}</p>}
+                    {item.exp && <p className="text-rose-400 font-bold"><b>วันหมดอายุ:</b> {item.exp}</p>}
+                  </div>
+                )}
 
                 {/* Big Touch Buttons: [✓ ปกติ] [✕ มีปัญหา] */}
                 <div className="space-y-2 pt-2 border-t border-slate-800/80">

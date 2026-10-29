@@ -14,6 +14,7 @@ import {
   Maximize2,
   AlertCircle,
   Sparkles,
+  FileSpreadsheet,
 } from 'lucide-react';
 import { EquipmentItem, RoomDef, CheckItemState } from '../types';
 import { CORRIDOR_LABELS, CORRIDORS } from '../constants/initialData';
@@ -33,6 +34,7 @@ interface FloorMapProps {
   ) => void;
   onUpdateNote?: (categoryOrRoomId: string, itemKey: string, note: string) => void;
   onZoomImage?: (url: string) => void;
+  onOpenReport?: () => void;
 }
 
 export const FloorMap: React.FC<FloorMapProps> = ({
@@ -45,6 +47,7 @@ export const FloorMap: React.FC<FloorMapProps> = ({
   onToggleCheck,
   onUpdateNote,
   onZoomImage,
+  onOpenReport,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [zoomScale, setZoomScale] = useState<number>(1.0);
@@ -53,6 +56,7 @@ export const FloorMap: React.FC<FloorMapProps> = ({
   const [roomFilterMode, setRoomFilterMode] = useState<'pending' | 'defective' | 'all'>('pending');
 
   const containerRef = useRef<HTMLDivElement>(null);
+  const checklistPanelRef = useRef<HTMLDivElement>(null);
   const initialTouchDistanceRef = useRef<number | null>(null);
   const initialScaleRef = useRef<number>(1.0);
   const dragStartRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -68,6 +72,13 @@ export const FloorMap: React.FC<FloorMapProps> = ({
 
   const activeRoomId = selectedRoomId || 'or1';
   const isDark = theme === 'dark';
+
+  // Auto scroll down to room checklist when room is selected
+  useEffect(() => {
+    if (activeRoomId && checklistPanelRef.current) {
+      checklistPanelRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, [activeRoomId]);
 
   const handleZoomIn = () => {
     setZoomScale((prev) => Math.min(Number((prev + 0.15).toFixed(2)), 3.5));
@@ -708,6 +719,7 @@ export const FloorMap: React.FC<FloorMapProps> = ({
 
       {/* 📋 3. SELECTED ROOM EQUIPMENT CHECKLIST PANEL (รายการครุภัณฑ์ประจำห้องที่เลือก) */}
       <div
+        ref={checklistPanelRef}
         className={`p-4 rounded-3xl border shadow-2xl space-y-4 transition-all duration-500 ${
           isDark
             ? 'bg-[#09090B]/95 backdrop-blur-xl border-zinc-800 text-white'
@@ -864,6 +876,20 @@ export const FloorMap: React.FC<FloorMapProps> = ({
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {/* 💾 Important Save & Report Button at bottom of Checklist */}
+        {onOpenReport && (
+          <div className="pt-4 border-t border-zinc-800 flex items-center justify-center">
+            <button
+              type="button"
+              onClick={onOpenReport}
+              className="w-full sm:w-auto px-6 py-3.5 rounded-2xl bg-gradient-to-r from-[#3B82F6] to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white font-bold text-sm shadow-xl transition cursor-pointer active:scale-95 flex items-center justify-center gap-2.5"
+            >
+              <FileSpreadsheet size={18} />
+              <span>💾 บันทึกข้อมูลเข้า Google Sheets & พรีวิวรายงาน</span>
+            </button>
           </div>
         )}
       </div>

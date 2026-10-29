@@ -311,33 +311,33 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
             </div>
           </div>
 
-          {/* Weather Squircle Widget */}
+          {/* Weather Squircle Widget (Fix Overflow & Clipping) */}
           <div
-            className={`flex justify-between items-center p-3.5 rounded-[1.5rem] border ${
+            className={`flex justify-between items-center px-3.5 py-3 rounded-[1.5rem] border gap-2 min-w-0 ${
               isDarkMode
                 ? 'bg-[#101216]/80 border-white/5 text-slate-200'
                 : 'bg-slate-50 border-slate-200/80 text-slate-800'
             }`}
           >
-            <div className="flex items-center gap-3">
-              <span className="text-3xl filter drop-shadow">🌤️</span>
-              <div>
+            <div className="flex items-center gap-2.5 min-w-0 shrink-0">
+              <span className="text-2xl sm:text-3xl filter drop-shadow shrink-0">🌤️</span>
+              <div className="min-w-0">
                 <div className="flex items-baseline gap-1">
-                  <span className="text-2xl font-black leading-none nowrap-unit">
+                  <span className="text-xl sm:text-2xl font-black leading-none nowrap-unit">
                     {weatherData.temp}°C
                   </span>
-                  <span className="text-xs font-bold opacity-80 truncate">
+                  <span className="text-[11px] sm:text-xs font-bold opacity-80 truncate max-w-[70px]">
                     {weatherData.locationName}
                   </span>
                 </div>
-                <span className="text-[11px] opacity-70 block leading-tight">
+                <span className="text-[10px] sm:text-[11px] opacity-70 block leading-tight truncate">
                   {weatherData.condition}
                 </span>
               </div>
             </div>
 
             <div
-              className={`flex items-center gap-2 text-xs px-3 py-1.5 rounded-2xl border ${
+              className={`flex items-center gap-1.5 text-[11px] sm:text-xs px-2.5 py-1.5 rounded-2xl border shrink-0 ${
                 isDarkMode
                   ? 'bg-slate-800/80 border-slate-700 text-slate-300'
                   : 'bg-white border-slate-200 text-slate-700'
@@ -346,7 +346,7 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
               <div className="nowrap-unit">
                 ความชื้น <b>{weatherData.humidity}%</b>
               </div>
-              <div className="border-l border-slate-500/30 pl-2 nowrap-unit">
+              <div className="border-l border-slate-500/30 pl-1.5 nowrap-unit">
                 ลม <b>12 km/h</b>
               </div>
             </div>
@@ -378,6 +378,9 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
             slidesPerView={1.15}
             loop={true}
             speed={400}
+            observer={true}
+            observeParents={true}
+            resizeObserver={true}
             coverflowEffect={{
               rotate: 0,
               stretch: -10,

@@ -567,16 +567,10 @@ export default function App() {
               >
                 &larr; กลับหน้าหลัก
               </button>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setCurrentView('eq_overview')}
-                  className="px-3.5 py-2 rounded-2xl bg-[#3B82F6] text-white text-xs font-bold hover:bg-blue-600 transition flex items-center gap-1.5 cursor-pointer shadow-md active:scale-95"
-                >
-                  <LayoutGrid size={14} />
-                  <span>สลับดูรายการการ์ด</span>
-                </button>
-              </div>
+              <h2 className="text-sm font-bold text-white flex items-center gap-1.5">
+                <MapPin size={16} className="text-[#3B82F6]" />
+                <span>ผังห้องผ่าตัด (Floor Map)</span>
+              </h2>
             </div>
 
             <FloorMap
@@ -589,6 +583,7 @@ export default function App() {
               onToggleCheck={handleToggleCheck}
               onUpdateNote={handleUpdateNote}
               onZoomImage={(imgUrl) => setZoomedImgUrl(imgUrl)}
+              onOpenReport={() => setIsOfficialReportOpen(true)}
             />
           </div>
         )}
@@ -658,110 +653,75 @@ export default function App() {
               </button>
             </div>
 
-            {/* One UI Quick Navigation Menu List */}
-            <div className="space-y-2 py-1">
-              {[
-                { id: 'home', label: 'หน้าหลัก (Dashboard)', icon: '🏠' },
-                { id: 'drug_check', label: 'คลังยา & สารน้ำ', icon: '💊' },
-                { id: 'bag_check', label: 'กระเป๋าฉุกเฉิน (Emergency Bag)', icon: '🎒' },
-                { id: 'cart_check', label: 'รถฉุกเฉิน (Crash Cart)', icon: '🛒' },
-                { id: 'eq_overview', label: 'ภาพรวมครุภัณฑ์ห้องผ่าตัด', icon: '🩺' },
-                { id: 'room_check', label: 'ผังห้องผ่าตัด (Floor Map)', icon: '🗺️' },
-              ].map((menu) => (
+            {/* One UI Quick Actions Menu */}
+            <div className="space-y-2.5 py-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsOfficialReportOpen(true);
+                  setIsDrawerOpen(false);
+                }}
+                className="w-full flex items-center gap-3.5 p-3.5 rounded-2xl text-sm font-bold bg-white text-slate-900 border border-slate-200 hover:bg-slate-100 shadow-sm transition cursor-pointer"
+              >
+                <span className="text-lg">📊</span>
+                <span>รายงานสรุปประจำวัน & พรีวิว PDF</span>
+              </button>
+
+              {currentUser?.role === 'admin' && (
                 <button
-                  key={menu.id}
                   type="button"
                   onClick={() => {
-                    setCurrentView(menu.id as any);
+                    setCurrentView('users');
                     setIsDrawerOpen(false);
                   }}
-                  className={`w-full flex items-center gap-3.5 p-3.5 rounded-2xl text-sm font-bold transition active:scale-98 cursor-pointer ${
-                    currentView === menu.id
-                      ? 'bg-[#3B82F6] text-white shadow-md'
-                      : isDark
-                      ? 'bg-[#101216] hover:bg-slate-800 text-slate-200'
-                      : 'bg-slate-50 hover:bg-slate-100 text-slate-800'
+                  className={`w-full flex items-center gap-3.5 p-3.5 rounded-2xl text-sm font-bold transition cursor-pointer border ${
+                    currentView === 'users'
+                      ? 'bg-[#3B82F6] text-white border-[#3B82F6] shadow-md'
+                      : 'bg-white text-slate-900 border-slate-200 hover:bg-slate-100 shadow-sm'
                   }`}
                 >
-                  <span className="text-lg">{menu.icon}</span>
-                  <span>{menu.label}</span>
+                  <span className="text-lg">⚙️</span>
+                  <span>จัดการผู้ใช้ (Admin)</span>
                 </button>
-              ))}
+              )}
 
-              {/* Secondary Actions */}
-              <div className="pt-2 border-t border-slate-700/30 space-y-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsOfficialReportOpen(true);
-                    setIsDrawerOpen(false);
-                  }}
-                  className="w-full flex items-center gap-3.5 p-3.5 rounded-2xl text-sm font-bold bg-[#101216] text-slate-200 hover:bg-slate-800 transition cursor-pointer"
-                >
-                  <span className="text-lg">📊</span>
-                  <span>รายงานสรุปประจำวัน</span>
-                </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsProfileOpen(true);
+                  setIsDrawerOpen(false);
+                }}
+                className="w-full flex items-center gap-3.5 p-3.5 rounded-2xl text-sm font-bold bg-white text-slate-900 border border-slate-200 hover:bg-slate-100 shadow-sm transition cursor-pointer"
+              >
+                <UserIcon size={18} className="text-blue-500" />
+                <span>โปรไฟล์ผู้ใช้งาน</span>
+              </button>
 
-                {currentUser?.role === 'admin' && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setCurrentView('users');
-                      setIsDrawerOpen(false);
-                    }}
-                    className={`w-full flex items-center gap-3.5 p-3.5 rounded-2xl text-sm font-bold transition cursor-pointer ${
-                      currentView === 'users'
-                        ? 'bg-[#3B82F6] text-white shadow-md'
-                        : 'bg-[#101216] text-slate-200 hover:bg-slate-800'
-                    }`}
-                  >
-                    <span className="text-lg">⚙️</span>
-                    <span>จัดการผู้ใช้ (Admin)</span>
-                  </button>
-                )}
+              <button
+                type="button"
+                onClick={() => {
+                  setIsPasswordOpen(true);
+                  setIsDrawerOpen(false);
+                }}
+                className="w-full flex items-center gap-3.5 p-3.5 rounded-2xl text-sm font-bold bg-white text-slate-900 border border-slate-200 hover:bg-slate-100 shadow-sm transition cursor-pointer"
+              >
+                <Lock size={18} className="text-amber-500" />
+                <span>เปลี่ยนรหัสผ่าน</span>
+              </button>
 
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsProfileOpen(true);
-                    setIsDrawerOpen(false);
-                  }}
-                  className="w-full flex items-center gap-3.5 p-3.5 rounded-2xl text-sm font-bold bg-[#101216] text-slate-200 hover:bg-slate-800 transition cursor-pointer"
-                >
-                  <UserIcon size={18} className="text-blue-400" />
-                  <span>โปรไฟล์ผู้ใช้งาน</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsPasswordOpen(true);
-                    setIsDrawerOpen(false);
-                  }}
-                  className="w-full flex items-center gap-3.5 p-3.5 rounded-2xl text-sm font-bold bg-[#101216] text-slate-200 hover:bg-slate-800 transition cursor-pointer"
-                >
-                  <Lock size={18} className="text-amber-400" />
-                  <span>เปลี่ยนรหัสผ่าน</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    toggleTheme();
-                  }}
-                  className="w-full flex items-center justify-between p-3.5 rounded-2xl text-sm font-bold bg-[#101216] text-slate-200 hover:bg-slate-800 transition cursor-pointer"
-                >
-                  <div className="flex items-center gap-3.5">
-                    {isDark ? <Moon size={18} className="text-indigo-400" /> : <Sun size={18} className="text-amber-500" />}
-                    <span>สลับธีม ({isDark ? 'โหมดมืด' : 'โหมดสว่าง'})</span>
-                  </div>
-                  <span className="text-xs text-[#3B82F6] font-bold">สลับ</span>
-                </button>
-              </div>
-            </div>
-
-            <div className="pt-2 text-center border-t border-slate-800">
-              <span className="text-[10px] text-slate-500 font-mono">Anesthesia Inspection v2.5 • Samsung One UI Theme</span>
+              <button
+                type="button"
+                onClick={() => {
+                  toggleTheme();
+                }}
+                className="w-full flex items-center justify-between p-3.5 rounded-2xl text-sm font-bold bg-white text-slate-900 border border-slate-200 hover:bg-slate-100 shadow-sm transition cursor-pointer"
+              >
+                <div className="flex items-center gap-3.5">
+                  {isDark ? <Moon size={18} className="text-indigo-500" /> : <Sun size={18} className="text-amber-500" />}
+                  <span>สลับธีม ({isDark ? 'โหมดมืด' : 'โหมดสว่าง'})</span>
+                </div>
+                <span className="text-xs text-[#3B82F6] font-bold">สลับ</span>
+              </button>
             </div>
           </div>
         </div>
