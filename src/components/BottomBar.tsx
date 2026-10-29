@@ -1,8 +1,10 @@
 import React from 'react';
-import { FileSpreadsheet, Home, Menu, FileText, Barcode, QrCode } from 'lucide-react';
+import { Home, FileText, Barcode, FileSpreadsheet, Menu } from 'lucide-react';
 
 interface BottomBarProps {
   currentView: string;
+  theme?: 'light' | 'dark';
+  onToggleTheme?: () => void;
   onNavigate: (view: string) => void;
   onOpenReport: () => void;
   onOpenGoogleSheet: () => void;
@@ -15,6 +17,7 @@ interface BottomBarProps {
 
 export const BottomBar: React.FC<BottomBarProps> = ({
   currentView,
+  theme = 'dark',
   onNavigate,
   onOpenReport,
   onOpenGoogleSheet,
@@ -23,99 +26,91 @@ export const BottomBar: React.FC<BottomBarProps> = ({
   isDrawerOpen = false,
   isVisible = true,
 }) => {
+  const isDark = theme === 'dark';
+
   return (
     <nav
-      className={`fixed bottom-0 left-0 right-0 z-40 transition-all duration-300 ${
+      className={`fixed bottom-0 left-0 right-0 z-40 px-4 py-2.5 transition-all duration-300 ${
         isVisible ? 'translate-y-0 opacity-100' : 'translate-y-28 opacity-0'
       }`}
     >
       <div
-        style={{
-          backgroundColor: '#FFFFFF',
-          borderTop: '1px solid #E4E6EB',
-          boxShadow: '0 -2px 10px rgba(0, 0, 0, 0.05)',
-        }}
-        className="w-full px-2 sm:px-6 py-1.5"
+        className={`max-w-md mx-auto px-5 py-2 rounded-[2rem] border backdrop-blur-2xl shadow-2xl transition-colors duration-300 ${
+          isDark
+            ? 'bg-[#181A20]/95 border-white/10 text-white shadow-black/60'
+            : 'bg-white/95 border-slate-200/80 text-slate-800 shadow-slate-200/60'
+        }`}
       >
         <div className="w-full flex items-center justify-between">
-          {/* 1. หน้าหลัก */}
+          {/* 1. หน้าหลัก (Home) */}
           <button
             onClick={() => onNavigate('home')}
             type="button"
-            className={`flex flex-col items-center justify-center py-1.5 px-3 rounded-xl transition-all cursor-pointer active:scale-95 min-w-[62px] ${
+            className={`flex flex-col items-center justify-center py-1 px-2.5 rounded-2xl transition-all cursor-pointer active:scale-95 ${
               currentView === 'home' && !isDrawerOpen
-                ? 'text-[#1877F2] font-bold bg-[#E7F3FF]'
-                : 'text-[#65676B] hover:text-[#050505] hover:bg-[#F0F2F5]'
+                ? 'text-[#3B82F6] font-bold'
+                : isDark
+                ? 'text-slate-400 hover:text-white'
+                : 'text-slate-500 hover:text-slate-900'
             }`}
           >
-            <Home
-              size={20}
-              className={currentView === 'home' && !isDrawerOpen ? 'text-[#1877F2] stroke-[2.5]' : 'text-[#65676B]'}
-            />
-            <span className="text-[11px] mt-0.5 whitespace-nowrap">หน้าหลัก</span>
+            <Home size={22} className={currentView === 'home' && !isDrawerOpen ? 'stroke-[2.5]' : ''} />
+            <span className="text-[10px] font-bold mt-0.5 whitespace-nowrap">หน้าหลัก</span>
           </button>
 
-          {/* 2. รายงาน */}
+          {/* 2. รายงาน (Report) */}
           <button
             onClick={onOpenReport}
             type="button"
-            className={`flex flex-col items-center justify-center py-1.5 px-3 rounded-xl transition-all cursor-pointer active:scale-95 min-w-[62px] ${
-              currentView === 'report' && !isDrawerOpen
-                ? 'text-[#1877F2] font-bold bg-[#E7F3FF]'
-                : 'text-[#65676B] hover:text-[#050505] hover:bg-[#F0F2F5]'
+            className={`flex flex-col items-center justify-center py-1 px-2.5 rounded-2xl transition-all cursor-pointer active:scale-95 ${
+              isDark ? 'text-slate-400 hover:text-white' : 'text-slate-500 hover:text-slate-900'
             }`}
           >
-            <FileText
-              size={20}
-              className={currentView === 'report' && !isDrawerOpen ? 'text-[#1877F2] stroke-[2.5]' : 'text-[#65676B]'}
-            />
-            <span className="text-[11px] mt-0.5 whitespace-nowrap">รายงาน</span>
+            <FileText size={22} />
+            <span className="text-[10px] font-bold mt-0.5 whitespace-nowrap">รายงาน</span>
           </button>
 
-          {/* Center Elevated Floating Barcode Scan Button */}
-          <div className="relative -top-4 flex items-center justify-center">
+          {/* 3. Center Elevated Floating Barcode Scan Pill Button (One UI Style) */}
+          <div className="relative -top-6 flex items-center justify-center">
             <button
               onClick={onOpenBarcodeScanner}
               type="button"
-              style={{
-                backgroundColor: '#1877F2',
-                boxShadow: '0 6px 18px rgba(24, 119, 242, 0.45)',
-              }}
-              className="text-white w-13 h-13 rounded-full border-3 border-white flex flex-col items-center justify-center active:scale-90 hover:scale-105 transition-all cursor-pointer group shadow-lg"
-              title="สแกนบาร์โค้ดด่วน (Quick Barcode Scan)"
+              className="flex flex-col items-center justify-center w-14 h-14 bg-gradient-to-br from-[#3B82F6] to-cyan-500 text-white rounded-full shadow-lg shadow-blue-500/40 ring-4 ring-blue-500/20 active:scale-90 transition cursor-pointer group"
+              title="สแกนบาร์โค้ดด่วน (One UI Scanner)"
             >
-              <Barcode size={24} className="text-white group-hover:scale-110 transition-transform" />
-              <span className="text-[9px] font-bold text-white -mt-0.5 tracking-tight">สแกน</span>
+              <Barcode size={22} className="text-white group-hover:scale-110 transition-transform" />
+              <span className="text-[9px] font-black text-white mt-0.2 tracking-tight">สแกน</span>
             </button>
           </div>
 
-          {/* 3. ชีต */}
+          {/* 4. ชีต (Google Sheets) */}
           <button
             onClick={onOpenGoogleSheet}
             type="button"
-            className="flex flex-col items-center justify-center py-1.5 px-3 rounded-xl text-[#65676B] hover:text-[#050505] hover:bg-[#F0F2F5] transition-all cursor-pointer active:scale-95 min-w-[62px]"
+            className={`flex flex-col items-center justify-center py-1 px-2.5 rounded-2xl transition-all cursor-pointer active:scale-95 ${
+              isDark ? 'text-slate-400 hover:text-white' : 'text-slate-500 hover:text-slate-900'
+            }`}
             title="เปิด Google Sheets"
           >
-            <FileSpreadsheet size={20} className="text-[#65676B]" />
-            <span className="text-[11px] mt-0.5 whitespace-nowrap">ชีต</span>
+            <FileSpreadsheet size={22} />
+            <span className="text-[10px] font-bold mt-0.5 whitespace-nowrap">ชีต</span>
           </button>
 
-          {/* 4. เมนูเพิ่มเติม ☰ (Triggers Slide-over Drawer) */}
+          {/* 5. เมนูล่างขวา ("เมนู" ≡ One UI Bottom Sheet Trigger) */}
           <button
             onClick={onOpenDrawer}
             type="button"
-            className={`flex flex-col items-center justify-center py-1.5 px-3 rounded-xl transition-all cursor-pointer active:scale-95 min-w-[62px] ${
+            className={`flex flex-col items-center justify-center py-1 px-2.5 rounded-2xl transition-all cursor-pointer active:scale-95 ${
               isDrawerOpen
-                ? 'text-[#1877F2] font-bold bg-[#E7F3FF]'
-                : 'text-[#65676B] hover:text-[#050505] hover:bg-[#F0F2F5]'
+                ? 'text-[#3B82F6] font-bold'
+                : isDark
+                ? 'text-slate-400 hover:text-white'
+                : 'text-slate-500 hover:text-slate-900'
             }`}
-            title="เมนูเพิ่มเติม"
+            title="เปิดเมนูด่วน One UI"
           >
-            <Menu
-              size={20}
-              className={isDrawerOpen ? 'text-[#1877F2] stroke-[2.5]' : 'text-[#65676B]'}
-            />
-            <span className="text-[11px] mt-0.5 whitespace-nowrap">เมนูเพิ่มเติม</span>
+            <Menu size={22} className={isDrawerOpen ? 'stroke-[2.5] text-[#3B82F6]' : ''} />
+            <span className="text-[10px] font-bold mt-0.5 whitespace-nowrap">เมนู</span>
           </button>
         </div>
       </div>

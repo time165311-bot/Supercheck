@@ -109,8 +109,7 @@ export const DrugInventoryReportPreview: React.FC<DrugInventoryReportPreviewProp
         margin: '0 auto',
         padding: '16px',
         boxSizing: 'border-box',
-        overflowX: 'auto',
-        WebkitOverflowScrolling: 'touch',
+        overflow: 'visible',
         background: '#ffffff',
         borderRadius: '8px',
         backgroundColor: '#ffffff !important',
@@ -135,8 +134,13 @@ export const DrugInventoryReportPreview: React.FC<DrugInventoryReportPreviewProp
           background-image: none !important;
           color-scheme: light !important;
           white-space: normal !important;
-          word-break: break-word !important;
-          padding: 8px 6px !important;
+          word-break: keep-all !important;
+          padding: 6px 4px !important;
+          overflow: visible !important;
+          line-height: 1.3 !important;
+          font-size: 11px !important;
+          vertical-align: middle !important;
+          height: auto !important;
         }
         .a4-print-container p, 
         .a4-print-container span, 
@@ -235,28 +239,28 @@ export const DrugInventoryReportPreview: React.FC<DrugInventoryReportPreviewProp
       )}
 
       {/* 1. Header Layout */}
-      <div className="text-center mb-4" style={{ backgroundColor: '#ffffff !important', background: '#ffffff !important' }}>
-        <h2 className="text-2xl font-bold tracking-wide" style={{ fontSize: '18pt', color: '#000000 !important' }}>
+      <div className="text-center mb-4" style={{ backgroundColor: '#ffffff !important', background: '#ffffff !important', overflow: 'visible', textAlign: 'center', width: '100%', margin: '0 auto 12px auto' }}>
+        <h2 className="text-2xl font-bold tracking-wide" style={{ fontSize: '18pt', color: '#000000 !important', lineHeight: '1.4', overflow: 'visible', fontWeight: 'bold' }}>
           {mainHeading}
         </h2>
         {headerNote && (
-          <p className="text-sm font-semibold mt-0.5" style={{ fontSize: '11pt', color: '#b45309 !important' }}>
+          <p className="text-sm font-semibold mt-0.5" style={{ fontSize: '11pt', color: '#b45309 !important', lineHeight: '1.4', overflow: 'visible' }}>
             {headerNote}
           </p>
         )}
       </div>
 
-      <div className="flex justify-between items-center text-sm font-medium mb-3" style={{ fontSize: '11pt', color: '#000000 !important', backgroundColor: '#ffffff !important', background: '#ffffff !important' }}>
+      <div className="flex justify-between items-center text-sm font-medium mb-3" style={{ fontSize: '12px', color: '#000000 !important', backgroundColor: '#ffffff !important', background: '#ffffff !important', overflow: 'visible', display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', marginBottom: '10px' }}>
         <div>
-          <span className="font-semibold" style={{ color: '#000000 !important' }}>{clinicName}</span>
+          <span className="font-semibold" style={{ color: '#000000 !important', lineHeight: '1.4' }}>{clinicName}</span>
         </div>
-        <div className="flex items-center gap-4">
-          <span className="flex items-center gap-1" style={{ color: '#000000 !important' }}>
+        <div className="flex items-center gap-4" style={{ display: 'flex', gap: '24px' }}>
+          <span className="flex items-center gap-1" style={{ color: '#000000 !important', lineHeight: '1.4' }}>
             <Calendar className="w-4 h-4" style={{ color: '#000000 !important' }} />
             วัน, เดือน, ปี ที่สำรวจ: {formatThaiDate(surveyDate)}
           </span>
           {inspector && (
-            <span className="flex items-center gap-1 font-medium" style={{ color: '#000000 !important' }}>
+            <span className="flex items-center gap-1 font-medium" style={{ color: '#000000 !important', lineHeight: '1.4' }}>
               <UserIcon className="w-4 h-4" style={{ color: '#000000 !important' }} />
               ผู้ตรวจ: {inspector}
             </span>
@@ -265,74 +269,76 @@ export const DrugInventoryReportPreview: React.FC<DrugInventoryReportPreviewProp
       </div>
 
       {/* 2. Standard 8-Column Table Grid */}
-      <div style={{ width: '100%', overflowX: 'auto', display: 'block', boxSizing: 'border-box' }}>
+      <div style={{ width: '100%', overflowX: 'auto', WebkitOverflowScrolling: 'touch', boxSizing: 'border-box' }}>
       <table
         className="border-collapse border border-slate-400"
         style={{
           width: '100%',
-          minWidth: '680px',
-          tableLayout: 'auto',
+          minWidth: '880px',
+          tableLayout: 'fixed',
           borderCollapse: 'collapse',
           fontSize: '12px',
+          lineHeight: '1.4',
           color: '#000000 !important',
-          backgroundColor: '#ffffff !important'
+          backgroundColor: '#ffffff !important',
+          margin: '0 auto'
         }}
       >
         <thead>
           <tr className="font-bold text-center" style={{ fontSize: '12pt', backgroundColor: '#f1f5f9 !important', color: '#000000 !important' }}>
             {/* Col 1: ชนิดยา/สารน้ำ (200px, header center, data left) */}
             <th
-              className="border border-slate-400 p-2"
-              style={{ width: '200px', minWidth: '200px', textAlign: 'center' }}
+              className="border border-slate-400"
+              style={{ width: '200px', minWidth: '200px', textAlign: 'center', paddingLeft: '10px', lineHeight: '1.4 !important', padding: '6px 4px !important' }}
             >
               ชนิดยา/สารน้ำ
             </th>
             {/* Col 2: คงเหลือ (70px, center) */}
             <th
-              className="border border-slate-400 p-2"
-              style={{ width: '70px', minWidth: '70px', textAlign: 'center' }}
+              className="border border-slate-400"
+              style={{ width: '70px', minWidth: '70px', textAlign: 'center', lineHeight: '1.4 !important', padding: '6px 4px !important' }}
             >
               คงเหลือ
             </th>
             {/* Col 3: วันที่รับ (90px, center, nowrap) */}
             <th
-              className="border border-slate-400 p-2"
-              style={{ width: '90px', minWidth: '90px', textAlign: 'center', whiteSpace: 'nowrap' }}
+              className="border border-slate-400"
+              style={{ width: '90px', minWidth: '90px', textAlign: 'center', whiteSpace: 'nowrap', lineHeight: '1.4 !important', padding: '6px 4px !important' }}
             >
               วันที่รับ
             </th>
             {/* Col 4: จำนวนที่รับ (80px, center) */}
             <th
-              className="border border-slate-400 p-2"
-              style={{ width: '80px', minWidth: '80px', textAlign: 'center' }}
+              className="border border-slate-400"
+              style={{ width: '80px', minWidth: '80px', textAlign: 'center', lineHeight: '1.4 !important', padding: '6px 4px !important' }}
             >
               จำนวนที่รับ
             </th>
             {/* Col 5: รวม (70px, center) */}
             <th
-              className="border border-slate-400 p-2"
-              style={{ width: '70px', minWidth: '70px', textAlign: 'center' }}
+              className="border border-slate-400"
+              style={{ width: '70px', minWidth: '70px', textAlign: 'center', lineHeight: '1.4 !important', padding: '6px 4px !important' }}
             >
               รวม
             </th>
             {/* Col 6: ยอดต่ำสุด (80px, center) */}
             <th
-              className="border border-slate-400 p-2"
-              style={{ width: '80px', minWidth: '80px', textAlign: 'center' }}
+              className="border border-slate-400"
+              style={{ width: '80px', minWidth: '80px', textAlign: 'center', lineHeight: '1.4 !important', padding: '6px 4px !important' }}
             >
               ยอดต่ำสุด
             </th>
             {/* Col 7: เบิกครั้งละ (80px, center) */}
             <th
-              className="border border-slate-400 p-2"
-              style={{ width: '80px', minWidth: '80px', textAlign: 'center' }}
+              className="border border-slate-400"
+              style={{ width: '80px', minWidth: '80px', textAlign: 'center', lineHeight: '1.4 !important', padding: '6px 4px !important' }}
             >
               เบิกครั้งละ
             </th>
             {/* Col 8: หมายเหตุ (150px, left) */}
             <th
-              className="border border-slate-400 p-2"
-              style={{ width: '150px', minWidth: '150px', textAlign: 'center' }}
+              className="border border-slate-400"
+              style={{ width: '150px', minWidth: '150px', textAlign: 'center', lineHeight: '1.4 !important', padding: '6px 4px !important' }}
             >
               หมายเหตุ
             </th>
@@ -360,57 +366,57 @@ export const DrugInventoryReportPreview: React.FC<DrugInventoryReportPreviewProp
                 <tr key={d.id || idx} className="hover:bg-slate-50 transition-colors">
                   {/* Col 1: ชนิดยา/สารน้ำ (ชิดซ้าย, padding-left: 8px) */}
                   <td
-                    className="border border-slate-300 p-2 font-medium"
-                    style={{ textAlign: 'left', paddingLeft: '8px' }}
+                    className="border border-slate-300"
+                    style={{ textAlign: 'left', paddingLeft: '10px', lineHeight: '1.4 !important', padding: '6px 4px !important' }}
                   >
                     {d.name || '-'}
                   </td>
                   {/* Col 2: คงเหลือ (ตรงกลาง) */}
                   <td
-                    className="border border-slate-300 p-2 text-center"
-                    style={{ textAlign: 'center' }}
+                    className="border border-slate-300"
+                    style={{ textAlign: 'center', lineHeight: '1.4 !important', padding: '6px 4px !important' }}
                   >
                     {d.remaining !== undefined && d.remaining !== null ? d.remaining : '-'}
                   </td>
                   {/* Col 3: วันที่รับ (ตรงกลาง, nowrap) */}
                   <td
-                    className="border border-slate-300 p-2 text-center"
-                    style={{ textAlign: 'center', whiteSpace: 'nowrap' }}
+                    className="border border-slate-300"
+                    style={{ textAlign: 'center', whiteSpace: 'nowrap', lineHeight: '1.4 !important', padding: '6px 4px !important' }}
                   >
                     {formatAcquiredDate(d.receivedDate)}
                   </td>
                   {/* Col 4: จำนวนที่รับ (ตรงกลาง) */}
                   <td
-                    className="border border-slate-300 p-2 text-center"
-                    style={{ textAlign: 'center' }}
+                    className="border border-slate-300"
+                    style={{ textAlign: 'center', lineHeight: '1.4 !important', padding: '6px 4px !important' }}
                   >
                     {d.receivedQty !== undefined && d.receivedQty !== null ? d.receivedQty : '-'}
                   </td>
                   {/* Col 5: รวม (ตรงกลาง, ยอดรวมคำนวณอัตโนมัติ) */}
                   <td
-                    className="border border-slate-300 p-2 text-center font-semibold text-blue-700"
-                    style={{ textAlign: 'center' }}
+                    className="border border-slate-300"
+                    style={{ textAlign: 'center', fontWeight: 'bold', color: '#1d4ed8', lineHeight: '1.4 !important', padding: '6px 4px !important' }}
                   >
                     {totalVal}
                   </td>
                   {/* Col 6: ยอดต่ำสุด (ตรงกลาง) */}
                   <td
-                    className="border border-slate-300 p-2 text-center text-slate-700"
-                    style={{ textAlign: 'center' }}
+                    className="border border-slate-300"
+                    style={{ textAlign: 'center', color: '#334155', lineHeight: '1.4 !important', padding: '6px 4px !important' }}
                   >
                     {d.minStock !== undefined && d.minStock !== null ? d.minStock : '-'}
                   </td>
                   {/* Col 7: เบิกครั้งละ (ตรงกลาง) */}
                   <td
-                    className="border border-slate-300 p-2 text-center text-slate-700"
-                    style={{ textAlign: 'center' }}
+                    className="border border-slate-300"
+                    style={{ textAlign: 'center', color: '#334155', lineHeight: '1.4 !important', padding: '6px 4px !important' }}
                   >
                     {d.batchRequest || '-'}
                   </td>
                   {/* Col 8: หมายเหตุ (ชิดซ้าย) */}
                   <td
-                    className="border border-slate-300 p-2 text-slate-600"
-                    style={{ textAlign: 'left', paddingLeft: '8px', fontSize: '11pt' }}
+                    className="border border-slate-300"
+                    style={{ textAlign: 'left', paddingLeft: '8px', fontSize: '11pt', lineHeight: '1.4 !important', padding: '6px 4px !important' }}
                   >
                     {displayNote}
                   </td>
@@ -429,8 +435,8 @@ export const DrugInventoryReportPreview: React.FC<DrugInventoryReportPreviewProp
       </div>
 
       {/* Signature Area */}
-      <div className="mt-8 pt-4 border-t border-slate-200 flex justify-around text-sm" style={{ fontSize: '11pt', color: '#000000 !important', backgroundColor: '#ffffff !important', background: '#ffffff !important' }}>
-        <div className="text-center flex flex-col items-center">
+      <div className="mt-8 pt-4 border-t border-slate-200 flex justify-between text-sm" style={{ fontSize: '11pt', color: '#000000 !important', backgroundColor: '#ffffff !important', background: '#ffffff !important', display: 'flex', justifyContent: 'space-around', width: '100%', marginTop: '32px' }}>
+        <div className="text-center flex flex-col items-center" style={{ textAlign: 'center' }}>
           {signature ? (
             <div className="h-12 flex items-end justify-center mb-1">
               <img src={signature} alt="ลายเซ็น" className="max-h-12 max-w-[140px] object-contain" />
@@ -438,12 +444,12 @@ export const DrugInventoryReportPreview: React.FC<DrugInventoryReportPreviewProp
           ) : (
             <div className="h-12" />
           )}
-          <p style={{ color: '#000000 !important' }}>ลงชื่อ .................................................... ผู้ตรวจสอบ</p>
+          <p style={{ color: '#000000 !important', fontWeight: 'bold' }}>ลงชื่อ .................................................... ผู้ตรวจสอบ</p>
           <p style={{ color: '#000000 !important' }}>({inspector || '....................................................'})</p>
         </div>
-        <div className="text-center flex flex-col items-center">
+        <div className="text-center flex flex-col items-center" style={{ textAlign: 'center' }}>
           <div className="h-12" />
-          <p style={{ color: '#000000 !important' }}>ลงชื่อ .................................................... หัวหน้างาน</p>
+          <p style={{ color: '#000000 !important', fontWeight: 'bold' }}>ลงชื่อ .................................................... หัวหน้างาน</p>
           <p style={{ color: '#000000 !important' }}>(....................................................)</p>
         </div>
       </div>
@@ -460,6 +466,7 @@ export function generateDrugPrintHtml(
     subCategory?: 'all' | DrugCategory;
     headerNote?: string;
     signature?: string;
+    orientation?: 'landscape' | 'portrait';
   } = {}
 ): string {
   const {
@@ -469,6 +476,7 @@ export function generateDrugPrintHtml(
     clinicName = 'คลินิกงานบริการผู้ป่วยในวิสัญญี',
     subCategory = 'monthly',
     headerNote = '(เพิ่ม Column Exp.)',
+    orientation = 'landscape',
   } = options;
 
   const displayedDrugs =
@@ -516,7 +524,7 @@ export function generateDrugPrintHtml(
           @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;600;700&display=swap');
 
           @page {
-            size: A4 landscape;
+            size: A4 ${orientation};
             margin: 10mm;
           }
 
@@ -578,7 +586,10 @@ export function generateDrugPrintHtml(
 
           th, td {
             border: 1px solid #000;
-            padding: 5px 6px;
+            padding: 5px 4px;
+            white-space: normal !important;
+            word-break: keep-all !important;
+            line-height: 1.3 !important;
             vertical-align: middle;
           }
 

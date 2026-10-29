@@ -156,8 +156,7 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
         margin: '0 auto',
         padding: '16px',
         boxSizing: 'border-box',
-        overflowX: 'auto',
-        WebkitOverflowScrolling: 'touch',
+        overflow: 'visible',
         background: '#ffffff',
         borderRadius: '8px',
         backgroundColor: '#ffffff !important',
@@ -176,16 +175,20 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
         .a4-print-container tfoot,
         .a4-print-container tr, 
         .a4-print-container th, 
-        .a4-print-container td, 
-        .a4-print-container th {
+        .a4-print-container td {
           background-color: #ffffff !important;
           color: #000000 !important;
           border-color: #cbd5e1 !important;
           background-image: none !important;
           color-scheme: light !important;
           white-space: normal !important;
-          word-break: break-word !important;
-          padding: 8px 6px !important;
+          word-break: keep-all !important;
+          padding: 6px 4px !important;
+          overflow: visible !important;
+          line-height: 1.3 !important;
+          font-size: 11px !important;
+          vertical-align: middle !important;
+          height: auto !important;
         }
         .a4-print-container p, 
         .a4-print-container span, 
@@ -255,29 +258,29 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
       </div>
 
       {/* 1. Header Layout */}
-      <div className="text-center mb-4" style={{ backgroundColor: '#ffffff !important', background: '#ffffff !important' }}>
-        <h2 className="text-2xl font-bold tracking-wide" style={{ fontSize: '18pt', color: '#000000 !important' }}>
+      <div className="text-center mb-4" style={{ backgroundColor: '#ffffff !important', background: '#ffffff !important', overflow: 'visible', textAlign: 'center', width: '100%', margin: '0 auto 12px auto' }}>
+        <h2 className="text-2xl font-bold tracking-wide" style={{ fontSize: '18pt', color: '#000000 !important', lineHeight: '1.4', overflow: 'visible', fontWeight: 'bold' }}>
           {headingTitle}
         </h2>
         {type === 'bag' && (
-          <p className="text-sm font-semibold mt-1 flex items-center justify-center gap-1.5" style={{ fontSize: '12pt', color: '#000000 !important' }}>
+          <p className="text-sm font-semibold mt-1 flex items-center justify-center gap-1.5" style={{ fontSize: '12pt', color: '#000000 !important', lineHeight: '1.4', overflow: 'visible', fontWeight: 'bold' }}>
             <Building2 className="w-4 h-4" style={{ color: '#000000 !important' }} />
             หน่วยงาน: {agencyName}
           </p>
         )}
       </div>
 
-      <div className="flex justify-between items-center text-sm font-medium mb-3" style={{ fontSize: '11pt', color: '#000000 !important', backgroundColor: '#ffffff !important', background: '#ffffff !important' }}>
+      <div className="flex justify-between items-center text-sm font-medium mb-3" style={{ fontSize: '12px', color: '#000000 !important', backgroundColor: '#ffffff !important', background: '#ffffff !important', overflow: 'visible', display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', marginBottom: '10px' }}>
         <div>
-          <span style={{ color: '#000000 !important' }}>{agencyName}</span>
+          <span style={{ color: '#000000 !important', lineHeight: '1.4', fontWeight: 'bold' }}>{agencyName}</span>
         </div>
-        <div className="flex items-center gap-4">
-          <span className="flex items-center gap-1" style={{ color: '#000000 !important' }}>
+        <div className="flex items-center gap-4" style={{ display: 'flex', gap: '24px' }}>
+          <span className="flex items-center gap-1" style={{ color: '#000000 !important', lineHeight: '1.4' }}>
             <Calendar className="w-4 h-4" style={{ color: '#000000 !important' }} />
             วัน, เดือน, ปี ที่สำรวจ: {formatThaiDate(surveyDate)}
           </span>
           {inspector && (
-            <span className="flex items-center gap-1 font-medium" style={{ color: '#000000 !important' }}>
+            <span className="flex items-center gap-1 font-medium" style={{ color: '#000000 !important', lineHeight: '1.4' }}>
               <UserIcon className="w-4 h-4" style={{ color: '#000000 !important' }} />
               ผู้ตรวจ: {inspector}
             </span>
@@ -290,12 +293,14 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
         className="border-collapse border border-slate-400"
         style={{
           width: '100%',
-          minWidth: '680px',
-          tableLayout: 'auto',
+          minWidth: '880px',
+          tableLayout: 'fixed',
           borderCollapse: 'collapse',
           fontSize: '12px',
+          lineHeight: '1.4',
           color: '#000000 !important',
-          backgroundColor: '#ffffff !important'
+          backgroundColor: '#ffffff !important',
+          margin: '0 auto'
         }}
       >
         <thead>
@@ -303,16 +308,16 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
             {/* Col 1: รายการ (280px, left) */}
             <th
               rowSpan={2}
-              className="border border-slate-400 p-2"
-              style={{ width: '280px', minWidth: '220px', textAlign: 'center', verticalAlign: 'middle' }}
+              className="border border-slate-400"
+              style={{ width: '280px', minWidth: '220px', textAlign: 'center', verticalAlign: 'middle', paddingLeft: '10px', lineHeight: '1.4 !important', padding: '6px 4px !important' }}
             >
               รายการ
             </th>
             {/* Col 2: จำนวนตั้งต้น (60px, center, nowrap) */}
             <th
               rowSpan={2}
-              className="border border-slate-400 p-2"
-              style={{ width: '70px', minWidth: '60px', textAlign: 'center', verticalAlign: 'middle', whiteSpace: 'nowrap' }}
+              className="border border-slate-400"
+              style={{ width: '70px', minWidth: '60px', textAlign: 'center', verticalAlign: 'middle', whiteSpace: 'nowrap', lineHeight: '1.4 !important', padding: '6px 4px !important' }}
             >
               จำนวนตั้งต้น
             </th>
@@ -320,10 +325,10 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
             {[1, 2, 3, 4, 5].map((w) => (
               <th
                 key={w}
-                className={`border border-slate-400 p-1.5 text-center ${
+                className={`border border-slate-400 ${
                   currentWeek === w ? 'bg-blue-50/80 text-blue-900 font-bold' : ''
                 }`}
-                style={{ width: '75px', minWidth: '65px', verticalAlign: 'middle' }}
+                style={{ width: '75px', minWidth: '65px', verticalAlign: 'middle', lineHeight: '1.4 !important', padding: '6px 4px !important', textAlign: 'center' }}
               >
                 สัปดาห์ที่ {w}
               </th>
@@ -331,8 +336,8 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
             {/* Col 8: วันหมดอายุ (EXP) (100px, center, nowrap) */}
             <th
               rowSpan={2}
-              className="border border-slate-400 p-2"
-              style={{ width: '120px', minWidth: '120px', textAlign: 'center', verticalAlign: 'middle', whiteSpace: 'nowrap' }}
+              className="border border-slate-400"
+              style={{ width: '120px', minWidth: '120px', textAlign: 'center', verticalAlign: 'middle', whiteSpace: 'nowrap', lineHeight: '1.4 !important', padding: '6px 4px !important' }}
             >
               วันหมดอายุ (EXP)
             </th>
@@ -392,15 +397,15 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
                   <tr key={idx} className="hover:bg-slate-50 transition-colors">
                     {/* Col 1: รายการ (ชิดซ้าย, padding-left: 8px) */}
                     <td
-                      className="border border-slate-300 p-2 font-normal"
-                      style={{ textAlign: 'left', paddingLeft: '8px' }}
+                      className="border border-slate-300"
+                      style={{ textAlign: 'left', paddingLeft: '10px', lineHeight: '1.4 !important', padding: '6px 4px !important' }}
                     >
                       {item.name || '-'}
                     </td>
                     {/* Col 2: จำนวนตั้งต้น (ตรงกลาง, nowrap) - Standard configured item quantity */}
                     <td
-                      className="border border-slate-300 p-2 text-center"
-                      style={{ textAlign: 'center', whiteSpace: 'nowrap' }}
+                      className="border border-slate-300"
+                      style={{ textAlign: 'center', whiteSpace: 'nowrap', lineHeight: '1.4 !important', padding: '6px 4px !important' }}
                     >
                       {item.qty || '1'}
                     </td>
@@ -481,18 +486,18 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
           <tr className="font-semibold" style={{ fontSize: '11pt', color: '#000000 !important', backgroundColor: '#ffffff !important' }}>
             <td
               colSpan={2}
-              className="border border-slate-400 p-2 text-center font-bold"
-              style={{ textAlign: 'center', verticalAlign: 'middle', backgroundColor: '#f1f5f9 !important', color: '#000000 !important' }}
+              className="border border-slate-400 font-bold"
+              style={{ textAlign: 'center', verticalAlign: 'middle', backgroundColor: '#f1f5f9 !important', color: '#000000 !important', lineHeight: '1.4 !important', padding: '6px 4px !important' }}
             >
               ผู้ตรวจสอบ 1 (ผู้ตรวจเช็ค)
             </td>
             {[1, 2, 3, 4, 5].map((w) => (
               <td
                 key={w}
-                className={`border border-slate-400 p-1.5 text-center text-xs ${
+                className={`border border-slate-400 ${
                   currentWeek === w ? 'font-bold' : ''
                 }`}
-                style={{ textAlign: 'center', verticalAlign: 'middle', fontSize: '10pt', backgroundColor: currentWeek === w ? '#f1f5f9 !important' : '#ffffff !important', color: '#000000 !important' }}
+                style={{ textAlign: 'center', verticalAlign: 'middle', fontSize: '10pt', backgroundColor: currentWeek === w ? '#f1f5f9 !important' : '#ffffff !important', color: '#000000 !important', lineHeight: '1.4 !important', padding: '6px 4px !important' }}
               >
                 {currentWeek === w ? (
                   <div className="flex flex-col items-center justify-center min-h-[36px]">
@@ -510,26 +515,26 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
                 )}
               </td>
             ))}
-            <td className="border border-slate-400 p-2 text-center" style={{ width: '120px', minWidth: '120px', color: '#000000 !important' }}>-</td>
+            <td className="border border-slate-400" style={{ width: '120px', minWidth: '120px', color: '#000000 !important', lineHeight: '1.4 !important', padding: '6px 4px !important', textAlign: 'center' }}>-</td>
           </tr>
           <tr className="font-semibold" style={{ fontSize: '11pt', color: '#000000 !important', backgroundColor: '#ffffff !important' }}>
             <td
               colSpan={2}
-              className="border border-slate-400 p-2 text-center font-bold"
-              style={{ textAlign: 'center', verticalAlign: 'middle', backgroundColor: '#f1f5f9 !important', color: '#000000 !important' }}
+              className="border border-slate-400 font-bold"
+              style={{ textAlign: 'center', verticalAlign: 'middle', backgroundColor: '#f1f5f9 !important', color: '#000000 !important', lineHeight: '1.4 !important', padding: '6px 4px !important' }}
             >
               ผู้ตรวจสอบ 2 (หัวหน้างาน/ผู้รับรอง)
             </td>
             {[1, 2, 3, 4, 5].map((w) => (
               <td
                 key={w}
-                className="border border-slate-400 p-2 text-center text-xs"
-                style={{ textAlign: 'center', verticalAlign: 'middle', fontSize: '10pt', color: '#000000 !important' }}
+                className="border border-slate-400"
+                style={{ textAlign: 'center', verticalAlign: 'middle', fontSize: '10pt', color: '#000000 !important', lineHeight: '1.4 !important', padding: '6px 4px !important' }}
               >
                 ....................
               </td>
             ))}
-            <td className="border border-slate-400 p-2 text-center" style={{ color: '#000000 !important' }}>-</td>
+            <td className="border border-slate-400" style={{ color: '#000000 !important', lineHeight: '1.4 !important', padding: '6px 4px !important', textAlign: 'center' }}>-</td>
           </tr>
         </tfoot>
       </table>
@@ -555,6 +560,7 @@ export function generateEmergencyPrintHtml(
     weekDates?: { [key: number]: string };
     weekItemValues?: { [itemKey: string]: { [week: number]: string } };
     signature?: string;
+    orientation?: 'landscape' | 'portrait';
   } = {}
 ): string {
   const {
@@ -565,6 +571,7 @@ export function generateEmergencyPrintHtml(
     activeWeek = getWeekOfMonth(date),
     weekDates = {},
     weekItemValues = {},
+    orientation = 'landscape',
   } = options;
 
   const { month, year } = getMonthAndYearThai(date);
@@ -701,7 +708,7 @@ export function generateEmergencyPrintHtml(
           @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;600;700&display=swap');
 
           @page {
-            size: A4 landscape;
+            size: A4 ${orientation};
             margin: 10mm;
           }
 
@@ -763,7 +770,10 @@ export function generateEmergencyPrintHtml(
 
           th, td {
             border: 1px solid #000;
-            padding: 4px 6px;
+            padding: 5px 4px;
+            white-space: normal !important;
+            word-break: keep-all !important;
+            line-height: 1.3 !important;
             vertical-align: middle;
           }
 

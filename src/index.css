@@ -15,37 +15,61 @@
   }
 
   :root {
-    --font-sans: 'Sarabun', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    --font-sans: 'TH Sarabun New', 'TH Sarabun PSK', 'Sarabun', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     --fb-blue: #1877f2;
     --fb-blue-hover: #166fe5;
-    --fb-bg: #f0f2f5;
+    --fb-bg: #f8fafc;
     --fb-card: #ffffff;
-    --fb-border: #e4e6eb;
-    --fb-text: #050505;
-    --fb-text-sub: #65676b;
+    --fb-border: #e2e8f0;
+    --fb-text: #1e293b;
+    --fb-text-sub: #64748b;
     
-    /* Dynamic Accent Color Variable: Facebook Blue */
-    --app-accent: #1877f2;
-    --app-accent-hover: #166fe5;
-    --app-accent-light: rgba(24, 119, 242, 0.1);
+    /* Dynamic Accent Color Variable: Gemini Blue */
+    --app-accent: #2563eb;
+    --app-accent-hover: #1d4ed8;
+    --app-accent-light: rgba(37, 99, 235, 0.1);
   }
 
   body {
-    font-family: 'Sarabun', 'Inter', sans-serif !important;
+    font-family: 'TH Sarabun New', 'TH Sarabun PSK', 'Sarabun', sans-serif !important;
     font-weight: 500;
     line-height: 1.5;
-    letter-spacing: -0.01em;
+    letter-spacing: -0.2px;
+    word-break: keep-all !important;
     -webkit-tap-highlight-color: transparent;
     -webkit-font-smoothing: antialiased;
-    background-color: #F0F2F5 !important;
-    color: #1C1E21 !important;
+    background-color: #F8FAFC !important;
+    color: #1E293B !important;
   }
 
-  /* Prevent Thai text overlap and clipping across all headings, buttons, and inputs */
+  /* Prevent Thai text awkward line-breaks across all headings, buttons, and inputs */
   button, input, select, textarea, h1, h2, h3, h4, h5, h6, p, span {
-    font-family: 'Sarabun', 'Inter', sans-serif !important;
+    font-family: 'TH Sarabun New', 'TH Sarabun PSK', 'Sarabun', sans-serif !important;
+    word-break: keep-all;
     line-height: normal;
   }
+}
+
+.nowrap-unit {
+  white-space: nowrap !important;
+}
+
+/* Gemini Aura Motion Animations (120 FPS) */
+@keyframes geminiFluid1 {
+  0%, 100% { transform: translate(0px, 0px) scale(1); }
+  50% { transform: translate(30px, -20px) scale(1.15); }
+}
+@keyframes geminiFluid2 {
+  0%, 100% { transform: translate(0px, 0px) scale(1); }
+  50% { transform: translate(-25px, 25px) scale(1.2); }
+}
+.animate-gemini-1 {
+  animation: geminiFluid1 8s ease-in-out infinite;
+  will-change: transform;
+}
+.animate-gemini-2 {
+  animation: geminiFluid2 10s ease-in-out infinite;
+  will-change: transform;
 }
 
 /* Global Accent Color Utility Classes */
@@ -112,19 +136,20 @@
   background-image: linear-gradient(to right, rgba(0, 0, 0, 0.4), rgba(0, 0, 0, 0)) !important;
 }
 
-.swiper-cards .swiper-pagination-bullet,
-.main-swiper .swiper-pagination-bullet {
-  background: #65676B;
-  opacity: 0.35;
-  transition: all 0.3s ease;
+.swiper-pagination-bullet {
+  width: 8px !important;
+  height: 8px !important;
+  transition: all 0.3s ease !important;
+  background: #94a3b8 !important;
+  opacity: 0.5;
+  cursor: pointer;
 }
 
-.swiper-cards .swiper-pagination-bullet-active,
-.main-swiper .swiper-pagination-bullet-active {
-  background: #1877F2;
+.swiper-pagination-bullet-active {
+  width: 22px !important;
+  border-radius: 6px !important;
+  background: #2563eb !important;
   opacity: 1;
-  width: 24px;
-  border-radius: 6px;
 }
 
 /* Facebook Dark Mode Panels & Cards */

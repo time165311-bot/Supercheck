@@ -324,15 +324,15 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
         </div>
       </div>
 
-      {/* Category Tabs */}
-      <div className="flex items-center gap-1.5 p-1.5 bg-slate-200/70 dark:bg-slate-800/80 rounded-2xl border border-slate-300/60 dark:border-slate-700/60 text-xs font-bold overflow-x-auto">
+      {/* Category Tabs: Horizontal Scrollable Pill Tabs */}
+      <div className="flex gap-2 overflow-x-auto no-scrollbar py-1 text-xs font-bold">
         <button
           type="button"
           onClick={() => setActiveTab('monthly')}
-          className={`flex-1 min-w-[120px] py-2.5 px-3 rounded-xl transition-all cursor-pointer text-center whitespace-nowrap ${
+          className={`px-4 py-2.5 rounded-xl transition-all cursor-pointer whitespace-nowrap flex-shrink-0 ${
             activeTab === 'monthly'
-              ? 'bg-accent text-white shadow-md font-extrabold'
-              : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+              ? 'bg-[#1877F2] text-white shadow-md font-extrabold'
+              : 'bg-slate-200/80 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white border border-slate-300/50 dark:border-slate-700'
           }`}
         >
           <span>💊 ยาและสารน้ำประจำเดือน</span>
@@ -340,10 +340,10 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
         <button
           type="button"
           onClick={() => setActiveTab('quarterly')}
-          className={`flex-1 min-w-[120px] py-2.5 px-3 rounded-xl transition-all cursor-pointer text-center whitespace-nowrap ${
+          className={`px-4 py-2.5 rounded-xl transition-all cursor-pointer whitespace-nowrap flex-shrink-0 ${
             activeTab === 'quarterly'
-              ? 'bg-accent text-white shadow-md font-extrabold'
-              : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+              ? 'bg-[#1877F2] text-white shadow-md font-extrabold'
+              : 'bg-slate-200/80 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white border border-slate-300/50 dark:border-slate-700'
           }`}
         >
           <span>🚨 ยาความเสี่ยงสูง/กู้ชีพ (3 เดือน)</span>
@@ -351,10 +351,10 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
         <button
           type="button"
           onClick={() => setActiveTab('adhoc')}
-          className={`flex-1 min-w-[120px] py-2.5 px-3 rounded-xl transition-all cursor-pointer text-center whitespace-nowrap ${
+          className={`px-4 py-2.5 rounded-xl transition-all cursor-pointer whitespace-nowrap flex-shrink-0 ${
             activeTab === 'adhoc'
-              ? 'bg-accent text-white shadow-md font-extrabold'
-              : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+              ? 'bg-[#1877F2] text-white shadow-md font-extrabold'
+              : 'bg-slate-200/80 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white border border-slate-300/50 dark:border-slate-700'
           }`}
         >
           <span>📦 ยาฉุกเฉินเฉพาะกิจ (ครั้งคราว)</span>

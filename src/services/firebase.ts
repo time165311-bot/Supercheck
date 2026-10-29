@@ -85,11 +85,7 @@ export async function subscribeInspectionHistory(callback: (records: InspectionH
         callback(records);
       },
       (err) => {
-        if (err.message.includes('offline')) {
-          console.warn('Firestore subscription notice: client is offline');
-          return;
-        }
-        handleFirestoreError(err, OperationType.GET, path);
+        console.warn('Firestore subscription notice for inspection_records:', err.message);
       }
     );
   } catch (e) {
@@ -160,11 +156,7 @@ export async function subscribeAuditLogs(callback: (logs: AuditLogEntry[]) => vo
         callback(logs);
       },
       (err) => {
-        if (err.message.includes('offline')) {
-          console.warn('Firestore subscription notice: client is offline');
-          return;
-        }
-        handleFirestoreError(err, OperationType.GET, path);
+        console.warn('Firestore subscription notice for audit_logs:', err.message);
       }
     );
   } catch (e) {

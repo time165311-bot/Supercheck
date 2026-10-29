@@ -148,8 +148,12 @@ export const SwiperInspectionCarousel: React.FC<SwiperInspectionCarouselProps> =
     swiperInstanceRef.current = swiper;
 
     return () => {
-      if (swiperInstanceRef.current) {
-        swiperInstanceRef.current.destroy(true, true);
+      try {
+        if (swiperInstanceRef.current) {
+          swiperInstanceRef.current.destroy(true, true);
+        }
+      } catch (e) {
+        // Safe cleanup fallback
       }
     };
   }, [filteredItems.length, categoryFilter]);

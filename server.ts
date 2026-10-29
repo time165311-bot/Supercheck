@@ -3,21 +3,38 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 
+process.on('uncaughtException', (err) => {
+  console.error('[Server] Uncaught Exception:', err);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.warn('[Server] Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const PORT = parseInt(process.env.PORT || '3000', 10);
-const DATA_DIR = path.resolve(__dirname, 'data');
-const STATE_FILE = path.join(DATA_DIR, 'app_state.json');
-
-// Ensure data directory exists
-if (!fs.existsSync(DATA_DIR)) {
-  try {
+const PORT = parseInt(process.env.PORT || '3000', 10) || 3000;
+let DATA_DIR = path.resolve(__dirname, 'data');
+try {
+  if (!fs.existsSync(DATA_DIR)) {
     fs.mkdirSync(DATA_DIR, { recursive: true });
-  } catch (err) {
-    console.error('Failed to create data dir:', err);
+  }
+  const testFile = path.join(DATA_DIR, '.write_test');
+  fs.writeFileSync(testFile, 'ok');
+  fs.unlinkSync(testFile);
+} catch (err) {
+  console.warn('[Server] Cannot write to ./data, using /tmp/anesthesia_data fallback:', err);
+  DATA_DIR = path.resolve('/tmp', 'anesthesia_data');
+  try {
+    if (!fs.existsSync(DATA_DIR)) {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+    }
+  } catch (e) {
+    console.error('[Server] Failed to create fallback tmp data dir:', e);
   }
 }
+const STATE_FILE = path.join(DATA_DIR, 'app_state.json');
 
 // Initial default state if file doesn't exist
 function readServerState() {
@@ -32,7 +49,7 @@ function readServerState() {
   return {};
 }
 
-function writeServerState(data: Record<string, any>) {
+function writeServerState(data: any) {
   try {
     fs.writeFileSync(STATE_FILE, JSON.stringify(data, null, 2), 'utf-8');
     return true;
@@ -60,9 +77,9 @@ async function startServer() {
     next();
   });
 
-  // Health check endpoint
-  app.get('/api/health', (_req, res) => {
-    res.json({
+  // Health check endpoints for Cloud Run / load balancers
+  app.get(['/health', '/healthz', '/api/health'], (_req, res) => {
+    res.status(200).json({
       status: 'ok',
       service: 'anesthesia-care-sync',
       timestamp: new Date().toISOString(),
@@ -102,8 +119,9 @@ async function startServer() {
       }
       const data = await response.json();
       return res.json(data);
-    } catch (error: any) {
-      console.warn('Weather proxy warning (using default weather):', error?.message || error);
+    } catch (error) {
+      const err = error as any;
+      console.warn('Weather proxy warning (using default weather):', err?.message || err);
       return res.json(fallbackData);
     }
   });
@@ -145,23 +163,60 @@ async function startServer() {
   });
 
   // Vite middleware in dev or static files in production
-  if (process.env.NODE_ENV === 'production' && fs.existsSync(path.resolve(__dirname, 'dist'))) {
-    app.use(express.static(path.resolve(__dirname, 'dist')));
-    app.get('*', (_req, res) => {
-      res.sendFile(path.resolve(__dirname, 'dist', 'index.html'));
-    });
-  } else {
+  const distDir = path.resolve(__dirname, 'dist');
+  const isExplicitDev = (process.env.npm_lifecycle_event === 'dev' || process.argv.includes('--dev')) &&
+                        process.env.NODE_ENV !== 'production';
+
+  if (isExplicitDev) {
+    console.log('[Server] Dev mode: Starting Vite middleware');
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
     });
     app.use(vite.middlewares);
+  } else {
+    // Production mode: Serve static bundle
+    const hasDist = fs.existsSync(distDir) && fs.existsSync(path.join(distDir, 'index.html'));
+    if (hasDist) {
+      console.log('[Server] Production mode: Serving static files from', distDir);
+      app.use(express.static(distDir, { maxAge: '1h' }));
+      app.get('*', (_req, res) => {
+        res.sendFile(path.join(distDir, 'index.html'));
+      });
+    } else {
+      console.warn('[Server] Warning: dist directory not found at startup. Serving 200 OK recovery page.');
+      app.get('*', (_req, res) => {
+        res.status(200).send(`<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="refresh" content="2">
+  <title>Anesthesia Care</title>
+</head>
+<body style="font-family:sans-serif;text-align:center;padding:50px;background:#f0f2f5;">
+  <h2>กำลังเริ่มการทำงาน Anesthesia Care...</h2>
+  <p>ระบบกำลังเตรียมข้อมูล หน้าจอจะรีเฟรชอัตโนมัติในสักครู่</p>
+</body>
+</html>`);
+      });
+    }
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
+  const server = app.listen(PORT, '0.0.0.0', () => {
     console.log(`[Anesthesia Care Server] running at http://0.0.0.0:${PORT}`);
   });
+
+  const gracefulShutdown = () => {
+    console.log('[Server] Shutdown signal received, closing HTTP server...');
+    server.close(() => {
+      console.log('[Server] HTTP server closed gracefully.');
+      process.exit(0);
+    });
+  };
+
+  process.on('SIGTERM', gracefulShutdown);
+  process.on('SIGINT', gracefulShutdown);
 }
 
 startServer().catch((err) => {

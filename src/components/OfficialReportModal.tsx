@@ -1,19 +1,12 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Printer,
-  Download,
   X,
   FileSpreadsheet,
-  History,
   Trash2,
-  Calendar,
-  User as UserIcon,
-  ZoomIn,
-  ZoomOut,
   Maximize2,
-  RotateCcw,
-  Move,
   RefreshCw,
+  Scaling,
 } from 'lucide-react';
 import { InspectionHistoryRecord, User, DrugItem } from '../types';
 import { INITIAL_DRUGS_DATA } from '../constants/initialDrugs';
@@ -28,6 +21,10 @@ import {
   EmergencyChecklistReportPreview,
   generateEmergencyPrintHtml,
 } from './EmergencyChecklistReportPreview';
+import {
+  EquipmentReportPreview,
+  generateEquipmentPrintHtml,
+} from './EquipmentReportPreview';
 
 export interface OfficialReportItemRow {
   no?: string | number;
@@ -45,7 +42,7 @@ export interface OfficialReportItemRow {
   note?: string;
   exp?: string;
   group?: string;
-  val?: string; // actual count, e.g. "1400/1700 PSI", "2", "✓"
+  val?: string;
   weekVals?: { [week: number]: string };
 }
 
@@ -120,7 +117,6 @@ export function formatAcquiredDate(dateVal?: string | null): string {
     }
   }
 
-  // ISO string: YYYY-MM-DD or YYYY/MM/DD
   const isoMatch = str.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
   if (isoMatch) {
     let y = parseInt(isoMatch[1], 10);
@@ -130,7 +126,6 @@ export function formatAcquiredDate(dateVal?: string | null): string {
     return `${d}/${m}/${y}`;
   }
 
-  // DMY string: DD-MM-YYYY or DD/MM/YYYY
   const dmyMatch = str.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})/);
   if (dmyMatch) {
     const d = String(parseInt(dmyMatch[1], 10)).padStart(2, '0');
@@ -153,10 +148,10 @@ export function isCurrentYearExp(expVal?: string | null): boolean {
   const str = String(expVal).trim();
   if (!str || str === '-' || str === 'null' || str === 'undefined') return false;
 
-  const currentYearAD = new Date().getFullYear(); // 2026
-  const currentYearBE = currentYearAD + 543;       // 2569
-  const shortAD = String(currentYearAD).slice(-2); // "26"
-  const shortBE = String(currentYearBE).slice(-2); // "69"
+  const currentYearAD = new Date().getFullYear();
+  const currentYearBE = currentYearAD + 543;
+  const shortAD = String(currentYearAD).slice(-2);
+  const shortBE = String(currentYearBE).slice(-2);
 
   if (str.includes(String(currentYearAD)) || str.includes(String(currentYearBE))) {
     return true;
@@ -171,7 +166,6 @@ export function formatRealQuantity(qtyVal?: string | number, nameStr?: string, s
   const combined = `${nameStr || ''} ${specStr || ''} ${qtyVal || ''}`;
   const strQty = String(qtyVal || '').trim();
 
-  // Look for size / number specs like No. 4, 5, 5.5, 6 or เบอร์ 4, 5, 6
   const sizePattern = /(?:No\.|no\.|เบอร์|ขนาด)\s*([0-9.,\s/&]+)/i;
   const match = combined.match(sizePattern);
   if (match && match[1]) {
@@ -205,7 +199,6 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
   bagItems = [],
   cartItems = [],
   drugs: propDrugs,
-  sheetUrl = '',
   apiUrl = '',
   historyRecords = [],
   currentUser = null,
@@ -219,18 +212,12 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
   const [isExportingGas, setIsExportingGas] = useState<boolean>(false);
   const [drugSubCategory, setDrugSubCategory] = useState<'all' | 'monthly' | 'quarterly' | 'adhoc'>(initialDrugSubCategory);
   const [drugHeaderNote, setDrugHeaderNote] = useState<string>('(เพิ่ม Column Exp.)');
-  const [showToolbar, setShowToolbar] = useState<boolean>(true);
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
+  const [isFitToScreen, setIsFitToScreen] = useState<boolean>(false);
+  const [orientation] = useState<'landscape' | 'portrait'>('landscape');
 
-  // Zoom & Pan (Simplified for clean rewrite - fixed at 100%)
-  const [zoom] = useState<number>(1.0);
-  const previewContainerRef = useRef<HTMLDivElement>(null);
-  const previewContentRef = useRef<HTMLDivElement>(null);
+  const [weekItemValues] = useState<{ [itemKey: string]: { [week: number]: string } }>({});
 
-  // Week values tracking for bag and cart
-  const [weekItemValues, setWeekItemValues] = useState<{ [itemKey: string]: { [week: number]: string } }>({});
-
-  // Sync category when initialCategory changes or modal opens
   useEffect(() => {
     if (initialCategory) {
       setSelectedCategory(initialCategory);
@@ -240,10 +227,8 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
     }
     setSelectedRoundId('current');
     setFeedback(null);
-    // Reset Modal View
   }, [initialCategory, initialDrugSubCategory, isOpen]);
 
-  // Load drugs from prop, local storage, or initial constant
   const resolvedDrugs: DrugItem[] = useMemo(() => {
     if (propDrugs && propDrugs.length > 0) return propDrugs;
     try {
@@ -258,7 +243,6 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
     return INITIAL_DRUGS_DATA;
   }, [propDrugs, isOpen]);
 
-  // Convert drugs to OfficialReportItemRow format
   const drugReportItems: OfficialReportItemRow[] = useMemo(() => {
     return resolvedDrugs.map((d, idx) => {
       const catLabel =
@@ -288,10 +272,8 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
     });
   }, [resolvedDrugs]);
 
-  // Selected history record (if not "current")
   const selectedRecord = historyRecords.find((r) => r.id === selectedRoundId);
 
-  // Filter history records relevant to this category or all
   const filteredHistoryRecords = historyRecords.filter((r) => {
     if (selectedCategory === 'eq') return r.type === 'eq';
     if (selectedCategory === 'bag') return r.type === 'bag';
@@ -300,7 +282,6 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
     return true;
   });
 
-  // Determine active rows and metadata
   let activeItems: OfficialReportItemRow[] = [];
   let displayTitle = title;
   let displayDate = surveyDate;
@@ -312,7 +293,6 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
     displayDate = selectedRecord.date || surveyDate;
     displayInspector = selectedRecord.who || inspector;
   } else {
-    // Current live data
     if (selectedCategory === 'eq') {
       activeItems = eqItems.length > 0 ? eqItems : items;
       displayTitle = 'คลินิกงานบริการผู้ป่วยในวิสัญญี';
@@ -328,7 +308,6 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
     }
   }
 
-  // Derived clean clinic name (strictly without '(ภาพรวมทุกห้อง)')
   const cleanClinicName = useMemo(() => {
     const raw = String(displayTitle || 'คลินิกงานบริการผู้ป่วยในวิสัญญี')
       .replace(/\s*\(ภาพรวมทุกห้อง\)/g, '')
@@ -339,11 +318,6 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
     return raw || 'คลินิกงานบริการผู้ป่วยในวิสัญญี';
   }, [displayTitle, selectedCategory]);
 
-  // Main document heading:
-  // For 'eq' -> 'ทะเบียนรายการครุภัณฑ์และอุปกรณ์'
-  // For 'bag' -> 'แบบฟอร์มตรวจสอบความพร้อม กระเป๋า Emergency'
-  // For 'cart' -> 'แบบฟอร์มตรวจสอบความพร้อม รถ Emergency'
-  // For 'drug' -> 'แบบฟอร์มตรวจสอบและเบิกจ่ายคลังยาและสารน้ำ'
   const mainDocHeading = useMemo(() => {
     const { month, year } = getMonthAndYearThai(displayDate);
     if (selectedCategory === 'eq') return 'ทะเบียนรายการครุภัณฑ์และอุปกรณ์';
@@ -353,7 +327,6 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
     return 'ทะเบียนรายการครุภัณฑ์และอุปกรณ์';
   }, [selectedCategory, drugSubCategory, displayDate, cleanClinicName]);
 
-  // Retrieve user digital signature from profile or localStorage for auto-attaching
   const userSignature = useMemo(() => {
     if (currentUser?.signature) return currentUser.signature;
     if (currentUser?.id) {
@@ -365,238 +338,34 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
 
   if (!isOpen) return null;
 
-  // Window Print Engine for A4 Landscape with repeated headers on every page
   const handlePrintPdf = () => {
     setIsPrinting(true);
-    setFeedback({
-      type: 'info',
-      message: 'กำลังเปิดหน้าต่างพิมพ์... ในช่อง "ปลายทาง" (Destination) ให้เลือก "Save as PDF" (บันทึกเป็น PDF) เพื่อเซฟไฟล์ A4 แนวนอน',
-    });
+    let printHtml = '';
+    const printOptions = {
+      date: displayDate,
+      inspector: displayInspector,
+      signature: userSignature,
+      clinicName: cleanClinicName,
+      mainDocHeading: mainDocHeading,
+      orientation: orientation,
+    };
 
-    // Optionally notify Apps Script in background (non-blocking)
-    if (apiUrl && apiUrl.trim() !== '') {
-      fetch(apiUrl.trim(), {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain' },
-        body: JSON.stringify({
-          action: 'export_pdf',
-          surveyDate: formatThaiDate(displayDate),
-          locationName: cleanClinicName,
-          documentTitle: mainDocHeading,
-          inspector: displayInspector,
-          itemsCount: activeItems.length,
-        }),
-      }).catch(() => {});
+    if (selectedCategory === 'drug') {
+      printHtml = generateDrugPrintHtml(resolvedDrugs, {
+        ...printOptions,
+        subCategory: drugSubCategory,
+        headerNote: drugHeaderNote,
+      });
+    } else if (selectedCategory === 'bag' || selectedCategory === 'cart') {
+      printHtml = generateEmergencyPrintHtml(selectedCategory, activeItems, {
+        ...printOptions,
+        agencyName: cleanClinicName,
+        weekItemValues,
+      });
+    } else {
+      printHtml = generateEquipmentPrintHtml(activeItems, printOptions);
     }
 
-    // Build pure HTML table rows
-    const rowsHtml = activeItems
-      .map((item, idx) => {
-        const isOk = item.res ? item.res.includes('ใช้งานได้') : (item as any).status === 'normal' || (item as any).checked;
-        const isBad = item.res ? item.res.includes('ไม่ได้') : false;
-        const isMiss = item.res ? item.res.includes('ไม่พบ') : false;
-
-        return `
-          <tr>
-            <td style="text-align: center;">${idx + 1}</td>
-            <td style="text-align: center; font-family: monospace;">${item.code || '-'}</td>
-            <td style="text-align: center; font-family: monospace;">${item.sap || '-'}</td>
-            <td style="text-align: left; padding-left: 8px; font-weight: normal;">${item.name || '-'}</td>
-            <td style="text-align: left; font-size: 8.5pt;">${item.spec || '-'}</td>
-            <td style="text-align: center; font-size: 8.5pt;">${item.source || '-'}</td>
-            <td style="text-align: center; font-size: 8.5pt; white-space: nowrap;">${formatAcquiredDate(item.date)}</td>
-            <td style="text-align: center;">${formatRealQuantity(item.qty, item.name, item.spec)}</td>
-            <td style="text-align: center;">${item.tax || '7'}</td>
-            <td style="text-align: right;">${item.price || '-'}</td>
-            <td style="text-align: center; font-size: 8.5pt;">${item.location || '-'}</td>
-            <td style="text-align: center; font-weight: bold; color: #15803d; font-size: 11pt;">${isOk ? '✓' : ''}</td>
-            <td style="text-align: center; font-weight: bold; color: #b91c1c; font-size: 11pt;">${isBad ? '✓' : ''}</td>
-            <td style="text-align: center; font-weight: bold; color: #b45309; font-size: 11pt;">${isMiss ? '✓' : ''}</td>
-          </tr>
-        `;
-      })
-      .join('');
-
-    // Complete isolated HTML document with strict A4 Landscape & repeated table header CSS
-    const printHtml =
-      selectedCategory === 'drug'
-        ? generateDrugPrintHtml(resolvedDrugs, {
-            date: displayDate,
-            inspector: displayInspector,
-            signature: userSignature,
-            clinicName: cleanClinicName,
-            subCategory: drugSubCategory,
-            headerNote: drugHeaderNote,
-          })
-        : selectedCategory === 'bag' || selectedCategory === 'cart'
-        ? generateEmergencyPrintHtml(selectedCategory, activeItems, {
-            date: displayDate,
-            inspector: displayInspector,
-            signature: userSignature,
-            agencyName: cleanClinicName,
-            weekItemValues,
-          })
-        : `
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <meta charset="utf-8" />
-          <title>${mainDocHeading} - ${cleanClinicName} (${formatThaiDate(displayDate)})</title>
-          <style>
-            @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;600;700&display=swap');
- 
-            @page {
-              size: A4 landscape;
-              margin: 10mm;
-            }
- 
-            * {
-              box-sizing: border-box;
-              -webkit-print-color-adjust: exact !important;
-              print-color-adjust: exact !important;
-            }
- 
-            body {
-              font-family: 'TH Sarabun PSK', 'Sarabun', Tahoma, sans-serif;
-              margin: 0;
-              padding: 0;
-              color: #000 !important;
-              background: #fff !important;
-              font-size: 10pt;
-              line-height: 1.25;
-            }
- 
-            .title-area {
-              text-align: center;
-              margin-bottom: 8px;
-            }
- 
-            .title-area h2 {
-              margin: 0;
-              font-size: 16pt;
-              font-weight: bold;
-              color: #000 !important;
-            }
- 
-            .title-area p {
-              margin: 2px 0 0 0;
-              font-size: 11pt;
-              color: #000 !important;
-            }
- 
-            .meta-header {
-              display: flex;
-              justify-content: space-between;
-              align-items: center;
-              font-size: 10pt;
-              font-weight: 600;
-              margin-bottom: 6px;
-              color: #000 !important;
-            }
- 
-            table {
-              width: 100%;
-              border-collapse: collapse;
-              font-size: 9pt;
-              background-color: #fff !important;
-            }
- 
-            /* บังคับซ้ำหัวตารางทุกหน้าอัตโนมัติ */
-            thead {
-              display: table-header-group !important;
-            }
- 
-            /* ป้องกันการตัดแถวตารางขาดครึ่งหน้า */
-            tr {
-              page-break-inside: avoid !important;
-              background-color: #fff !important;
-            }
- 
-            th, td {
-              border: 1px solid #000 !important;
-              padding: 4px 5px;
-              color: #000 !important;
-            }
- 
-            th {
-              background-color: #f1f5f9 !important;
-              font-weight: bold;
-              text-align: center;
-              vertical-align: middle;
-            }
- 
-            .signature-section {
-              margin-top: 24px;
-              display: flex;
-              justify-content: space-around;
-              page-break-inside: avoid;
-              font-size: 10pt;
-              color: #000 !important;
-            }
- 
-            .sign-col {
-              text-align: center;
-              line-height: 1.8;
-            }
-          </style>
-        </head>
-        <body>
-          <div class="title-area">
-            <h2>${mainDocHeading}</h2>
-            <p>ณ วันที่ ${formatThaiDate(displayDate)}</p>
-          </div>
-          <div class="meta-header">
-            <div><strong>${cleanClinicName}</strong></div>
-            <div>
-              <span>วัน, เดือน, ปี ที่สำรวจ: ${formatThaiDate(displayDate)}</span>
-              ${displayInspector ? `<span style="margin-left: 18px;">ผู้ตรวจ: <strong>${displayInspector}</strong></span>` : ''}
-            </div>
-          </div>
-          <table>
-            <thead>
-              <tr>
-                <th rowspan="2" style="width: 36px;">ลำดับที่</th>
-                <th rowspan="2" style="width: 90px;">หมายเลขพัสดุ</th>
-                <th rowspan="2" style="width: 90px;">รหัสสินทรัพย์ SAP</th>
-                <th rowspan="2" style="min-width: 170px; text-align: center;">รายการ</th>
-                <th rowspan="2" style="min-width: 140px; text-align: left;">มาตรฐานและคุณลักษณะเฉพาะ</th>
-                <th rowspan="2" style="width: 85px;">แหล่งเงินที่มา (ประเภทเงินงบประมาณ)</th>
-                <th rowspan="2" style="width: 90px; min-width: 90px; white-space: nowrap; text-align: center;">ว/ด/ป ที่ได้มา</th>
-                <th rowspan="2" style="width: 45px;">จำนวนตามบัญชี</th>
-                <th rowspan="2" style="width: 45px;">อัตราภาษี (%)</th>
-                <th rowspan="2" style="width: 75px;">ราคา (รวมภาษี)</th>
-                <th rowspan="2" style="width: 85px;">สถานที่ตั้ง ตึก / ชั้น / ห้อง</th>
-                <th colspan="3">ผลการตรวจสอบพัสดุ</th>
-              </tr>
-              <tr style="font-size: 8.5pt;">
-                <th style="width: 50px;">พบรายการ ใช้งานได้</th>
-                <th style="width: 50px;">พบรายการ ใช้งานไม่ได้</th>
-                <th style="width: 50px;">ไม่พบรายการ</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${rowsHtml || '<tr><td colspan="14" style="text-align:center; padding: 20px;">ไม่มีข้อมูลรายการ</td></tr>'}
-            </tbody>
-          </table>
-          <div class="signature-section">
-            <div class="sign-col" style="display: flex; flex-direction: column; align-items: center;">
-              <div style="height: 48px; display: flex; align-items: flex-end; justify-content: center; margin-bottom: 2px;">
-                ${userSignature ? `<img src="${userSignature}" style="max-height: 48px; max-width: 140px; object-fit: contain;" alt="ลายเซ็น" />` : ''}
-              </div>
-              <p>ลงชื่อ .................................................... ผู้ตรวจสอบ</p>
-              <p>(${displayInspector || '....................................................'})</p>
-            </div>
-            <div class="sign-col" style="display: flex; flex-direction: column; align-items: center;">
-              <div style="height: 48px;"></div>
-              <p>ลงชื่อ .................................................... หัวหน้างาน</p>
-              <p>(....................................................)</p>
-            </div>
-          </div>
-        </body>
-      </html>
-    `;
-
-    // Use isolated invisible iframe to trigger print dialog without affecting main UI
     const printFrame = document.createElement('iframe');
     printFrame.style.position = 'fixed';
     printFrame.style.right = '0';
@@ -632,11 +401,6 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
       setIsPrinting(false);
       window.print();
     }
-  };
-
-  const handleDeleteCurrentRecord = () => {
-    if (!selectedRecord || !onDeleteHistoryRecord) return;
-    setRecordToDelete(selectedRecord);
   };
 
   const handleConfirmDeleteCurrentRecord = () => {
@@ -759,59 +523,54 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
     }
   };
 
-  const isAdmin = !currentUser || currentUser.role === 'admin';
-
   return (
-    <div 
-      className="fixed inset-0 z-[9999] flex items-center justify-center p-4 sm:p-6"
+    <div
       style={{
         position: 'fixed',
         inset: 0,
         zIndex: 9999,
-        background: 'rgba(0, 0, 0, 0.75)',
-        backdropFilter: 'blur(8px)',
+        background: 'rgba(0,0,0,0.65)',
         display: 'flex',
         justifyContent: 'center',
         alignItems: 'center',
-        padding: '16px',
+        padding: '12px',
         boxSizing: 'border-box',
       }}
     >
-      <div 
-        className="bg-white dark:bg-[#242526] shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200"
+      <div
         style={{
-          width: isFullscreen ? '98vw' : '96vw',
-          maxWidth: isFullscreen ? 'none' : '900px',
-          height: isFullscreen ? '95vh' : 'auto',
-          maxHeight: isFullscreen ? '95vh' : '92vh',
-          background: '#ffffff',
-          borderRadius: isFullscreen ? '12px' : '20px',
+          width: '100%',
+          maxWidth: isFullscreen ? '100%' : '900px',
+          height: isFullscreen ? '98vh' : '90vh',
+          background: '#f8fafc',
+          borderRadius: '16px',
           display: 'flex',
           flexDirection: 'column',
+          overflow: 'hidden',
           boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
-          boxSizing: 'border-box'
         }}
       >
-        {/* Modal Sticky Header */}
-        <div className="sticky top-0 z-50 flex flex-col gap-3 p-4 border-b border-slate-100 bg-slate-50/80 backdrop-blur-md">
-          <div className="flex items-center justify-between gap-4">
-            <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1">
+        {/* Modal Sticky Header Bar */}
+        <div className="p-3 sm:p-4 border-b border-slate-200 bg-white flex flex-col gap-3 shrink-0">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-1">
               {[
                 { id: 'eq', label: 'ครุภัณฑ์', emoji: '🏫' },
                 { id: 'bag', label: 'กระเป๋า', emoji: '💼' },
                 { id: 'cart', label: 'รถ', emoji: '🛒' },
-                { id: 'drug', label: 'คลังยา', emoji: '💊' }
+                { id: 'drug', label: 'คลังยา', emoji: '💊' },
               ].map((cat) => (
                 <button
                   key={cat.id}
+                  type="button"
                   onClick={() => {
                     setSelectedCategory(cat.id as any);
                     setSelectedRoundId('current');
                   }}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all active:scale-95 whitespace-nowrap ${
-                    selectedCategory === cat.id 
-                      ? 'bg-sky-600 text-white shadow-md ring-2 ring-sky-500/20' 
-                      : 'bg-white text-slate-600 hover:bg-slate-100'
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer active:scale-95 whitespace-nowrap ${
+                    selectedCategory === cat.id
+                      ? 'bg-[#3B82F6] text-white shadow-md'
+                      : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                   }`}
                 >
                   <span>{cat.emoji}</span>
@@ -820,20 +579,23 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
               ))}
             </div>
 
-            <button 
+            <button
+              type="button"
               onClick={onClose}
-              className="p-2.5 rounded-full hover:bg-slate-200 text-slate-500 transition-colors"
+              className="p-2 rounded-full hover:bg-slate-200 text-slate-600 transition cursor-pointer"
+              title="ปิดพรีวิว"
             >
               <X className="w-5 h-5" />
             </button>
           </div>
 
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-2 bg-white p-1 rounded-xl border border-slate-200">
+          {/* Action Toolbar */}
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-xl border border-slate-200">
               <select
                 value={selectedRoundId}
                 onChange={(e) => setSelectedRoundId(e.target.value)}
-                className="bg-transparent text-xs font-bold text-slate-700 px-3 py-1 outline-none cursor-pointer"
+                className="bg-transparent text-xs font-bold text-slate-800 px-2 py-1 outline-none cursor-pointer"
               >
                 <option value="current">🟢 รอบปัจจุบัน (Live)</option>
                 {filteredHistoryRecords.map((rec) => (
@@ -846,76 +608,156 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
 
             <div className="flex items-center gap-2">
               <button
+                type="button"
                 onClick={() => setIsFullscreen(!isFullscreen)}
-                className={`p-2 rounded-xl transition-all active:scale-95 ${isFullscreen ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
-                title={isFullscreen ? "ออกจากโหมดเต็มหน้าจอ" : "โหมดเต็มหน้าจอ (Fit to Screen)"}
+                className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition cursor-pointer"
+                title="เต็มหน้าจอ"
               >
-                <Maximize2 className="w-4 h-4" />
+                <Maximize2 size={16} />
               </button>
-              
-              <div className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 rounded-lg text-[10px] font-bold text-slate-500 uppercase tracking-wider border border-slate-200">
-                <span>Zoom: 100%</span>
-              </div>
 
               <button
+                type="button"
+                onClick={() => setIsFitToScreen(!isFitToScreen)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-xl shadow-md transition cursor-pointer active:scale-95 ${
+                  isFitToScreen
+                    ? 'bg-purple-600 hover:bg-purple-700 text-white'
+                    : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200'
+                }`}
+                title={isFitToScreen ? 'ยกเลิก Fit to Screen (แสดงขนาดจริง)' : 'ปรับขนาดพอดีหน้าจอ (Fit to Screen)'}
+              >
+                <Scaling className="w-3.5 h-3.5" />
+                <span>{isFitToScreen ? 'ขนาดจริง 100%' : '⤢ พอดีหน้าจอ'}</span>
+              </button>
+
+              <button
+                type="button"
                 onClick={handleSendReportToGas}
                 disabled={isExportingGas}
-                className="hidden md:flex items-center gap-2 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-md active:scale-95 transition disabled:opacity-50"
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-md transition cursor-pointer active:scale-95 disabled:opacity-50"
               >
-                {isExportingGas ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <FileSpreadsheet className="w-3.5 h-3.5" />}
+                {isExportingGas ? (
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <FileSpreadsheet className="w-3.5 h-3.5" />
+                )}
                 <span>ส่ง Sheets</span>
               </button>
 
               <button
+                type="button"
                 onClick={handlePrintPdf}
                 disabled={isPrinting}
-                className="flex items-center gap-2 px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold rounded-xl shadow-lg active:scale-95 transition disabled:opacity-50"
+                className="flex items-center gap-1.5 px-3.5 py-1.5 bg-[#3B82F6] hover:bg-blue-600 text-white text-xs font-bold rounded-xl shadow-md transition cursor-pointer active:scale-95 disabled:opacity-50"
               >
-                {isPrinting ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Printer className="w-4 h-4" />}
+                {isPrinting ? (
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Printer className="w-3.5 h-3.5" />
+                )}
                 <span>พิมพ์ / PDF</span>
               </button>
             </div>
           </div>
+
+          {feedback && (
+            <div
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center justify-between ${
+                feedback.type === 'success'
+                  ? 'bg-emerald-100 text-emerald-800'
+                  : feedback.type === 'error'
+                  ? 'bg-rose-100 text-rose-800'
+                  : 'bg-blue-100 text-blue-800'
+              }`}
+            >
+              <span>{feedback.message}</span>
+              <button
+                type="button"
+                onClick={() => setFeedback(null)}
+                className="text-xs font-bold ml-2 underline"
+              >
+                ปิด
+              </button>
+            </div>
+          )}
         </div>
 
-        {/* Scrollable Document Area */}
-        <div className="flex-1 overflow-auto bg-slate-100 p-4 sm:p-8" ref={previewContainerRef}>
-          <div 
-            className="paper-preview mx-auto shadow-xl"
-            style={{
-              width: '100%',
-              maxWidth: '850px',
-              minWidth: '700px',
-              margin: '0 auto',
-              background: '#ffffff',
-              padding: isFullscreen ? '40px' : '24px',
-              borderRadius: '2px',
-              boxSizing: 'border-box'
-            }}
-          >
-            {/* Report Content Switcher */}
+        {/* Printable Area Content Wrapper */}
+        <div
+          style={{
+            flex: 1,
+            overflow: 'auto',
+            padding: '16px',
+            WebkitOverflowScrolling: 'touch',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            background: '#f8fafc',
+          }}
+        >
+          {/* Helpful Print Guidance Banner */}
+          <div className="w-full max-w-[1080px] bg-blue-50 border border-blue-200 text-blue-900 px-3 py-2 rounded-xl text-xs font-semibold mb-3 flex items-center justify-between no-print shrink-0">
+            <span>💡 <b>คำแนะนำ:</b> ในมือถือ ให้เลือกการจัดวางเป็น <b>"แนวนอน" (Landscape)</b> ในหน้าต่างบันทึก PDF เพื่อตาราง A4 ที่สมบูรณ์แบบที่สุด</span>
+          </div>
+
+          {/* Printable A4 Paper Sheet Container (With Dynamic Fit-to-Screen Toggle) */}
+          {(() => {
+            const targetPaperWidth = selectedCategory === 'eq' ? 1080 : 900;
+            return (
+              <div
+                style={{
+                  width: `${targetPaperWidth}px`,
+                  minWidth: `${targetPaperWidth}px`,
+                  maxWidth: isFitToScreen ? 'none' : `${targetPaperWidth}px`,
+                  margin: '0 auto',
+                  padding: '24px 16px',
+                  boxSizing: 'border-box',
+                  background: '#ffffff',
+                  borderRadius: '8px',
+                  boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+                  ...(isFitToScreen
+                    ? {
+                        transform: `scale(calc(min(1, (100vw - 32px) / ${targetPaperWidth})))`,
+                        transformOrigin: 'top center',
+                        overflowX: 'hidden',
+                      }
+                    : {
+                        overflowX: 'visible',
+                      }),
+                }}
+              >
+            {/* Unified Report Content Switcher */}
             {selectedCategory === 'drug' ? (
               <div className="space-y-4">
-                <div className="flex items-center justify-between mb-4 border-b pb-4">
-                  <div className="flex gap-2">
+                <div className="flex items-center justify-between mb-4 border-b pb-3 no-print flex-wrap gap-2">
+                  <div className="flex gap-1.5 flex-wrap">
                     {['all', 'monthly', 'quarterly', 'adhoc'].map((sub) => (
                       <button
                         key={sub}
+                        type="button"
                         onClick={() => setDrugSubCategory(sub as any)}
-                        className={`px-3 py-1.5 rounded-lg text-[10px] font-bold transition ${
-                          drugSubCategory === sub ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                        className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition cursor-pointer ${
+                          drugSubCategory === sub
+                            ? 'bg-slate-800 text-white'
+                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                         }`}
                       >
-                        {sub === 'all' ? 'ทั้งหมด' : sub === 'monthly' ? 'รายเดือน' : sub === 'quarterly' ? '3 เดือน' : 'ครั้งคราว'}
+                        {sub === 'all'
+                          ? 'ทั้งหมด'
+                          : sub === 'monthly'
+                          ? 'รายเดือน'
+                          : sub === 'quarterly'
+                          ? '3 เดือน'
+                          : 'ครั้งคราว'}
                       </button>
                     ))}
                   </div>
-                  <input 
-                    type="text" 
-                    value={drugHeaderNote} 
+                  <input
+                    type="text"
+                    value={drugHeaderNote}
                     onChange={(e) => setDrugHeaderNote(e.target.value)}
                     placeholder="หมายเหตุท้ายชื่อรายงาน..."
-                    className="text-[10px] border border-slate-200 px-2 py-1 rounded outline-none"
+                    className="text-xs border border-slate-300 px-2.5 py-1 rounded-lg outline-none"
                   />
                 </div>
                 <DrugInventoryReportPreview
@@ -939,138 +781,59 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
                 weekItemValues={weekItemValues}
               />
             ) : (
-              /* Equipment Table (14 Columns) */
-              <div className="w-full">
-                <div className="text-center mb-6">
-                  <h2 className="text-[18px] font-bold text-black mb-1">{mainDocHeading}</h2>
-                  <p className="text-[14px] text-black">ณ วันที่ {formatThaiDate(displayDate)}</p>
-                </div>
-
-                <div className="flex justify-between items-center mb-4 text-[13px] font-bold">
-                  <div className="text-black">{cleanClinicName}</div>
-                  <div className="flex gap-6 text-black">
-                    <span>วัน, เดือน, ปี ที่สำรวจ: {formatThaiDate(displayDate)}</span>
-                    {displayInspector && <span>ผู้ตรวจ: {displayInspector}</span>}
-                  </div>
-                </div>
-
-                <div style={{ width: '100%', overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
-                  <table style={{ width: '100%', minWidth: '950px', tableLayout: 'auto', borderCollapse: 'collapse', fontSize: '11px', border: '1px solid #000000' }}>
-                    <thead>
-                      <tr className="bg-slate-50 text-black font-bold">
-                        <th rowSpan={2} style={{ border: '1px solid #000000', padding: '6px 4px', textAlign: 'center', width: '35px' }}>ลำดับที่</th>
-                        <th rowSpan={2} style={{ border: '1px solid #000000', padding: '6px 4px', textAlign: 'center', width: '100px' }}>หมายเลขพัสดุ</th>
-                        <th rowSpan={2} style={{ border: '1px solid #000000', padding: '6px 4px', textAlign: 'center', width: '100px' }}>รหัสสินทรัพย์ SAP</th>
-                        <th rowSpan={2} style={{ border: '1px solid #000000', padding: '8px 6px', textAlign: 'left', minWidth: '160px' }}>รายการ</th>
-                        <th rowSpan={2} style={{ border: '1px solid #000000', padding: '8px 6px', textAlign: 'left', minWidth: '140px' }}>มาตรฐานและคุณลักษณะเฉพาะ</th>
-                        <th rowSpan={2} style={{ border: '1px solid #000000', padding: '6px 4px', textAlign: 'center', width: '80px' }}>แหล่งเงินที่ได้มา</th>
-                        <th rowSpan={2} style={{ border: '1px solid #000000', padding: '6px 4px', textAlign: 'center', width: '90px' }}>ว/ด/ป ที่ได้มา</th>
-                        <th rowSpan={2} style={{ border: '1px solid #000000', padding: '6px 4px', textAlign: 'center', width: '40px' }}>จำนวน</th>
-                        <th rowSpan={2} style={{ border: '1px solid #000000', padding: '6px 4px', textAlign: 'center', width: '40px' }}>อัตราภาษี (%)</th>
-                        <th rowSpan={2} style={{ border: '1px solid #000000', padding: '6px 4px', textAlign: 'center', width: '80px' }}>ราคา (รวมภาษี)</th>
-                        <th rowSpan={2} style={{ border: '1px solid #000000', padding: '6px 4px', textAlign: 'center', width: '90px' }}>สถานที่ตั้ง / ชั้น / ห้อง</th>
-                        <th colSpan={3} style={{ border: '1px solid #000000', padding: '4px', textAlign: 'center' }}>ผลการตรวจสอบ</th>
-                      </tr>
-                      <tr className="bg-slate-50 text-black font-bold">
-                        <th style={{ border: '1px solid #000000', padding: '4px', width: '55px', textAlign: 'center' }}>ใช้งานได้</th>
-                        <th style={{ border: '1px solid #000000', padding: '4px', width: '55px', textAlign: 'center' }}>ชำรุด ใช้งานไม่ได้</th>
-                        <th style={{ border: '1px solid #000000', padding: '4px', width: '55px', textAlign: 'center' }}>ไม่พบ</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {activeItems.map((item, idx) => {
-                        const isOk = item.res?.includes('ใช้งานได้');
-                        const isBad = item.res?.includes('ไม่ได้');
-                        const isMiss = item.res?.includes('ไม่พบ');
-                        return (
-                          <tr key={idx} className="text-black">
-                            <td style={{ border: '1px solid #000000', padding: '6px 4px', textAlign: 'center' }}>{idx + 1}</td>
-                            <td style={{ border: '1px solid #000000', padding: '6px 4px', textAlign: 'center', fontFamily: 'monospace', fontSize: '10px' }}>{item.code || '-'}</td>
-                            <td style={{ border: '1px solid #000000', padding: '6px 4px', textAlign: 'center', fontFamily: 'monospace', fontSize: '10px' }}>{item.sap || '-'}</td>
-                            <td style={{ border: '1px solid #000000', padding: '6px 8px', textAlign: 'left', wordBreak: 'keep-all' }}>{item.name}</td>
-                            <td style={{ border: '1px solid #000000', padding: '6px 8px', textAlign: 'left', fontSize: '10px', wordBreak: 'keep-all' }}>{item.spec || '-'}</td>
-                            <td style={{ border: '1px solid #000000', padding: '6px 4px', textAlign: 'center', fontSize: '10px' }}>{item.source || '-'}</td>
-                            <td style={{ border: '1px solid #000000', padding: '6px 4px', textAlign: 'center', fontSize: '10px' }}>{formatAcquiredDate(item.date)}</td>
-                            <td style={{ border: '1px solid #000000', padding: '6px 4px', textAlign: 'center' }}>{formatRealQuantity(item.qty, item.name, item.spec)}</td>
-                            <td style={{ border: '1px solid #000000', padding: '6px 4px', textAlign: 'center' }}>{item.tax || '7'}</td>
-                            <td style={{ border: '1px solid #000000', padding: '6px 4px', textAlign: 'right' }}>{item.price || '-'}</td>
-                            <td style={{ border: '1px solid #000000', padding: '6px 4px', textAlign: 'center', fontSize: '10px' }}>{item.location || '-'}</td>
-                            <td style={{ border: '1px solid #000000', padding: '4px', textAlign: 'center', color: '#15803d', fontWeight: 'bold', fontSize: '14px' }}>{isOk ? '✓' : ''}</td>
-                            <td style={{ border: '1px solid #000000', padding: '4px', textAlign: 'center', color: '#b91c1c', fontWeight: 'bold', fontSize: '14px' }}>{isBad ? '✓' : ''}</td>
-                            <td style={{ border: '1px solid #000000', padding: '4px', textAlign: 'center', color: '#b45309', fontWeight: 'bold', fontSize: '14px' }}>{isMiss ? '✓' : ''}</td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-
-                <div className="mt-12 flex justify-around text-[14px]">
-                  <div className="text-center">
-                    <div className="h-16 flex items-end justify-center mb-2">
-                      {userSignature && <img src={userSignature} style={{ maxHeight: '60px', maxWidth: '160px', objectFit: 'contain' }} alt="signature" />}
-                    </div>
-                    <p className="font-bold">ลงชื่อ .................................................... ผู้ตรวจสอบ</p>
-                    <p className="mt-1">({displayInspector || '....................................................'})</p>
-                  </div>
-                  <div className="text-center">
-                    <div className="h-16" />
-                    <p className="font-bold">ลงชื่อ .................................................... หัวหน้างาน</p>
-                    <p className="mt-1">(....................................................)</p>
-                  </div>
-                </div>
-              </div>
+              <EquipmentReportPreview
+                items={activeItems}
+                date={displayDate}
+                inspector={displayInspector}
+                signature={userSignature}
+                clinicName={cleanClinicName}
+                mainDocHeading={mainDocHeading}
+              />
             )}
           </div>
+        );
+      })()}
         </div>
 
-        {/* Modal Footer Controls removed as per request */}
-      </div>
-
-      {/* Delete Confirmation Modal */}
-      {recordToDelete && (
-        <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
-          <div className="bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl animate-in zoom-in-95">
-            <div className="w-12 h-12 rounded-full bg-rose-100 flex items-center justify-center text-rose-600 mb-4">
-              <Trash2 className="w-6 h-6" />
-            </div>
-            <h3 className="text-lg font-bold text-slate-900 mb-2">ยืนยันการลบประวัติ?</h3>
-            <p className="text-sm text-slate-600 mb-6">
-              คุณกำลังจะลบประวัติการตรวจรอบ "{recordToDelete.title || recordToDelete.timestamp}" ออกจากระบบถาวร ไม่สามารถกู้คืนได้
-            </p>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setRecordToDelete(null)}
-                className="flex-1 px-4 py-2.5 rounded-xl bg-slate-100 text-slate-700 font-bold text-sm"
-              >
-                ยกเลิก
-              </button>
-              <button
-                onClick={handleConfirmDeleteCurrentRecord}
-                className="flex-1 px-4 py-2.5 rounded-xl bg-rose-600 text-white font-bold text-sm"
-              >
-                ยืนยันการลบ
-              </button>
+        {/* Delete Confirmation Modal */}
+        {recordToDelete && (
+          <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
+            <div className="bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl animate-in zoom-in-95">
+              <div className="w-12 h-12 rounded-full bg-rose-100 flex items-center justify-center text-rose-600 mb-4">
+                <Trash2 className="w-6 h-6" />
+              </div>
+              <h3 className="text-lg font-bold text-slate-900 mb-2">ยืนยันการลบประวัติ?</h3>
+              <p className="text-sm text-slate-600 mb-6">
+                คุณกำลังจะลบประวัติการตรวจรอบ "{recordToDelete.title || recordToDelete.timestamp}" ออกจากระบบถาวร ไม่สามารถกู้คืนได้
+              </p>
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setRecordToDelete(null)}
+                  className="flex-1 px-4 py-2.5 rounded-xl bg-slate-100 text-slate-700 font-bold text-sm cursor-pointer"
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmDeleteCurrentRecord}
+                  className="flex-1 px-4 py-2.5 rounded-xl bg-rose-600 text-white font-bold text-sm cursor-pointer"
+                >
+                  ยืนยันการลบ
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
       <style>{`
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-        
+
         @media print {
-          .fixed, .sticky, button, .modal-footer, header, footer { display: none !important; }
+          .no-print, button, select, header, footer { display: none !important; }
           body, html { background: #fff !important; margin: 0 !important; padding: 0 !important; }
-          .paper-preview { 
-            box-shadow: none !important; 
-            margin: 0 !important; 
-            padding: 0 !important; 
-            width: 100% !important; 
-            max-width: none !important; 
-            min-width: 0 !important;
-          }
         }
       `}</style>
     </div>

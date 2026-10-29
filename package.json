@@ -3,9 +3,13 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "engines": {
+    "node": ">=22.0.0"
+  },
   "scripts": {
     "dev": "tsx server.ts",
     "build": "vite build",
+    "gcp-build": "vite build",
     "start": "node server.ts",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
@@ -31,7 +35,9 @@
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
     "swiper": "^14.3.0",
+    "tailwindcss": "^4.3.3",
     "tsx": "^4.21.0",
+    "typescript": "^7.0.2",
     "vite": "^8.3.0",
     "xlsx": "^0.18.5"
   },
