@@ -102,10 +102,9 @@ export const DrugInventoryReportPreview: React.FC<DrugInventoryReportPreviewProp
 
   return (
     <div
-      className="a4-page-sheet a4-print-container paper-preview sheet-preview isolate !bg-white !text-black"
+      className="a4-page-sheet a4-print-container paper-preview sheet-preview isolate !bg-white !text-black flex flex-col justify-between"
       style={{
         width: '100%',
-        maxWidth: '900px',
         margin: '0 auto',
         padding: '16px',
         boxSizing: 'border-box',
@@ -115,6 +114,8 @@ export const DrugInventoryReportPreview: React.FC<DrugInventoryReportPreviewProp
         backgroundColor: '#ffffff !important',
         color: '#000000 !important',
         fontFamily: "'TH Sarabun PSK', 'Sarabun', Tahoma, sans-serif",
+        minHeight: '1160px',
+        height: '100%',
       }}
     >
       <style>{`
@@ -435,7 +436,7 @@ export const DrugInventoryReportPreview: React.FC<DrugInventoryReportPreviewProp
       </div>
 
       {/* Signature Area */}
-      <div className="mt-8 pt-4 border-t border-slate-200 flex justify-between text-sm" style={{ fontSize: '11pt', color: '#000000 !important', backgroundColor: '#ffffff !important', background: '#ffffff !important', display: 'flex', justifyContent: 'space-around', width: '100%', marginTop: '32px' }}>
+      <div className="mt-auto pt-12 border-t border-slate-200 flex justify-between text-sm" style={{ fontSize: '11pt', color: '#000000 !important', backgroundColor: '#ffffff !important', background: '#ffffff !important', display: 'flex', justifyContent: 'space-around', width: '100%', marginTop: 'auto', paddingTop: '48px' }}>
         <div className="text-center flex flex-col items-center" style={{ textAlign: 'center' }}>
           {signature ? (
             <div className="h-12 flex items-end justify-center mb-1">

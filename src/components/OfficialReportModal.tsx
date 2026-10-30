@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Printer,
   X,
@@ -218,6 +218,11 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
 
   const [weekItemValues] = useState<{ [itemKey: string]: { [week: number]: string } }>({});
 
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const sheetRef = useRef<HTMLDivElement>(null);
+  const [modalContentWidth, setModalContentWidth] = useState<number>(typeof window !== 'undefined' ? window.innerWidth : 1200);
+  const [sheetHeight, setSheetHeight] = useState<number>(1280);
+
   useEffect(() => {
     if (initialCategory) {
       setSelectedCategory(initialCategory);
@@ -228,6 +233,34 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
     setSelectedRoundId('current');
     setFeedback(null);
   }, [initialCategory, initialDrugSubCategory, isOpen]);
+
+  // Window resize & container size observer for accurate scale calculation
+  useEffect(() => {
+    const updateSize = () => {
+      if (scrollContainerRef.current) {
+        setModalContentWidth(scrollContainerRef.current.clientWidth);
+      } else if (typeof window !== 'undefined') {
+        setModalContentWidth(window.innerWidth);
+      }
+      if (sheetRef.current) {
+        setSheetHeight(sheetRef.current.offsetHeight);
+      }
+    };
+
+    updateSize();
+    window.addEventListener('resize', updateSize);
+    return () => window.removeEventListener('resize', updateSize);
+  }, [isOpen, selectedCategory, isFullscreen, isFitToScreen]);
+
+  // Update sheet height after re-render of report contents
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (sheetRef.current) {
+        setSheetHeight(sheetRef.current.offsetHeight);
+      }
+    }, 120);
+    return () => clearTimeout(timer);
+  }, [selectedCategory, selectedRoundId, drugSubCategory, isFullscreen]);
 
   const resolvedDrugs: DrugItem[] = useMemo(() => {
     if (propDrugs && propDrugs.length > 0) return propDrugs;
@@ -337,6 +370,11 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
   }, [currentUser]);
 
   if (!isOpen) return null;
+
+  // Base Paper Width for clean A4 printing without font reflow
+  const basePaperWidth = selectedCategory === 'eq' ? 1080 : 940;
+  const availableContentWidth = Math.max(280, modalContentWidth - 32);
+  const scaleFactor = isFitToScreen ? Math.min(1, availableContentWidth / basePaperWidth) : 1;
 
   const handlePrintPdf = () => {
     setIsPrinting(true);
@@ -540,10 +578,10 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
       <div
         style={{
           width: '100%',
-          maxWidth: isFullscreen ? '100%' : '900px',
-          height: isFullscreen ? '98vh' : '90vh',
+          maxWidth: isFullscreen ? '100%' : '1240px',
+          height: isFullscreen ? '98vh' : '92vh',
           background: '#f8fafc',
-          borderRadius: '16px',
+          borderRadius: '20px',
           display: 'flex',
           flexDirection: 'column',
           overflow: 'hidden',
@@ -569,7 +607,7 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
                   }}
                   className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer active:scale-95 whitespace-nowrap ${
                     selectedCategory === cat.id
-                      ? 'bg-[#3B82F6] text-white shadow-md'
+                      ? 'bg-blue-600 text-white shadow-md'
                       : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                   }`}
                 >
@@ -611,7 +649,7 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
                 type="button"
                 onClick={() => setIsFullscreen(!isFullscreen)}
                 className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition cursor-pointer"
-                title="เต็มหน้าจอ"
+                title={isFullscreen ? 'ย่อหน้าจอ' : 'เต็มหน้าจอ'}
               >
                 <Maximize2 size={16} />
               </button>
@@ -624,10 +662,10 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
                     ? 'bg-purple-600 hover:bg-purple-700 text-white'
                     : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200'
                 }`}
-                title={isFitToScreen ? 'ยกเลิก Fit to Screen (แสดงขนาดจริง)' : 'ปรับขนาดพอดีหน้าจอ (Fit to Screen)'}
+                title={isFitToScreen ? 'แสดงขนาดจริง 100%' : 'ปรับขนาดพอดีหน้าจอ'}
               >
                 <Scaling className="w-3.5 h-3.5" />
-                <span>{isFitToScreen ? 'ขนาดจริง 100%' : '⤢ พอดีหน้าจอ'}</span>
+                <span>{isFitToScreen ? '⤢ พอดีหน้าจอ' : 'ขนาดจริง 100%'}</span>
               </button>
 
               <button
@@ -648,7 +686,7 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
                 type="button"
                 onClick={handlePrintPdf}
                 disabled={isPrinting}
-                className="flex items-center gap-1.5 px-3.5 py-1.5 bg-[#3B82F6] hover:bg-blue-600 text-white text-xs font-bold rounded-xl shadow-md transition cursor-pointer active:scale-95 disabled:opacity-50"
+                className="flex items-center gap-1.5 px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-md transition cursor-pointer active:scale-95 disabled:opacity-50"
               >
                 {isPrinting ? (
                   <RefreshCw className="w-3.5 h-3.5 animate-spin" />
@@ -682,120 +720,124 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
           )}
         </div>
 
-        {/* Printable Area Content Wrapper */}
+        {/* Printable Area Content Scrollable Wrapper */}
         <div
+          ref={scrollContainerRef}
           style={{
             flex: 1,
-            overflow: 'hidden',
+            overflowX: isFitToScreen ? 'hidden' : 'auto',
+            overflowY: 'auto',
             padding: '16px',
             WebkitOverflowScrolling: 'touch',
+            background: '#e2e8f0',
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
-            background: '#f8fafc',
+            width: '100%',
+            boxSizing: 'border-box',
           }}
         >
-          {/* Helpful Print Guidance Banner */}
+          {/* Print Guidance Banner */}
           <div className="w-full max-w-[1080px] bg-blue-50 border border-blue-200 text-blue-900 px-3 py-2 rounded-xl text-xs font-semibold mb-3 flex items-center justify-between no-print shrink-0">
-            <span>💡 <b>คำแนะนำ:</b> ในมือถือ ให้เลือกการจัดวางเป็น <b>"แนวนอน" (Landscape)</b> ในหน้าต่างบันทึก PDF เพื่อตาราง A4 ที่สมบูรณ์แบบที่สุด</span>
+            <span>💡 <b>คำแนะนำ:</b> แนะนำเลือกการจัดวางเป็น <b>"แนวนอน" (Landscape)</b> ในหน้าต่างพิมพ์ PDF เพื่อตารางรายงาน A4 ที่สมบูรณ์แบบที่สุด</span>
           </div>
 
-          {/* Printable A4 Paper Sheet Container (With Dynamic Fit-to-Screen Toggle) */}
+          {/* Scaled A4 Paper Holder (Exact PDF zoom behavior without responsive re-flow) */}
           <div
             style={{
-              width: '100%',
-              display: 'flex',
-              justifyContent: 'center',
-              padding: isFitToScreen ? '0' : '20px 0',
-              overflow: 'hidden',
+              width: isFitToScreen ? `${basePaperWidth * scaleFactor}px` : `${basePaperWidth}px`,
+              height: isFitToScreen ? `${sheetHeight * scaleFactor}px` : 'auto',
+              position: 'relative',
+              margin: '0 auto',
+              transition: 'width 0.15s ease, height 0.15s ease',
+              boxSizing: 'border-box',
             }}
           >
             <div
+              ref={sheetRef}
               style={{
-                width: '900px', // Native A4 container width
-                transform: isFitToScreen 
-                  ? `scale(min(1, ${(typeof window !== 'undefined' ? window.innerWidth - 32 : 800) / 900}))`
-                  : 'none',
-                transformOrigin: 'top center',
+                width: `${basePaperWidth}px`,
+                transform: isFitToScreen ? `scale(${scaleFactor})` : 'none',
+                transformOrigin: 'top left',
                 background: '#ffffff',
-                borderRadius: '12px',
-                boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
-                margin: isFitToScreen ? '0 auto' : '0 auto',
+                borderRadius: '8px',
+                boxShadow: '0 4px 20px rgba(0,0,0,0.12)',
                 boxSizing: 'border-box',
-                padding: '20px',
-                minHeight: '1200px',
+                padding: '24px 28px',
+                minHeight: '1240px',
                 display: 'flex',
                 flexDirection: 'column',
                 justifyContent: 'space-between',
+                color: '#000000',
               }}
             >
-            {/* Unified Report Content Switcher */}
-            {selectedCategory === 'drug' ? (
-              <div className="space-y-4">
-                <div className="flex items-center justify-between mb-4 border-b pb-3 no-print flex-wrap gap-2">
-                  <div className="flex gap-1.5 flex-wrap">
-                    {['all', 'monthly', 'quarterly', 'adhoc'].map((sub) => (
-                      <button
-                        key={sub}
-                        type="button"
-                        onClick={() => setDrugSubCategory(sub as any)}
-                        className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition cursor-pointer ${
-                          drugSubCategory === sub
-                            ? 'bg-slate-800 text-white'
-                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                        }`}
-                      >
-                        {sub === 'all'
-                          ? 'ทั้งหมด'
-                          : sub === 'monthly'
-                          ? 'รายเดือน'
-                          : sub === 'quarterly'
-                          ? '3 เดือน'
-                          : 'ครั้งคราว'}
-                      </button>
-                    ))}
+              {/* Unified Report Content Switcher */}
+              {selectedCategory === 'drug' ? (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between mb-4 border-b pb-3 no-print flex-wrap gap-2">
+                    <div className="flex gap-1.5 flex-wrap">
+                      {['all', 'monthly', 'quarterly', 'adhoc'].map((sub) => (
+                        <button
+                          key={sub}
+                          type="button"
+                          onClick={() => setDrugSubCategory(sub as any)}
+                          className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition cursor-pointer ${
+                            drugSubCategory === sub
+                              ? 'bg-slate-800 text-white'
+                              : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                          }`}
+                        >
+                          {sub === 'all'
+                            ? 'ทั้งหมด'
+                            : sub === 'monthly'
+                            ? 'รายเดือน'
+                            : sub === 'quarterly'
+                            ? '3 เดือน'
+                            : 'ครั้งคราว'}
+                        </button>
+                      ))}
+                    </div>
+                    <input
+                      type="text"
+                      value={drugHeaderNote}
+                      onChange={(e) => setDrugHeaderNote(e.target.value)}
+                      placeholder="หมายเหตุท้ายชื่อรายงาน..."
+                      className="text-xs border border-slate-300 px-2.5 py-1 rounded-lg outline-none"
+                    />
                   </div>
-                  <input
-                    type="text"
-                    value={drugHeaderNote}
-                    onChange={(e) => setDrugHeaderNote(e.target.value)}
-                    placeholder="หมายเหตุท้ายชื่อรายงาน..."
-                    className="text-xs border border-slate-300 px-2.5 py-1 rounded-lg outline-none"
+                  <DrugInventoryReportPreview
+                    drugs={resolvedDrugs}
+                    date={displayDate}
+                    inspector={displayInspector}
+                    signature={userSignature}
+                    clinicName={cleanClinicName}
+                    subCategory={drugSubCategory}
+                    headerNote={drugHeaderNote}
                   />
                 </div>
-                <DrugInventoryReportPreview
-                  drugs={resolvedDrugs}
+              ) : selectedCategory === 'bag' || selectedCategory === 'cart' ? (
+                <EmergencyChecklistReportPreview
+                  type={selectedCategory}
+                  items={activeItems}
+                  date={displayDate}
+                  inspector={displayInspector}
+                  signature={userSignature}
+                  agencyName={cleanClinicName}
+                  weekItemValues={weekItemValues}
+                />
+              ) : (
+                <EquipmentReportPreview
+                  items={activeItems}
                   date={displayDate}
                   inspector={displayInspector}
                   signature={userSignature}
                   clinicName={cleanClinicName}
-                  subCategory={drugSubCategory}
-                  headerNote={drugHeaderNote}
+                  mainDocHeading={mainDocHeading}
                 />
-              </div>
-            ) : selectedCategory === 'bag' || selectedCategory === 'cart' ? (
-              <EmergencyChecklistReportPreview
-                type={selectedCategory}
-                items={activeItems}
-                date={displayDate}
-                inspector={displayInspector}
-                signature={userSignature}
-                agencyName={cleanClinicName}
-                weekItemValues={weekItemValues}
-              />
-            ) : (
-              <EquipmentReportPreview
-                items={activeItems}
-                date={displayDate}
-                inspector={displayInspector}
-                signature={userSignature}
-                clinicName={cleanClinicName}
-                mainDocHeading={mainDocHeading}
-              />
-            )}
+              )}
+            </div>
           </div>
         </div>
-      </div>
 
         {/* Delete Confirmation Modal */}
         {recordToDelete && (

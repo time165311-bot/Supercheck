@@ -1,6 +1,5 @@
 import React from 'react';
 import { OfficialReportItemRow, formatAcquiredDate, formatThaiDate, formatRealQuantity } from './OfficialReportModal';
-import { Calendar, User as UserIcon } from 'lucide-react';
 
 export interface EquipmentReportPreviewProps {
   items: OfficialReportItemRow[];
@@ -20,75 +19,102 @@ export const EquipmentReportPreview: React.FC<EquipmentReportPreviewProps> = ({
   mainDocHeading = 'ทะเบียนรายการครุภัณฑ์และอุปกรณ์',
 }) => {
   return (
-    <div className="w-full">
-      <div className="text-center mb-6" style={{ overflow: 'visible', height: 'auto', textAlign: 'center', width: '100%', margin: '0 auto 12px auto' }}>
-        <h2 className="text-[18px] font-bold text-black mb-1" style={{ lineHeight: '1.4', overflow: 'visible', fontWeight: 'bold' }}>{mainDocHeading}</h2>
-        <p className="text-[14px] text-black" style={{ lineHeight: '1.4', overflow: 'visible' }}>ณ วันที่ {formatThaiDate(surveyDate)}</p>
-      </div>
+    <div className="w-full flex flex-col justify-between" style={{ minHeight: '1200px', height: '100%', boxSizing: 'border-box' }}>
+      {/* Top Document Content */}
+      <div className="flex-1 w-full">
+        {/* Document Header */}
+        <div className="text-center mb-4" style={{ textAlign: 'center', width: '100%', margin: '0 auto 10px auto' }}>
+          <h2 className="text-[18px] font-bold text-black mb-1" style={{ lineHeight: '1.4', fontWeight: 'bold' }}>
+            {mainDocHeading}
+          </h2>
+          <p className="text-[14px] text-black" style={{ lineHeight: '1.4' }}>
+            ณ วันที่ {formatThaiDate(surveyDate)}
+          </p>
+        </div>
 
-      <div className="flex justify-between items-center mb-4 text-[12px] font-bold" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', marginBottom: '10px', fontSize: '12px', overflow: 'visible', height: 'auto' }}>
-        <div className="text-black" style={{ lineHeight: '1.4' }}>{clinicName}</div>
-        <div className="flex gap-6 text-black" style={{ lineHeight: '1.4', display: 'flex', gap: '24px' }}>
-          <span>วัน, เดือน, ปี ที่สำรวจ: {formatThaiDate(surveyDate)}</span>
-          {inspector && <span>ผู้ตรวจ: {inspector}</span>}
+        {/* Clinic & Inspector Meta */}
+        <div className="flex justify-between items-center mb-3 text-[12px] font-bold" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', marginBottom: '10px', fontSize: '12px' }}>
+          <div className="text-black" style={{ lineHeight: '1.4' }}>{clinicName}</div>
+          <div className="flex gap-6 text-black" style={{ lineHeight: '1.4', display: 'flex', gap: '24px' }}>
+            <span>วัน, เดือน, ปี ที่สำรวจ: {formatThaiDate(surveyDate)}</span>
+            {inspector && <span>ผู้ตรวจ: {inspector}</span>}
+          </div>
+        </div>
+
+        {/* Table Container */}
+        <div style={{ width: '100%', overflowX: 'auto', WebkitOverflowScrolling: 'touch', boxSizing: 'border-box' }}>
+          <table style={{ width: '100%', minWidth: '1060px', tableLayout: 'fixed', borderCollapse: 'collapse', margin: '0 auto', fontSize: '11px', border: '1px solid #000000' }}>
+            <thead>
+              <tr className="bg-slate-50 text-black font-bold">
+                <th rowSpan={2} style={{ border: '1px solid #000000', padding: '6px 2px', textAlign: 'center', width: '38px', lineHeight: '1.3', whiteSpace: 'nowrap', wordBreak: 'keep-all', fontSize: '11px', verticalAlign: 'middle' }}>ลำดับที่</th>
+                <th rowSpan={2} style={{ border: '1px solid #000000', padding: '6px 2px', textAlign: 'center', width: '105px', lineHeight: '1.3', whiteSpace: 'nowrap', wordBreak: 'keep-all', fontSize: '11px', verticalAlign: 'middle' }}>หมายเลขพัสดุ</th>
+                <th rowSpan={2} style={{ border: '1px solid #000000', padding: '6px 2px', textAlign: 'center', width: '95px', lineHeight: '1.3', whiteSpace: 'nowrap', wordBreak: 'keep-all', fontSize: '11px', verticalAlign: 'middle' }}>รหัสสินทรัพย์ SAP</th>
+                <th rowSpan={2} style={{ border: '1px solid #000000', padding: '6px 4px', textAlign: 'left', width: '165px', lineHeight: '1.3', whiteSpace: 'normal', wordBreak: 'keep-all', fontSize: '11px', verticalAlign: 'middle' }}>รายการ</th>
+                <th rowSpan={2} style={{ border: '1px solid #000000', padding: '6px 4px', textAlign: 'left', width: '145px', lineHeight: '1.3', whiteSpace: 'normal', wordBreak: 'keep-all', fontSize: '11px', verticalAlign: 'middle' }}>มาตรฐานและคุณลักษณะเฉพาะ</th>
+                <th rowSpan={2} style={{ border: '1px solid #000000', padding: '6px 2px', textAlign: 'center', width: '85px', lineHeight: '1.3', whiteSpace: 'normal', wordBreak: 'keep-all', fontSize: '11px', verticalAlign: 'middle' }}>แหล่งเงินที่ได้มา</th>
+                <th rowSpan={2} style={{ border: '1px solid #000000', padding: '6px 2px', textAlign: 'center', width: '85px', lineHeight: '1.3', whiteSpace: 'nowrap', wordBreak: 'keep-all', fontSize: '11px', verticalAlign: 'middle' }}>ว/ด/ป ที่ได้มา</th>
+                <th rowSpan={2} style={{ border: '1px solid #000000', padding: '6px 2px', textAlign: 'center', width: '38px', lineHeight: '1.3', whiteSpace: 'nowrap', wordBreak: 'keep-all', fontSize: '11px', verticalAlign: 'middle' }}>จำนวน</th>
+                <th rowSpan={2} style={{ border: '1px solid #000000', padding: '6px 2px', textAlign: 'center', width: '42px', lineHeight: '1.3', whiteSpace: 'nowrap', wordBreak: 'keep-all', fontSize: '11px', verticalAlign: 'middle' }}>อัตราภาษี (%)</th>
+                <th rowSpan={2} style={{ border: '1px solid #000000', padding: '6px 2px', textAlign: 'right', width: '75px', lineHeight: '1.3', whiteSpace: 'nowrap', wordBreak: 'keep-all', fontSize: '11px', verticalAlign: 'middle' }}>ราคา (รวมภาษี)</th>
+                <th rowSpan={2} style={{ border: '1px solid #000000', padding: '6px 2px', textAlign: 'center', width: '92px', lineHeight: '1.3', whiteSpace: 'normal', wordBreak: 'keep-all', fontSize: '11px', verticalAlign: 'middle' }}>สถานที่ตั้ง / ชั้น / ห้อง</th>
+                <th colSpan={3} style={{ border: '1px solid #000000', padding: '6px 2px', textAlign: 'center', lineHeight: '1.3', whiteSpace: 'nowrap', wordBreak: 'keep-all', fontSize: '11px', verticalAlign: 'middle' }}>ผลการตรวจสอบ</th>
+              </tr>
+              <tr className="bg-slate-50 text-black font-bold">
+                <th style={{ border: '1px solid #000000', padding: '4px 2px', width: '46px', textAlign: 'center', lineHeight: '1.2', whiteSpace: 'nowrap', wordBreak: 'keep-all', fontSize: '10.5px', verticalAlign: 'middle' }}>ใช้งานได้</th>
+                <th style={{ border: '1px solid #000000', padding: '4px 2px', width: '58px', textAlign: 'center', lineHeight: '1.2', whiteSpace: 'nowrap', wordBreak: 'keep-all', fontSize: '10.5px', verticalAlign: 'middle' }}>ชำรุด ใช้งานไม่ได้</th>
+                <th style={{ border: '1px solid #000000', padding: '4px 2px', width: '42px', textAlign: 'center', lineHeight: '1.2', whiteSpace: 'nowrap', wordBreak: 'keep-all', fontSize: '10.5px', verticalAlign: 'middle' }}>ไม่พบ</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((item, idx) => {
+                const isOk = item.res?.includes('ใช้งานได้');
+                const isBad = item.res?.includes('ไม่ได้');
+                const isMiss = item.res?.includes('ไม่พบ');
+                return (
+                  <tr key={idx} className="text-black">
+                    <td style={{ border: '1px solid #000000', padding: '6px 2px', textAlign: 'center', width: '38px', lineHeight: '1.3', whiteSpace: 'nowrap', fontSize: '11px', verticalAlign: 'middle' }}>{idx + 1}</td>
+                    <td style={{ border: '1px solid #000000', padding: '6px 2px', textAlign: 'center', width: '105px', fontFamily: 'monospace', fontSize: '10px', lineHeight: '1.3', whiteSpace: 'normal', wordBreak: 'break-all', verticalAlign: 'middle' }}>{item.code || '-'}</td>
+                    <td style={{ border: '1px solid #000000', padding: '6px 2px', textAlign: 'center', width: '95px', fontFamily: 'monospace', fontSize: '10px', lineHeight: '1.3', whiteSpace: 'normal', wordBreak: 'break-all', verticalAlign: 'middle' }}>{item.sap || '-'}</td>
+                    <td style={{ border: '1px solid #000000', padding: '6px 4px', textAlign: 'left', width: '165px', wordBreak: 'keep-all', whiteSpace: 'normal', lineHeight: '1.3', fontSize: '11px', verticalAlign: 'middle' }}>{item.name}</td>
+                    <td style={{ border: '1px solid #000000', padding: '6px 4px', textAlign: 'left', width: '145px', fontSize: '10.5px', wordBreak: 'keep-all', whiteSpace: 'normal', lineHeight: '1.3', verticalAlign: 'middle' }}>{item.spec || '-'}</td>
+                    <td style={{ border: '1px solid #000000', padding: '6px 2px', textAlign: 'center', width: '85px', fontSize: '10.5px', wordBreak: 'keep-all', whiteSpace: 'normal', lineHeight: '1.3', verticalAlign: 'middle' }}>{item.source || '-'}</td>
+                    <td style={{ border: '1px solid #000000', padding: '6px 2px', textAlign: 'center', width: '85px', fontSize: '10.5px', whiteSpace: 'nowrap', lineHeight: '1.3', verticalAlign: 'middle' }}>{formatAcquiredDate(item.date)}</td>
+                    <td style={{ border: '1px solid #000000', padding: '6px 2px', textAlign: 'center', width: '38px', lineHeight: '1.3', whiteSpace: 'nowrap', fontSize: '11px', verticalAlign: 'middle' }}>{formatRealQuantity(item.qty, item.name, item.spec)}</td>
+                    <td style={{ border: '1px solid #000000', padding: '6px 2px', textAlign: 'center', width: '42px', lineHeight: '1.3', whiteSpace: 'nowrap', fontSize: '11px', verticalAlign: 'middle' }}>{item.tax || '7'}</td>
+                    <td style={{ border: '1px solid #000000', padding: '6px 2px', textAlign: 'right', width: '75px', lineHeight: '1.3', whiteSpace: 'nowrap', fontSize: '11px', verticalAlign: 'middle' }}>{item.price || '-'}</td>
+                    <td style={{ border: '1px solid #000000', padding: '6px 2px', textAlign: 'center', width: '92px', fontSize: '10.5px', lineHeight: '1.3', whiteSpace: 'normal', wordBreak: 'keep-all', verticalAlign: 'middle' }}>{item.location || '-'}</td>
+                    <td style={{ border: '1px solid #000000', padding: '4px', textAlign: 'center', width: '46px', color: '#15803d', fontWeight: 'bold', fontSize: '14px', lineHeight: '1.3', verticalAlign: 'middle' }}>{isOk ? '✓' : ''}</td>
+                    <td style={{ border: '1px solid #000000', padding: '4px', textAlign: 'center', width: '58px', color: '#b91c1c', fontWeight: 'bold', fontSize: '14px', lineHeight: '1.3', verticalAlign: 'middle' }}>{isBad ? '✓' : ''}</td>
+                    <td style={{ border: '1px solid #000000', padding: '4px', textAlign: 'center', width: '42px', color: '#b45309', fontWeight: 'bold', fontSize: '14px', lineHeight: '1.3', verticalAlign: 'middle' }}>{isMiss ? '✓' : ''}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       </div>
 
-      <div style={{ width: '100%', overflowX: 'auto', WebkitOverflowScrolling: 'touch', boxSizing: 'border-box' }}>
-        <table style={{ width: '100%', minWidth: '1080px', tableLayout: 'fixed', borderCollapse: 'collapse', margin: '0 auto', fontSize: '11px', border: '1px solid #000000' }}>
-          <thead>
-            <tr className="bg-slate-50 text-black font-bold">
-              <th rowSpan={2} style={{ border: '1px solid #000000', padding: '6px 2px', textAlign: 'center', width: '40px', lineHeight: '1.3', whiteSpace: 'normal', wordBreak: 'keep-all', fontSize: '11px', verticalAlign: 'middle' }}>ลำดับที่</th>
-              <th rowSpan={2} style={{ border: '1px solid #000000', padding: '6px 2px', textAlign: 'center', width: '110px', lineHeight: '1.3', whiteSpace: 'normal', wordBreak: 'keep-all', fontSize: '11px', verticalAlign: 'middle' }}>หมายเลขพัสดุ</th>
-              <th rowSpan={2} style={{ border: '1px solid #000000', padding: '6px 2px', textAlign: 'center', width: '100px', lineHeight: '1.3', whiteSpace: 'normal', wordBreak: 'keep-all', fontSize: '11px', verticalAlign: 'middle' }}>รหัสสินทรัพย์ SAP</th>
-              <th rowSpan={2} style={{ border: '1px solid #000000', padding: '6px 4px', textAlign: 'left', width: '170px', lineHeight: '1.3', whiteSpace: 'normal', wordBreak: 'keep-all', fontSize: '11px', verticalAlign: 'middle' }}>รายการ</th>
-              <th rowSpan={2} style={{ border: '1px solid #000000', padding: '6px 4px', textAlign: 'left', width: '150px', lineHeight: '1.3', whiteSpace: 'normal', wordBreak: 'keep-all', fontSize: '11px', verticalAlign: 'middle' }}>มาตรฐานและคุณลักษณะเฉพาะ</th>
-              <th rowSpan={2} style={{ border: '1px solid #000000', padding: '6px 2px', textAlign: 'center', width: '90px', lineHeight: '1.3', whiteSpace: 'normal', wordBreak: 'keep-all', fontSize: '11px', verticalAlign: 'middle' }}>แหล่งเงินที่ได้มา</th>
-              <th rowSpan={2} style={{ border: '1px solid #000000', padding: '6px 2px', textAlign: 'center', width: '85px', lineHeight: '1.3', whiteSpace: 'normal', wordBreak: 'keep-all', fontSize: '11px', verticalAlign: 'middle' }}>ว/ด/ป ที่ได้มา</th>
-              <th rowSpan={2} style={{ border: '1px solid #000000', padding: '6px 2px', textAlign: 'center', width: '40px', lineHeight: '1.3', whiteSpace: 'normal', wordBreak: 'keep-all', fontSize: '11px', verticalAlign: 'middle' }}>จำนวน</th>
-              <th rowSpan={2} style={{ border: '1px solid #000000', padding: '6px 2px', textAlign: 'center', width: '45px', lineHeight: '1.3', whiteSpace: 'normal', wordBreak: 'keep-all', fontSize: '11px', verticalAlign: 'middle' }}>อัตราภาษี (%)</th>
-              <th rowSpan={2} style={{ border: '1px solid #000000', padding: '6px 2px', textAlign: 'center', width: '75px', lineHeight: '1.3', whiteSpace: 'normal', wordBreak: 'keep-all', fontSize: '11px', verticalAlign: 'middle' }}>ราคา (รวมภาษี)</th>
-              <th rowSpan={2} style={{ border: '1px solid #000000', padding: '6px 2px', textAlign: 'center', width: '95px', lineHeight: '1.3', whiteSpace: 'normal', wordBreak: 'keep-all', fontSize: '11px', verticalAlign: 'middle' }}>สถานที่ตั้ง / ชั้น / ห้อง</th>
-              <th colSpan={3} style={{ border: '1px solid #000000', padding: '6px 2px', textAlign: 'center', lineHeight: '1.3', whiteSpace: 'normal', wordBreak: 'keep-all', fontSize: '11px', verticalAlign: 'middle' }}>ผลการตรวจสอบ</th>
-            </tr>
-            <tr className="bg-slate-50 text-black font-bold">
-              <th style={{ border: '1px solid #000000', padding: '4px 2px', width: '40px', textAlign: 'center', lineHeight: '1.3', whiteSpace: 'normal', wordBreak: 'keep-all', fontSize: '11px', verticalAlign: 'middle' }}>ใช้งานได้</th>
-              <th style={{ border: '1px solid #000000', padding: '4px 2px', width: '45px', textAlign: 'center', lineHeight: '1.3', whiteSpace: 'normal', wordBreak: 'keep-all', fontSize: '11px', verticalAlign: 'middle' }}>ชำรุด ใช้งานไม่ได้</th>
-              <th style={{ border: '1px solid #000000', padding: '4px 2px', width: '40px', textAlign: 'center', lineHeight: '1.3', whiteSpace: 'normal', wordBreak: 'keep-all', fontSize: '11px', verticalAlign: 'middle' }}>ไม่พบ</th>
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((item, idx) => {
-              const isOk = item.res?.includes('ใช้งานได้');
-              const isBad = item.res?.includes('ไม่ได้');
-              const isMiss = item.res?.includes('ไม่พบ');
-              return (
-                <tr key={idx} className="text-black">
-                  <td style={{ border: '1px solid #000000', padding: '6px 2px', textAlign: 'center', width: '40px', lineHeight: '1.3', whiteSpace: 'normal', wordBreak: 'keep-all', fontSize: '11px', verticalAlign: 'middle' }}>{idx + 1}</td>
-                  <td style={{ border: '1px solid #000000', padding: '6px 2px', textAlign: 'center', width: '110px', fontFamily: 'monospace', fontSize: '10px', lineHeight: '1.3', whiteSpace: 'normal', wordBreak: 'break-all', verticalAlign: 'middle' }}>{item.code || '-'}</td>
-                  <td style={{ border: '1px solid #000000', padding: '6px 2px', textAlign: 'center', width: '100px', fontFamily: 'monospace', fontSize: '10px', lineHeight: '1.3', whiteSpace: 'normal', wordBreak: 'break-all', verticalAlign: 'middle' }}>{item.sap || '-'}</td>
-                  <td style={{ border: '1px solid #000000', padding: '6px 4px', textAlign: 'left', width: '170px', wordBreak: 'keep-all', whiteSpace: 'normal', lineHeight: '1.3', fontSize: '11px', verticalAlign: 'middle' }}>{item.name}</td>
-                  <td style={{ border: '1px solid #000000', padding: '6px 4px', textAlign: 'left', width: '150px', fontSize: '10.5px', wordBreak: 'keep-all', whiteSpace: 'normal', lineHeight: '1.3', verticalAlign: 'middle' }}>{item.spec || '-'}</td>
-                  <td style={{ border: '1px solid #000000', padding: '6px 2px', textAlign: 'center', width: '90px', fontSize: '10.5px', wordBreak: 'keep-all', whiteSpace: 'normal', lineHeight: '1.3', verticalAlign: 'middle' }}>{item.source || '-'}</td>
-                  <td style={{ border: '1px solid #000000', padding: '6px 2px', textAlign: 'center', width: '85px', fontSize: '10.5px', whiteSpace: 'nowrap', lineHeight: '1.3', verticalAlign: 'middle' }}>{formatAcquiredDate(item.date)}</td>
-                  <td style={{ border: '1px solid #000000', padding: '6px 2px', textAlign: 'center', width: '40px', lineHeight: '1.3', whiteSpace: 'normal', wordBreak: 'keep-all', fontSize: '11px', verticalAlign: 'middle' }}>{formatRealQuantity(item.qty, item.name, item.spec)}</td>
-                  <td style={{ border: '1px solid #000000', padding: '6px 2px', textAlign: 'center', width: '45px', lineHeight: '1.3', whiteSpace: 'normal', wordBreak: 'keep-all', fontSize: '11px', verticalAlign: 'middle' }}>{item.tax || '7'}</td>
-                  <td style={{ border: '1px solid #000000', padding: '6px 2px', textAlign: 'right', width: '75px', lineHeight: '1.3', whiteSpace: 'normal', wordBreak: 'keep-all', fontSize: '11px', verticalAlign: 'middle' }}>{item.price || '-'}</td>
-                  <td style={{ border: '1px solid #000000', padding: '6px 2px', textAlign: 'center', width: '95px', fontSize: '10.5px', lineHeight: '1.3', whiteSpace: 'normal', wordBreak: 'keep-all', verticalAlign: 'middle' }}>{item.location || '-'}</td>
-                  <td style={{ border: '1px solid #000000', padding: '4px', textAlign: 'center', width: '40px', color: '#15803d', fontWeight: 'bold', fontSize: '14px', lineHeight: '1.3', verticalAlign: 'middle' }}>{isOk ? '✓' : ''}</td>
-                  <td style={{ border: '1px solid #000000', padding: '4px', textAlign: 'center', width: '45px', color: '#b91c1c', fontWeight: 'bold', fontSize: '14px', lineHeight: '1.3', verticalAlign: 'middle' }}>{isBad ? '✓' : ''}</td>
-                  <td style={{ border: '1px solid #000000', padding: '4px', textAlign: 'center', width: '40px', color: '#b45309', fontWeight: 'bold', fontSize: '14px', lineHeight: '1.3', verticalAlign: 'middle' }}>{isMiss ? '✓' : ''}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-
-      <div className="mt-20 flex justify-between text-[14px]" style={{ display: 'flex', justifyContent: 'space-around', width: '100%', marginTop: '80px', pageBreakBefore: 'always' }}>
+      {/* Signature Section Pinned to Bottom of Page */}
+      <div
+        className="mt-auto pt-16 flex justify-around text-[14px]"
+        style={{
+          display: 'flex',
+          justifyContent: 'space-around',
+          width: '100%',
+          marginTop: 'auto',
+          paddingTop: '64px',
+          paddingBottom: '24px',
+        }}
+      >
         <div className="text-center" style={{ textAlign: 'center' }}>
           <div className="h-16 flex items-end justify-center mb-2">
-            {signature && <img src={signature} style={{ maxHeight: '60px', maxWidth: '160px', objectFit: 'contain' }} alt="signature" />}
+            {signature && (
+              <img
+                src={signature}
+                style={{ maxHeight: '60px', maxWidth: '160px', objectFit: 'contain' }}
+                alt="signature"
+              />
+            )}
           </div>
           <p className="font-bold">ลงชื่อ .................................................... ผู้ตรวจสอบ</p>
           <p className="mt-1">({inspector || '....................................................'})</p>
@@ -264,23 +290,23 @@ export function generateEquipmentPrintHtml(
         <table>
           <thead>
             <tr>
-              <th rowspan="2" style="width: 35px;">ลำดับที่</th>
-              <th rowspan="2" style="width: 100px;">หมายเลขพัสดุ</th>
-              <th rowspan="2" style="width: 100px;">รหัสสินทรัพย์ SAP</th>
-              <th rowspan="2" style="min-width: 160px; text-align: left;">รายการ</th>
-              <th rowspan="2" style="min-width: 140px; text-align: left;">มาตรฐานและคุณลักษณะเฉพาะ</th>
-              <th rowspan="2" style="min-width: 90px; width: 90px;">แหล่งเงินที่ได้มา</th>
-              <th rowspan="2" style="width: 90px; text-align: center;">ว/ด/ป ที่ได้มา</th>
-              <th rowspan="2" style="width: 40px;">จำนวน</th>
-              <th rowspan="2" style="width: 40px;">อัตราภาษี (%)</th>
-              <th rowspan="2" style="width: 80px;">ราคา (รวมภาษี)</th>
-              <th rowspan="2" style="width: 90px;">สถานที่ตั้ง / ชั้น / ห้อง</th>
+              <th rowspan="2" style="width: 38px;">ลำดับที่</th>
+              <th rowspan="2" style="width: 105px;">หมายเลขพัสดุ</th>
+              <th rowspan="2" style="width: 95px;">รหัสสินทรัพย์ SAP</th>
+              <th rowspan="2" style="min-width: 165px; text-align: left;">รายการ</th>
+              <th rowspan="2" style="min-width: 145px; text-align: left;">มาตรฐานและคุณลักษณะเฉพาะ</th>
+              <th rowspan="2" style="min-width: 85px; width: 85px;">แหล่งเงินที่ได้มา</th>
+              <th rowspan="2" style="width: 85px; text-align: center;">ว/ด/ป ที่ได้มา</th>
+              <th rowspan="2" style="width: 38px;">จำนวน</th>
+              <th rowspan="2" style="width: 42px;">อัตราภาษี (%)</th>
+              <th rowspan="2" style="width: 75px;">ราคา (รวมภาษี)</th>
+              <th rowspan="2" style="width: 92px;">สถานที่ตั้ง / ชั้น / ห้อง</th>
               <th colspan="3">ผลการตรวจสอบ</th>
             </tr>
             <tr style="font-size: 10pt;">
-              <th style="width: 55px;">ใช้งานได้</th>
-              <th style="width: 55px;">ชำรุด ใช้งานไม่ได้</th>
-              <th style="width: 55px;">ไม่พบ</th>
+              <th style="width: 46px; white-space: nowrap;">ใช้งานได้</th>
+              <th style="width: 58px; white-space: nowrap;">ชำรุด ใช้งานไม่ได้</th>
+              <th style="width: 42px; white-space: nowrap;">ไม่พบ</th>
             </tr>
           </thead>
           <tbody>

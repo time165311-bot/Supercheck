@@ -152,7 +152,6 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
       className="a4-page-sheet a4-print-container paper-preview sheet-preview isolate !bg-white !text-black"
       style={{
         width: '100%',
-        maxWidth: '900px',
         margin: '0 auto',
         padding: '16px',
         boxSizing: 'border-box',

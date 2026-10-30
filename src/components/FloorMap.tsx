@@ -9,11 +9,9 @@ import {
   AlertTriangle,
   CheckCircle2,
   MapPin,
-  ChevronRight,
   CheckCheck,
   Maximize2,
   AlertCircle,
-  Sparkles,
   FileSpreadsheet,
 } from 'lucide-react';
 import { EquipmentItem, RoomDef, CheckItemState } from '../types';
@@ -43,7 +41,7 @@ export const FloorMap: React.FC<FloorMapProps> = ({
   globalChecks,
   selectedRoomId = 'or1',
   onSelectRoom,
-  theme = 'dark',
+  theme: _theme,
   onToggleCheck,
   onUpdateNote,
   onZoomImage,
@@ -71,7 +69,6 @@ export const FloorMap: React.FC<FloorMapProps> = ({
   isDraggingRef.current = isDragging;
 
   const activeRoomId = selectedRoomId || 'or1';
-  const isDark = theme === 'dark';
 
   // Auto scroll down to room checklist when room is selected
   useEffect(() => {
@@ -368,23 +365,19 @@ export const FloorMap: React.FC<FloorMapProps> = ({
   };
 
   return (
-    <div className="space-y-4 font-['TH_Sarabun_New'] pb-32" style={{ paddingBottom: '100px' }}>
-      {/* 🚨 1. UNCHECKED ROOMS ALERT BANNER & NAVIGATOR (แจ้งว่าห้องไหนขาดการเช็ค) */}
-      <div
-        className={`p-4 rounded-3xl border shadow-xl space-y-3 transition-colors duration-500 ${
-          isDark
-            ? 'bg-[#09090B]/90 backdrop-blur-xl border-zinc-800 text-white'
-            : 'bg-white backdrop-blur-xl border-slate-200 text-slate-900 shadow-slate-200/50'
-        }`}
-      >
-        <div className="flex items-center justify-between gap-2 flex-wrap pb-2 border-b border-zinc-700/30">
+    <div className="space-y-4 font-['TH_Sarabun_New'] pb-32 text-slate-800" style={{ paddingBottom: '100px' }}>
+      {/* 🚨 1. UNCHECKED ROOMS ALERT BANNER & NAVIGATOR (Samsung One UI Light Style) */}
+      <div className="p-4 sm:p-5 rounded-3xl border border-slate-200/80 bg-white shadow-sm space-y-3 transition-colors duration-300">
+        <div className="flex items-center justify-between gap-2 flex-wrap pb-2 border-b border-slate-100">
           <div className="flex items-center gap-2">
-            <MapPin className="w-5 h-5 text-[#1877F2] animate-bounce" />
+            <div className="w-8 h-8 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center">
+              <MapPin className="w-4 h-4" />
+            </div>
             <div>
-              <h3 className={`font-bold text-sm sm:text-base leading-none ${isDark ? 'text-white' : 'text-slate-900'}`}>
+              <h3 className="font-bold text-base text-slate-900 leading-none">
                 สถานะการตรวจเช็กห้องผ่าตัด
               </h3>
-              <p className={`text-xs mt-0.5 ${isDark ? 'text-zinc-400' : 'text-slate-500'}`}>
+              <p className="text-xs text-slate-500 mt-1">
                 {pendingRooms.length === 0
                   ? '🎉 ตรวจเช็กครบถ้วนแล้วทุกห้องผ่าตัด!'
                   : `⚠️ มีห้องที่ยังไม่ได้ตรวจเช็กอีก ${pendingRooms.length} ห้อง`}
@@ -393,14 +386,14 @@ export const FloorMap: React.FC<FloorMapProps> = ({
           </div>
 
           {/* Filter Pills: Pending / Defective / All */}
-          <div className={`flex items-center gap-1 p-1 rounded-2xl text-xs shrink-0 ${isDark ? 'bg-zinc-800/80' : 'bg-slate-100'}`}>
+          <div className="flex items-center gap-1 p-1 rounded-2xl text-xs shrink-0 bg-slate-100 border border-slate-200/60">
             <button
               type="button"
               onClick={() => setRoomFilterMode('pending')}
-              className={`px-3 py-1 rounded-xl transition font-bold cursor-pointer active:scale-95 ${
+              className={`px-3 py-1.5 rounded-xl transition font-bold cursor-pointer active:scale-95 ${
                 roomFilterMode === 'pending'
-                  ? 'bg-[#1877F2] text-white shadow-xs'
-                  : isDark ? 'text-zinc-400 hover:text-white' : 'text-slate-600 hover:text-slate-900'
+                  ? 'bg-blue-600 text-white shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
               }`}
             >
               ค้างตรวจ ({pendingRooms.length})
@@ -408,10 +401,10 @@ export const FloorMap: React.FC<FloorMapProps> = ({
             <button
               type="button"
               onClick={() => setRoomFilterMode('defective')}
-              className={`px-3 py-1 rounded-xl transition font-bold cursor-pointer active:scale-95 ${
+              className={`px-3 py-1.5 rounded-xl transition font-bold cursor-pointer active:scale-95 ${
                 roomFilterMode === 'defective'
                   ? 'bg-rose-600 text-white shadow-xs'
-                  : isDark ? 'text-zinc-400 hover:text-white' : 'text-slate-600 hover:text-slate-900'
+                  : 'text-slate-600 hover:text-slate-900'
               }`}
             >
               พบชำรุด ({defectiveRooms.length})
@@ -419,10 +412,10 @@ export const FloorMap: React.FC<FloorMapProps> = ({
             <button
               type="button"
               onClick={() => setRoomFilterMode('all')}
-              className={`px-3 py-1 rounded-xl transition font-bold cursor-pointer active:scale-95 ${
+              className={`px-3 py-1.5 rounded-xl transition font-bold cursor-pointer active:scale-95 ${
                 roomFilterMode === 'all'
-                  ? isDark ? 'bg-zinc-700 text-white' : 'bg-slate-300 text-slate-900'
-                  : isDark ? 'text-zinc-400 hover:text-white' : 'text-slate-600 hover:text-slate-900'
+                  ? 'bg-white text-slate-900 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
               }`}
             >
               ทั้งหมด ({interactiveRooms.length})
@@ -432,12 +425,12 @@ export const FloorMap: React.FC<FloorMapProps> = ({
 
         {/* Room Chips Scroll / Grid */}
         {filteredNavigatorRooms.length === 0 ? (
-          <div className="py-3 px-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 flex items-center justify-center gap-2 text-xs font-bold">
-            <CheckCircle2 className="w-4 h-4" />
+          <div className="py-3 px-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800 flex items-center justify-center gap-2 text-xs font-bold">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600" />
             <span>ไม่มีห้องค้างตรวจเช็กในหมวดนี้</span>
           </div>
         ) : (
-          <div className="flex flex-wrap gap-2 max-h-36 overflow-y-auto no-scrollbar py-1">
+          <div className="flex flex-wrap gap-2 max-h-40 overflow-y-auto no-scrollbar py-1">
             {filteredNavigatorRooms.map((r) => {
               const st = roomStatsMap[r.id];
               const isActive = activeRoomId === r.id;
@@ -451,28 +444,26 @@ export const FloorMap: React.FC<FloorMapProps> = ({
                   onClick={() => onSelectRoom(r.id)}
                   className={`px-3.5 py-2 rounded-2xl border text-left transition flex items-center gap-2 cursor-pointer text-xs active:scale-95 ${
                     isActive
-                      ? 'bg-[#1877F2] text-white border-[#1877F2] font-bold shadow-lg shadow-blue-500/30 ring-2 ring-blue-400'
+                      ? 'bg-blue-600 text-white border-blue-600 font-bold shadow-md shadow-blue-500/20 ring-2 ring-blue-300'
                       : hasDef
-                      ? 'bg-rose-500/20 text-rose-300 border-rose-500/40 hover:bg-rose-500/30'
+                      ? 'bg-rose-50 text-rose-800 border-rose-200 hover:bg-rose-100'
                       : isComp
-                      ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/25'
-                      : isDark
-                      ? 'bg-zinc-800/80 text-zinc-200 border-zinc-700 hover:border-zinc-500'
-                      : 'bg-slate-100 text-slate-800 border-slate-200 hover:bg-slate-200'
+                      ? 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
+                      : 'bg-slate-50 text-slate-800 border-slate-200 hover:bg-slate-100'
                   }`}
                 >
                   <span className="font-bold">{r.n}</span>
                   {hasDef ? (
-                    <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-rose-500 text-white font-extrabold flex items-center gap-0.5">
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-rose-600 text-white font-extrabold flex items-center gap-0.5">
                       <AlertCircle size={10} />
-                      <span>ชำรุด</span>
+                      <span>ชำรุด {st?.defective}</span>
                     </span>
                   ) : isComp ? (
-                    <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-emerald-500/30 text-emerald-300 font-bold flex items-center gap-0.5">
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-bold flex items-center gap-0.5">
                       <span>✓ ครบ</span>
                     </span>
                   ) : (
-                    <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-amber-500/20 text-amber-300 font-bold">
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 font-bold">
                       ค้าง {st?.remaining || 0}
                     </span>
                   )}
@@ -483,32 +474,32 @@ export const FloorMap: React.FC<FloorMapProps> = ({
         )}
       </div>
 
-      {/* 🗺️ 2. INTERACTIVE SVG FLOOR MAP (แผนผังซูมและลากอิสระ) */}
-      <div className="space-y-2">
+      {/* 🗺️ 2. INTERACTIVE SVG FLOOR MAP (Samsung One UI Light Style) */}
+      <div className="space-y-3">
         {/* Search Bar & Zoom Controls Header */}
         <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
           <div className="relative flex-1 min-w-[200px]">
-            <Search className="w-4 h-4 absolute left-3.5 top-2.5 text-zinc-400" />
+            <Search className="w-4 h-4 absolute left-3.5 top-2.5 text-slate-400" />
             <input
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               placeholder="ค้นหาเลขครุภัณฑ์, SAP, หรือชื่อเครื่องมือ..."
-              className="w-full pl-9 pr-3 py-2 bg-zinc-900 text-white rounded-xl border border-zinc-800 focus:border-[#1877F2] text-xs outline-none focus:ring-1 focus:ring-[#1877F2] transition font-sans"
+              className="w-full pl-9 pr-3 py-2 bg-white text-slate-900 rounded-xl border border-slate-200 focus:border-blue-600 text-xs outline-none focus:ring-1 focus:ring-blue-600 transition font-sans shadow-xs"
             />
           </div>
 
-          <div className="flex items-center gap-1 bg-[#09090B] p-1 rounded-xl border border-zinc-800 text-xs shrink-0 shadow-xs">
+          <div className="flex items-center gap-1 bg-white p-1 rounded-xl border border-slate-200 text-xs shrink-0 shadow-xs">
             <button
               type="button"
               onClick={handleZoomOut}
               title="ย่อแผนผัง"
-              className="p-1.5 rounded-lg text-zinc-300 hover:bg-zinc-800 transition cursor-pointer"
+              className="p-1.5 rounded-lg text-slate-600 hover:bg-slate-100 transition cursor-pointer"
             >
               <ZoomOut className="w-3.5 h-3.5" />
             </button>
 
-            <span className="text-[11px] font-mono font-bold text-zinc-200 w-12 text-center select-none">
+            <span className="text-[11px] font-mono font-bold text-slate-800 w-12 text-center select-none">
               {Math.round(zoomScale * 100)}%
             </span>
 
@@ -516,7 +507,7 @@ export const FloorMap: React.FC<FloorMapProps> = ({
               type="button"
               onClick={handleZoomIn}
               title="ขยายแผนผัง (ซูมเข้า)"
-              className="p-1.5 rounded-lg text-zinc-300 hover:bg-zinc-800 transition cursor-pointer"
+              className="p-1.5 rounded-lg text-slate-600 hover:bg-slate-100 transition cursor-pointer"
             >
               <ZoomIn className="w-3.5 h-3.5" />
             </button>
@@ -526,7 +517,7 @@ export const FloorMap: React.FC<FloorMapProps> = ({
                 type="button"
                 onClick={handleResetZoom}
                 title="รีเซ็ตผัง"
-                className="p-1.5 rounded-lg text-[#1877F2] hover:bg-blue-950/40 transition cursor-pointer flex items-center gap-1 text-[11px] font-bold active:scale-95"
+                className="p-1.5 rounded-lg text-blue-600 hover:bg-blue-50 transition cursor-pointer flex items-center gap-1 text-[11px] font-bold active:scale-95"
               >
                 <RotateCcw className="w-3 h-3" />
                 <span className="hidden sm:inline">รีเซ็ต</span>
@@ -537,9 +528,9 @@ export const FloorMap: React.FC<FloorMapProps> = ({
 
         {/* Search Results Dropdown */}
         {searchTerm.trim() && (
-          <div className="bg-[#09090B] rounded-2xl border border-zinc-800 p-2 max-h-44 overflow-y-auto space-y-1 text-xs">
+          <div className="bg-white rounded-2xl border border-slate-200 p-2 max-h-48 overflow-y-auto space-y-1 text-xs shadow-lg">
             {matches.length === 0 ? (
-              <div className="p-3 text-center text-zinc-500 text-xs">
+              <div className="p-3 text-center text-slate-400 text-xs">
                 ไม่พบครุภัณฑ์ที่ค้นหา
               </div>
             ) : (
@@ -547,19 +538,19 @@ export const FloorMap: React.FC<FloorMapProps> = ({
                 <button
                   key={idx}
                   onClick={() => onSelectRoom(m.room.id)}
-                  className="w-full text-left p-2 rounded-xl hover:bg-zinc-800 flex items-center justify-between gap-2 transition cursor-pointer"
+                  className="w-full text-left p-2 rounded-xl hover:bg-slate-50 flex items-center justify-between gap-2 transition cursor-pointer border border-transparent hover:border-slate-200"
                 >
                   <div>
-                    <div className="font-bold text-white">
+                    <div className="font-bold text-slate-900">
                       {m.item.no && (
-                        <span className="text-[10px] px-1.5 py-0.2 rounded bg-blue-950 text-blue-400 mr-1.5 font-mono">
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 mr-1.5 font-mono border border-blue-100">
                           #{m.item.no}
                         </span>
                       )}
                       {m.item.name}
                     </div>
                   </div>
-                  <span className="text-xs font-bold text-[#1877F2] shrink-0">
+                  <span className="text-xs font-bold text-blue-600 shrink-0">
                     📍 {m.room.n}
                   </span>
                 </button>
@@ -568,7 +559,7 @@ export const FloorMap: React.FC<FloorMapProps> = ({
           </div>
         )}
 
-        {/* Map Viewport Container */}
+        {/* Map Viewport Container (Samsung One UI Light Style) */}
         <div
           ref={containerRef}
           onMouseDown={handleMouseDown}
@@ -580,7 +571,7 @@ export const FloorMap: React.FC<FloorMapProps> = ({
             overscrollBehavior: 'contain',
             cursor: isDragging ? 'grabbing' : 'grab',
           }}
-          className="bg-[#000000] rounded-3xl p-2 sm:p-3 border border-zinc-800 overflow-hidden max-h-[65vh] min-h-[360px] sm:min-h-[440px] relative select-none flex items-center justify-center shadow-2xl"
+          className="bg-slate-50 rounded-3xl p-3 sm:p-4 border border-slate-200 overflow-hidden max-h-[65vh] min-h-[360px] sm:min-h-[440px] relative select-none flex items-center justify-center shadow-inner"
         >
           <div
             className="transition-transform duration-75 origin-center"
@@ -592,10 +583,10 @@ export const FloorMap: React.FC<FloorMapProps> = ({
             }}
           >
             <svg viewBox="80 480 1130 1330" className="w-full h-auto block select-none">
-              {/* Corridors */}
-              <g className="fill-[#0c141d] stroke-[#1d2a38] stroke-1">
+              {/* Corridors (Light clean slate) */}
+              <g className="fill-[#e2e8f0] stroke-[#cbd5e1] stroke-1">
                 {CORRIDORS.map((c, i) => (
-                  <rect key={i} x={c[0]} y={c[1]} width={c[2]} height={c[3]} rx={4} />
+                  <rect key={i} x={c[0]} y={c[1]} width={c[2]} height={c[3]} rx={6} />
                 ))}
               </g>
 
@@ -605,14 +596,14 @@ export const FloorMap: React.FC<FloorMapProps> = ({
                   key={i}
                   x={c[1]}
                   y={c[2]}
-                  className="fill-zinc-500 text-[11px] font-mono tracking-wider uppercase font-bold"
+                  className="fill-slate-600 text-[11px] font-mono tracking-wider uppercase font-bold"
                   textAnchor="middle"
                 >
                   {c[0]}
                 </text>
               ))}
 
-              {/* Rooms SVG Elements */}
+              {/* Rooms SVG Elements (Clean One UI Light) */}
               {rooms.map((r) => {
                 const lines = r.l.split('|');
                 const cx = r.x + r.w / 2;
@@ -633,27 +624,27 @@ export const FloorMap: React.FC<FloorMapProps> = ({
                 const hasDefect = st?.hasDefect;
 
                 // Color stroke and fill based on status
-                let strokeColor = r.c;
+                let strokeColor = '#94a3b8';
                 let strokeWidth = 1.5;
-                let fillColor = r.c;
-                let fillOpacity = r.m ? 0.18 : 0.08;
+                let fillColor = '#ffffff';
+                let fillOpacity = 1;
 
                 if (isSelected) {
-                  strokeColor = '#1877F2';
+                  strokeColor = '#2563eb';
                   strokeWidth = 4;
-                  fillOpacity = 0.35;
+                  fillColor = '#eff6ff';
                 } else if (hasDefect) {
-                  strokeColor = '#FA383E';
+                  strokeColor = '#ef4444';
                   strokeWidth = 3;
-                  fillOpacity = 0.3;
+                  fillColor = '#fef2f2';
                 } else if (isFullyChecked) {
-                  strokeColor = '#00A400';
+                  strokeColor = '#10b981';
                   strokeWidth = 2.5;
-                  fillOpacity = 0.25;
+                  fillColor = '#f0fdf4';
                 } else if (isHit) {
-                  strokeColor = '#1877F2';
+                  strokeColor = '#3b82f6';
                   strokeWidth = 3.5;
-                  fillOpacity = 0.4;
+                  fillColor = '#dbeafe';
                 }
 
                 return (
@@ -671,7 +662,7 @@ export const FloorMap: React.FC<FloorMapProps> = ({
                       y={r.y + 3}
                       width={r.w - 6}
                       height={r.h - 6}
-                      rx={6}
+                      rx={8}
                       fill={fillColor}
                       fillOpacity={fillOpacity}
                       stroke={strokeColor}
@@ -680,7 +671,7 @@ export const FloorMap: React.FC<FloorMapProps> = ({
 
                     <text
                       fontSize={fs}
-                      className="fill-white font-bold pointer-events-none"
+                      className="fill-slate-900 font-bold pointer-events-none"
                       textAnchor="middle"
                     >
                       {lines.map((t, idx) => (
@@ -697,14 +688,14 @@ export const FloorMap: React.FC<FloorMapProps> = ({
                           y={ty + lines.length * fs * 1.25 + 4}
                           className={
                             hasDefect
-                              ? 'fill-rose-400 font-bold'
+                              ? 'fill-rose-600 font-bold'
                               : isFullyChecked
-                              ? 'fill-emerald-400 font-bold'
-                              : 'fill-zinc-400 font-semibold'
+                              ? 'fill-emerald-700 font-bold'
+                              : 'fill-slate-500 font-semibold'
                           }
                         >
                           {hasDefect
-                            ? `⚠️ พบชำรุด (${st?.defective})`
+                            ? `⚠️ ชำรุด (${st?.defective})`
                             : isFullyChecked
                             ? `✓ ครบ (${rCount})`
                             : `${st?.checked || 0}/${rCount}`}
@@ -719,28 +710,24 @@ export const FloorMap: React.FC<FloorMapProps> = ({
         </div>
       </div>
 
-      {/* 📋 3. SELECTED ROOM EQUIPMENT CHECKLIST PANEL (รายการครุภัณฑ์ประจำห้องที่เลือก) */}
+      {/* 📋 3. SELECTED ROOM EQUIPMENT CHECKLIST PANEL (Samsung One UI Light Style) */}
       <div
         ref={checklistPanelRef}
-        className={`p-4 rounded-3xl border shadow-2xl space-y-4 transition-all duration-500 ${
-          isDark
-            ? 'bg-[#09090B]/95 backdrop-blur-xl border-zinc-800 text-white'
-            : 'bg-white backdrop-blur-xl border-slate-200 text-slate-900 shadow-slate-200/60'
-        }`}
+        className="p-4 sm:p-5 rounded-3xl border border-slate-200/80 bg-white shadow-md space-y-4 transition-all duration-300"
       >
         {/* Selected Room Header */}
-        <div className="flex justify-between items-center pb-3 border-b border-zinc-700/30 flex-wrap gap-2">
+        <div className="flex justify-between items-center pb-3 border-b border-slate-100 flex-wrap gap-2">
           <div>
             <div className="flex items-center gap-2">
-              <span className="w-3 h-3 rounded-full bg-[#1877F2] animate-pulse" />
-              <h3 className={`text-base sm:text-lg font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>
+              <span className="w-3 h-3 rounded-full bg-blue-600 animate-pulse" />
+              <h3 className="text-base sm:text-lg font-bold text-slate-900">
                 📍 {currentRoomDef?.n || activeRoomId} ({currentRoomItems.length} รายการครุภัณฑ์)
               </h3>
             </div>
-            <p className="text-xs text-zinc-400 mt-0.5">
+            <p className="text-xs text-slate-500 mt-0.5">
               สถานะ: ตรวจแล้ว {currentRoomStat?.checked || 0}/{currentRoomItems.length} รายการ
               {currentRoomStat?.hasDefect && (
-                <span className="text-rose-400 font-bold ml-2">
+                <span className="text-rose-600 font-bold ml-2">
                   (⚠️ พบชำรุด {currentRoomStat.defective} รายการ)
                 </span>
               )}
@@ -750,7 +737,7 @@ export const FloorMap: React.FC<FloorMapProps> = ({
           <button
             type="button"
             onClick={handleMarkAllRoomNormal}
-            className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md transition cursor-pointer active:scale-95 flex items-center gap-1.5"
+            className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs transition cursor-pointer active:scale-95 flex items-center gap-1.5"
             title="ทำเครื่องหมายปกติทุกรายการในห้องนี้"
           >
             <CheckCheck size={16} />
@@ -760,7 +747,7 @@ export const FloorMap: React.FC<FloorMapProps> = ({
 
         {/* Selected Room Equipment Cards List */}
         {currentRoomItems.length === 0 ? (
-          <div className="p-8 text-center text-zinc-500 text-xs">
+          <div className="p-8 text-center text-slate-400 text-xs">
             ไม่พบรายการครุภัณฑ์ในห้องที่เลือก
           </div>
         ) : (
@@ -776,12 +763,12 @@ export const FloorMap: React.FC<FloorMapProps> = ({
               return (
                 <div
                   key={itemKey}
-                  className={`p-3.5 rounded-2xl border transition-all duration-300 flex flex-col justify-between space-y-3 ${
+                  className={`p-3.5 rounded-2xl border transition-all duration-200 flex flex-col justify-between space-y-3 ${
                     isBad
-                      ? 'bg-rose-950/20 border-rose-500/50 text-rose-200'
+                      ? 'bg-rose-50/70 border-rose-200 text-slate-900 shadow-xs'
                       : isOk
-                      ? 'bg-emerald-950/20 border-emerald-500/40 text-emerald-200'
-                      : 'bg-[#000000]/60 border-zinc-800 text-zinc-200'
+                      ? 'bg-emerald-50/60 border-emerald-200 text-slate-900 shadow-xs'
+                      : 'bg-white border-slate-200 text-slate-900 shadow-xs hover:border-slate-300'
                   }`}
                 >
                   <div className="space-y-1.5">
@@ -789,28 +776,28 @@ export const FloorMap: React.FC<FloorMapProps> = ({
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-1.5 flex-wrap mb-1">
                           {item.no && (
-                            <span className="text-[10px] px-2 py-0.5 rounded-md bg-[#1877F2] text-white font-mono font-bold">
+                            <span className="text-[10px] px-2 py-0.5 rounded-md bg-blue-100 text-blue-700 border border-blue-200 font-mono font-bold">
                               #{item.no}
                             </span>
                           )}
                           {item.code && (
-                            <span className="text-[10px] px-2 py-0.5 rounded-md bg-zinc-800 text-zinc-300 font-mono">
+                            <span className="text-[10px] px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 border border-slate-200 font-mono">
                               {item.code}
                             </span>
                           )}
                         </div>
-                        <h4 className="font-bold text-sm text-white leading-snug">
+                        <h4 className="font-bold text-sm text-slate-900 leading-snug">
                           {item.name}
                         </h4>
                         {item.spec && (
-                          <p className="text-xs text-zinc-400 line-clamp-1">{item.spec}</p>
+                          <p className="text-xs text-slate-500 line-clamp-1">{item.spec}</p>
                         )}
                       </div>
 
                       {item.img && (
                         <div
                           onClick={() => onZoomImage && onZoomImage(item.img!)}
-                          className="w-12 h-12 rounded-xl overflow-hidden border border-zinc-700 shrink-0 cursor-pointer hover:opacity-80 transition relative"
+                          className="w-12 h-12 rounded-xl overflow-hidden border border-slate-200 bg-slate-100 shrink-0 cursor-pointer hover:opacity-85 transition relative"
                         >
                           <img
                             src={item.img}
@@ -827,7 +814,7 @@ export const FloorMap: React.FC<FloorMapProps> = ({
                   </div>
 
                   {/* Inspection Status Buttons */}
-                  <div className="space-y-2 pt-2 border-t border-zinc-800">
+                  <div className="space-y-2 pt-2 border-t border-slate-100">
                     <div className="flex items-center gap-2">
                       <button
                         type="button"
@@ -837,8 +824,8 @@ export const FloorMap: React.FC<FloorMapProps> = ({
                         }
                         className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1 transition cursor-pointer active:scale-95 ${
                           isOk
-                            ? 'bg-[#00A400] text-white shadow-md shadow-emerald-600/30'
-                            : 'bg-zinc-800 text-zinc-300 hover:bg-emerald-950/40 hover:text-emerald-400'
+                            ? 'bg-emerald-600 text-white shadow-xs'
+                            : 'bg-slate-100 text-slate-600 hover:bg-emerald-50 hover:text-emerald-700 border border-slate-200/60'
                         }`}
                       >
                         <Check size={14} strokeWidth={2.5} />
@@ -853,8 +840,8 @@ export const FloorMap: React.FC<FloorMapProps> = ({
                         }
                         className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1 transition cursor-pointer active:scale-95 ${
                           isBad
-                            ? 'bg-[#FA383E] text-white shadow-md shadow-rose-600/30'
-                            : 'bg-zinc-800 text-zinc-300 hover:bg-rose-950/40 hover:text-rose-400'
+                            ? 'bg-rose-600 text-white shadow-xs'
+                            : 'bg-slate-100 text-slate-600 hover:bg-rose-50 hover:text-rose-700 border border-slate-200/60'
                         }`}
                       >
                         <X size={14} strokeWidth={2.5} />
@@ -871,7 +858,7 @@ export const FloorMap: React.FC<FloorMapProps> = ({
                           onUpdateNote && onUpdateNote(activeRoomId, itemKey, e.target.value)
                         }
                         placeholder="ระบุอาการเสีย หรือปัญหาที่พบ..."
-                        className="w-full px-3 py-1.5 text-xs rounded-xl bg-rose-950/40 border border-rose-500/50 outline-none text-rose-200 placeholder:text-rose-400/60 focus:ring-1 focus:ring-rose-500"
+                        className="w-full px-3 py-1.5 text-xs rounded-xl bg-white border border-rose-300 outline-none text-rose-900 placeholder:text-rose-400 focus:ring-1 focus:ring-rose-500 shadow-xs"
                       />
                     )}
                   </div>
@@ -883,11 +870,11 @@ export const FloorMap: React.FC<FloorMapProps> = ({
 
         {/* 💾 Important Save & Report Button at bottom of Checklist */}
         {onOpenReport && (
-          <div className="pt-4 border-t border-zinc-800 flex items-center justify-center">
+          <div className="pt-4 border-t border-slate-100 flex items-center justify-center">
             <button
               type="button"
               onClick={onOpenReport}
-              className="w-full sm:w-auto px-6 py-3.5 rounded-2xl bg-gradient-to-r from-[#3B82F6] to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white font-bold text-sm shadow-xl transition cursor-pointer active:scale-95 flex items-center justify-center gap-2.5"
+              className="w-full sm:w-auto px-6 py-3.5 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm shadow-md transition cursor-pointer active:scale-95 flex items-center justify-center gap-2.5"
             >
               <FileSpreadsheet size={18} />
               <span>💾 บันทึกข้อมูลเข้า Google Sheets & พรีวิวรายงาน</span>
