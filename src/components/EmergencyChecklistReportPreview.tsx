@@ -9,6 +9,7 @@ import {
 } from './OfficialReportModal';
 import { getMonthAndYearThai } from './DrugInventoryReportPreview';
 import { Calendar, User as UserIcon, Building2 } from 'lucide-react';
+import { User } from '../types';
 
 export function getWeekOfMonth(dateStr?: string): number {
   if (!dateStr) return 1;
@@ -68,6 +69,7 @@ export interface EmergencyChecklistReportPreviewProps {
   weekItemValues?: { [itemKey: string]: { [week: number]: string } };
   onWeekItemValuesChange?: (values: { [itemKey: string]: { [week: number]: string } }) => void;
   signature?: string;
+  currentUser?: User | null;
 }
 
 export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportPreviewProps> = ({
@@ -83,7 +85,12 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
   onWeekDatesChange,
   weekItemValues: propWeekItemValues,
   onWeekItemValuesChange,
+  currentUser = null,
 }) => {
+  const inspectorRole = currentUser?.role === 'admin' ? 'ผู้ดูแลระบบ' : 'เจ้าหน้าที่';
+  const rawInspector = inspector || currentUser?.name || 'คุณสาทิตย์ บุตรน้ำเพชร';
+  const displayInspectorWithRole = rawInspector.includes('/') ? rawInspector : `${rawInspector} / ${inspectorRole}`;
+
   const currentWeek = propActiveWeek || getWeekOfMonth(surveyDate);
   const { month, year } = getMonthAndYearThai(surveyDate);
   const shortDate = formatShortDmy(surveyDate);
@@ -499,7 +506,7 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
                 style={{ textAlign: 'center', verticalAlign: 'middle', fontSize: '10pt', backgroundColor: currentWeek === w ? '#f1f5f9 !important' : '#ffffff !important', color: '#000000 !important', lineHeight: '1.4 !important', padding: '6px 4px !important' }}
               >
                 {currentWeek === w ? (
-                  <div className="flex flex-col items-center justify-center min-h-[36px]">
+                  <div className="flex flex-col items-center justify-center min-h-[36px] py-1">
                     {signature && (
                       <img
                         src={signature}
@@ -507,7 +514,9 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
                         className="max-h-7 max-w-[65px] object-contain mb-0.5"
                       />
                     )}
-                    <span style={{ color: '#000000 !important' }}>{inspector || '....................'}</span>
+                    <span style={{ color: '#000000 !important', fontSize: '8.5pt', fontWeight: 'bold' }}>
+                      {displayInspectorWithRole}
+                    </span>
                   </div>
                 ) : (
                   '....................'
@@ -544,6 +553,38 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
         <p>* เกณฑ์การตรวจสอบ: สัญลักษณ์ ✓ = ปกติ/พร้อมใช้งาน, ✗ = ผิดปกติ/ต้องเปลี่ยนทดแทน, - = ยังไม่ได้ตรวจ</p>
         <p>เอกสารรับรองระบบคุณภาพงานวิสัญญีวิทยา</p>
       </div>
+
+      {/* Signature Section Pinned to Bottom of Page */}
+      <div
+        className="mt-auto pt-10 flex justify-around text-[14px]"
+        style={{
+          display: 'flex',
+          justifyContent: 'space-around',
+          width: '100%',
+          marginTop: 'auto',
+          paddingTop: '36px',
+          paddingBottom: '20px',
+        }}
+      >
+        <div className="text-center" style={{ textAlign: 'center' }}>
+          <div className="h-14 flex items-end justify-center mb-1">
+            {signature && (
+              <img
+                src={signature}
+                style={{ maxHeight: '52px', maxWidth: '150px', objectFit: 'contain' }}
+                alt="signature"
+              />
+            )}
+          </div>
+          <p className="font-bold">ลงชื่อ .................................................... ผู้ตรวจสอบ</p>
+          <p className="mt-1">({displayInspectorWithRole})</p>
+        </div>
+        <div className="text-center" style={{ textAlign: 'center' }}>
+          <div className="h-14" />
+          <p className="font-bold">ลงชื่อ .................................................... หัวหน้างาน</p>
+          <p className="mt-1">(....................................................)</p>
+        </div>
+      </div>
     </div>
   );
 };
@@ -560,6 +601,7 @@ export function generateEmergencyPrintHtml(
     weekItemValues?: { [itemKey: string]: { [week: number]: string } };
     signature?: string;
     orientation?: 'landscape' | 'portrait';
+    currentUser?: User | null;
   } = {}
 ): string {
   const {
@@ -571,7 +613,12 @@ export function generateEmergencyPrintHtml(
     weekDates = {},
     weekItemValues = {},
     orientation = 'landscape',
+    currentUser = null,
   } = options;
+
+  const printInspectorRole = currentUser?.role === 'admin' ? 'ผู้ดูแลระบบ' : 'เจ้าหน้าที่';
+  const printInspectorRaw = inspector || currentUser?.name || 'คุณสาทิตย์ บุตรน้ำเพชร';
+  const displayInspectorWithRole = printInspectorRaw.includes('/') ? printInspectorRaw : `${printInspectorRaw} / ${printInspectorRole}`;
 
   const { month, year } = getMonthAndYearThai(date);
   const shortDate = formatShortDmy(date);
@@ -683,10 +730,10 @@ export function generateEmergencyPrintHtml(
   const inspector1Cells = [1, 2, 3, 4, 5]
     .map((w) => {
       const isTarget = activeWeek === w;
-      if (isTarget && (signature || inspector)) {
-        return `<td style="text-align: center; border: 1px solid #000; font-size: 9pt; vertical-align: middle; padding: 2px;">
+      if (isTarget && (signature || inspector || currentUser)) {
+        return `<td style="text-align: center; border: 1px solid #000; font-size: 8.5pt; vertical-align: middle; padding: 2px;">
           ${signature ? `<img src="${signature}" style="max-height: 24px; max-width: 65px; object-fit: contain; display: block; margin: 0 auto 1px auto;" alt="ลายเซ็น" />` : ''}
-          <span>${inspector || ''}</span>
+          <span style="font-weight: bold;">${displayInspectorWithRole}</span>
         </td>`;
       }
       return `<td style="text-align: center; border: 1px solid #000; font-size: 9.5pt;">....................</td>`;
@@ -829,6 +876,22 @@ export function generateEmergencyPrintHtml(
             </tr>
           </tfoot>
         </table>
+
+        <!-- Footer Signature Section -->
+        <div class="signature-section" style="margin-top: 48px; display: flex; justify-content: space-around; font-size: 11pt; page-break-inside: avoid;">
+          <div class="sign-col" style="text-align: center; display: flex; flex-direction: column; align-items: center;">
+            <div style="height: 48px; display: flex; align-items: flex-end; justify-content: center; margin-bottom: 2px;">
+              ${signature ? `<img src="${signature}" style="max-height: 48px; max-width: 140px; object-fit: contain;" alt="ลายเซ็น" />` : ''}
+            </div>
+            <p style="font-weight: bold; margin: 0;">ลงชื่อ .................................................... ผู้ตรวจสอบ</p>
+            <p style="margin: 4px 0 0 0;">(${displayInspectorWithRole})</p>
+          </div>
+          <div class="sign-col" style="text-align: center; display: flex; flex-direction: column; align-items: center;">
+            <div style="height: 48px;"></div>
+            <p style="font-weight: bold; margin: 0;">ลงชื่อ .................................................... หัวหน้างาน</p>
+            <p style="margin: 4px 0 0 0;">(....................................................)</p>
+          </div>
+        </div>
       </body>
     </html>
   `;

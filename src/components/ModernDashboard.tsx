@@ -30,6 +30,7 @@ interface ModernDashboardProps {
   onNavigate: (view: 'home' | 'eq_overview' | 'room_check' | 'bag_check' | 'cart_check' | 'users' | 'drug_check') => void;
   onLogout?: () => void;
   onOpenNotifications?: () => void;
+  onOpenProfile?: () => void;
   onToggleCheck?: (categoryOrRoomId: string, itemKey: string, result: 'ปกติ' | 'ผิดปกติ', itemName: string) => void;
   onUpdateNote?: (categoryOrRoomId: string, itemKey: string, note: string) => void;
   onZoomImage?: (url: string) => void;
@@ -53,6 +54,7 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
   theme,
   onNavigate,
   onOpenNotifications,
+  onOpenProfile,
   overallStats,
 }) => {
   const isDarkMode = theme ? theme === 'dark' : true;
@@ -267,40 +269,30 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
 
       {/* Main Container */}
       <div className="p-4 pt-3 space-y-4 relative z-10 max-w-md lg:max-w-[1400px] mx-auto lg:grid lg:grid-cols-2 lg:gap-6">
-        {/* 📱 1. Samsung One UI Header Card & Weather Widget */}
+        {/* 📱 1. Samsung One UI Header Card & Weather Widget with Vibrant Royal Blue Gradient */}
         <div
-          className={`w-full p-5 rounded-[2rem] border shadow-xl transition-all duration-300 space-y-4 lg:col-span-2 ${
-            isDarkMode
-              ? 'bg-[#181A20]/90 backdrop-blur-2xl border-white/10 text-white shadow-black/40'
-              : 'bg-white/90 backdrop-blur-2xl border-white/80 text-slate-900 shadow-slate-200/50'
-          }`}
+          style={{
+            background: 'linear-gradient(135deg, #1d4ed8 0%, #2563eb 50%, #3b82f6 100%)',
+          }}
+          className="w-full p-4 sm:p-5 rounded-[2rem] border border-blue-400/40 shadow-2xl transition-all duration-300 space-y-3 lg:col-span-2 relative overflow-hidden backdrop-blur-2xl hover:scale-[1.003] text-white"
         >
-          <div className="flex justify-between items-center pb-2">
-            <div className="flex items-center gap-2 font-valorant text-2xl font-bold tracking-wider">
-              <span className="text-[#3B82F6] drop-shadow-sm">ANESTHESIA</span>
-              <span className={isDarkMode ? 'text-white' : 'text-slate-800'}>CARE</span>
+          {/* Subtle Ambient Pulse Light */}
+          <div className="absolute -top-12 -right-12 w-36 h-36 bg-cyan-300/30 rounded-full blur-2xl pointer-events-none animate-pulse" />
+          <div className="absolute -bottom-10 -left-10 w-32 h-32 bg-blue-300/30 rounded-full blur-2xl pointer-events-none animate-pulse" />
+
+          {/* Top Row: Title + Notifications (Purple Admin Badge Permanently Removed) */}
+          <div className="flex justify-between items-center relative z-10 gap-2">
+            <div className="flex items-center gap-1.5 font-valorant text-2xl sm:text-3xl font-bold tracking-wider shrink-0">
+              <span className="text-[#67e8f9] drop-shadow-[0_2px_8px_rgba(103,232,249,0.5)]">ANESTHESIA</span>
+              <span className="text-white drop-shadow-sm">CARE</span>
             </div>
 
             <div className="flex items-center gap-2 shrink-0">
-              <span
-                className={`text-[11px] px-3 py-1 rounded-full font-bold border ${
-                  isDarkMode
-                    ? 'bg-slate-800/80 border-slate-700 text-[#E2E8F0]'
-                    : 'bg-slate-100 border-slate-200 text-slate-700'
-                }`}
-              >
-                {currentUser?.role === 'admin' ? 'Admin' : 'Staff'}
-              </span>
-
               {onOpenNotifications && (
                 <button
                   type="button"
                   onClick={onOpenNotifications}
-                  className={`relative p-2 rounded-full border transition active:scale-90 cursor-pointer ${
-                    isDarkMode
-                      ? 'bg-slate-800/80 border-slate-700 text-slate-200'
-                      : 'bg-slate-100 border-slate-200 text-slate-700'
-                  }`}
+                  className="relative p-2.5 rounded-full border border-white/30 bg-white/15 text-white hover:bg-white/25 transition active:scale-90 cursor-pointer shadow-sm backdrop-blur-md"
                   title="การแจ้งเตือน"
                 >
                   <Bell size={16} />
@@ -311,41 +303,36 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
             </div>
           </div>
 
-          {/* Weather Squircle Widget (Fix Overflow & Clipping) */}
+          {/* Weather Squircle Widget (Pure White Text & Clean Backdrop) */}
           <div
             style={{
               width: '100%',
-              display: 'flex',
-              gap: '12px',
-              padding: '12px 16px',
-              alignItems: 'center',
+              boxSizing: 'border-box',
+              overflow: 'hidden',
+              padding: '10px 12px',
             }}
-            className={`rounded-[1.5rem] border ${
-              isDarkMode
-                ? 'bg-[#101216]/80 border-white/5 text-slate-200'
-                : 'bg-slate-50 border-slate-200/80 text-slate-800'
-            }`}
+            className="rounded-[1.5rem] border border-white/20 bg-black/20 text-white backdrop-blur-md flex items-center justify-between gap-2.5 transition-all relative z-10 shadow-inner"
           >
-            <span className="text-3xl filter drop-shadow">🌤️</span>
-            <div className="flex-1">
-              <div className="flex items-baseline gap-2">
-                <span className="text-2xl font-black nowrap-unit">
-                  {weatherData.temp}°C
-                </span>
-                <span className="text-xs font-bold opacity-80">
-                  {weatherData.locationName}
-                </span>
+            <div className="flex items-center gap-2.5 min-w-0 shrink">
+              <span className="text-2xl sm:text-3xl filter drop-shadow shrink-0">🌤️</span>
+              <div className="min-w-0">
+                <div className="flex items-baseline gap-1.5 flex-wrap">
+                  <span className="text-xl sm:text-2xl font-black nowrap-unit text-white drop-shadow-sm">
+                    {weatherData.temp}°C
+                  </span>
+                  <span className="text-[11px] sm:text-xs font-bold text-cyan-100 truncate">
+                    {weatherData.locationName}
+                  </span>
+                </div>
+                <div className="text-[10px] text-cyan-200/90 font-medium truncate">
+                  {weatherData.condition}
+                </div>
               </div>
             </div>
-            <div
-              className={`flex items-center gap-2 text-xs px-3 py-1.5 rounded-2xl border ${
-                isDarkMode
-                  ? 'bg-slate-800/80 border-slate-700 text-slate-300'
-                  : 'bg-white border-slate-200 text-slate-700'
-              }`}
-            >
+
+            <div className="flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded-xl border border-white/20 bg-white/10 text-white shrink-0 overflow-hidden shadow-xs backdrop-blur-xs">
               <span className="nowrap-unit">ความชื้น {weatherData.humidity}%</span>
-              <span className="border-l border-slate-500/30 pl-2 nowrap-unit">ลม 12 km/h</span>
+              <span className="border-l border-white/30 pl-1.5 nowrap-unit">ลม 12 km/h</span>
             </div>
           </div>
         </div>

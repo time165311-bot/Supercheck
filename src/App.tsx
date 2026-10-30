@@ -1,8 +1,8 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { ModernDashboard } from './components/ModernDashboard';
 import { DrugInventoryView } from './components/DrugInventoryView';
 import { BottomBar } from './components/BottomBar';
-import { OfficialReportModal } from './components/OfficialReportModal';
+import { OfficialReportModal, OfficialReportItemRow } from './components/OfficialReportModal';
 import { BarcodeScannerModal } from './components/BarcodeScannerModal';
 import { NotificationModal } from './components/NotificationModal';
 import { ProfileModal } from './components/ProfileModal';
@@ -24,8 +24,9 @@ import {
   getInitialEquipment,
   getInitialLists,
 } from './services/storage';
+import { sendInspectionToGas, testGasConnection } from './services/api';
 import { INITIAL_DRUGS_DATA } from './constants/initialDrugs';
-import { ROOMS } from './constants/initialData';
+import { ROOMS, GAS_SCRIPT_V5 } from './constants/initialData';
 import {
   CheckItemState,
   DrugItem,
@@ -51,6 +52,14 @@ import {
   Moon,
   Sun,
   ShieldCheck,
+  FileSpreadsheet,
+  ExternalLink,
+  Copy,
+  Check,
+  RefreshCw,
+  Code,
+  Sparkles,
+  ChevronDown,
 } from 'lucide-react';
 
 export default function App() {
@@ -125,13 +134,23 @@ export default function App() {
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isPasswordOpen, setIsPasswordOpen] = useState(false);
+  const [isSheetsAccordionOpen, setIsSheetsAccordionOpen] = useState(false);
 
   // Selected Room ID for Room Check
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>('or1');
 
   // Drawer Touch Drag Gesture Handler
   const [drawerDragY, setDrawerDragY] = useState<number>(0);
+  const [isDrawerMounted, setIsDrawerMounted] = useState<boolean>(false);
   const touchStartYRef = React.useRef<number>(0);
+
+  useEffect(() => {
+    if (isDrawerOpen) {
+      requestAnimationFrame(() => setIsDrawerMounted(true));
+    } else {
+      setIsDrawerMounted(false);
+    }
+  }, [isDrawerOpen]);
 
   const handleTouchStartDrawer = (e: React.TouchEvent) => {
     touchStartYRef.current = e.touches[0].clientY;
@@ -145,7 +164,7 @@ export default function App() {
   };
 
   const handleTouchEndDrawer = () => {
-    if (drawerDragY > 70) {
+    if (drawerDragY > 60) {
       setIsDrawerOpen(false);
     }
     setDrawerDragY(0);
@@ -171,7 +190,7 @@ export default function App() {
   const handleMouseUpDrawer = () => {
     if (isMouseDragging) {
       setIsMouseDragging(false);
-      if (drawerDragY > 70) {
+      if (drawerDragY > 60) {
         setIsDrawerOpen(false);
       }
       setDrawerDragY(0);
@@ -428,6 +447,224 @@ export default function App() {
     return merged;
   }, [globalChecks]);
 
+  // Report Initial Category
+  const [reportCategory, setReportCategory] = useState<'eq' | 'bag' | 'cart' | 'drug'>('eq');
+
+  // Format all equipment from all rooms for official report
+  const formattedEqItems = useMemo<OfficialReportItemRow[]>(() => {
+    const rows: OfficialReportItemRow[] = [];
+    let count = 1;
+    ROOMS.forEach((r) => {
+      const roomItems = equipment[r.id] || [];
+      const roomChecks = globalChecks[r.id] || {};
+      roomItems.forEach((it, idx) => {
+        const itemKey = it.id || `${r.id}_${idx}`;
+        const altKey = `${r.n}|${it.name}|${it.code || ''}`;
+        const st = roomChecks[itemKey] || roomChecks[altKey];
+
+        let res = 'ใช้งานได้';
+        if (st && st.result) {
+          if (st.result === 'ผิดปกติ') {
+            res = 'ใช้งานไม่ได้';
+          } else if (st.result === 'ปกติ') {
+            res = 'ใช้งานได้';
+          }
+        } else {
+          res = 'ไม่พบรายการ';
+        }
+
+        rows.push({
+          no: it.no || count++,
+          code: it.code || '-',
+          sap: it.sap || '-',
+          name: it.name,
+          spec: it.spec || '-',
+          source: it.source || 'เงินบำรุง',
+          date: it.date || '-',
+          qty: it.qty || 1,
+          tax: it.tax || 7,
+          price: it.price || '-',
+          location: r.n,
+          res: res,
+          note: st?.note || '',
+        });
+      });
+    });
+    return rows;
+  }, [equipment, globalChecks]);
+
+  // Format bag checklist for official report
+  const formattedBagItems = useMemo<OfficialReportItemRow[]>(() => {
+    const rows: OfficialReportItemRow[] = [];
+    if (!lists.bag?.groups) return rows;
+    const bagChecks = globalChecks['bag'] || {};
+    let count = 1;
+    Object.entries(lists.bag.groups).forEach(([groupName, groupList]) => {
+      groupList.forEach((it, idx) => {
+        const itemKey = it.id || `bag_${groupName}_${idx}`;
+        const st = bagChecks[itemKey];
+        const isBad = st?.result === 'ผิดปกติ';
+        rows.push({
+          no: count++,
+          name: it.name,
+          qty: it.qty || 1,
+          exp: it.exp || '-',
+          group: groupName,
+          location: `กระเป๋าฉุกเฉิน (${groupName})`,
+          res: isBad ? 'ใช้งานไม่ได้' : 'ใช้งานได้',
+          note: st?.note || '',
+        });
+      });
+    });
+    return rows;
+  }, [lists.bag, globalChecks]);
+
+  // Format cart checklist for official report
+  const formattedCartItems = useMemo<OfficialReportItemRow[]>(() => {
+    const rows: OfficialReportItemRow[] = [];
+    if (!lists.cart?.groups) return rows;
+    const cartChecks = globalChecks['cart'] || {};
+    let count = 1;
+    Object.entries(lists.cart.groups).forEach(([groupName, groupList]) => {
+      groupList.forEach((it, idx) => {
+        const itemKey = it.id || `cart_${groupName}_${idx}`;
+        const st = cartChecks[itemKey];
+        const isBad = st?.result === 'ผิดปกติ';
+        rows.push({
+          no: count++,
+          name: it.name,
+          qty: it.qty || 1,
+          exp: it.exp || '-',
+          group: groupName,
+          location: `รถฉุกเฉิน (${groupName})`,
+          res: isBad ? 'ใช้งานไม่ได้' : 'ใช้งานได้',
+          note: st?.note || '',
+        });
+      });
+    });
+    return rows;
+  }, [lists.cart, globalChecks]);
+
+  // Submit equipment inspection to Google Apps Script and immediately open OfficialReportModal
+  const handleSaveEquipmentAndPreview = async () => {
+    const now = new Date();
+    const thaiYear = String(now.getFullYear() + 543);
+    const day = ('0' + now.getDate()).slice(-2);
+    const month = ('0' + (now.getMonth() + 1)).slice(-2);
+    const dateFormatted = `${day}${month}${thaiYear}`;
+    const uniqueSheet = `ครุภัณฑ์_ทุกห้อง_${dateFormatted}`;
+
+    // 1. Send data to Google Apps Script Web App URL if configured
+    if (apiUrl && apiUrl.trim()) {
+      try {
+        await sendInspectionToGas(apiUrl, {
+          type: 'eq',
+          sheet: 'ครุภัณฑ์',
+          sheetName: uniqueSheet,
+          title: 'ทะเบียนรายการครุภัณฑ์และอุปกรณ์',
+          date: now.toISOString().split('T')[0],
+          who: currentUser?.name || 'ผู้ดูแลระบบ (Admin)',
+          user: currentUser?.username || 'admin',
+          rows: formattedEqItems.map((item, idx) => ({
+            no: String(item.no || idx + 1),
+            code: item.code || '-',
+            sap: item.sap || '-',
+            name: item.name,
+            spec: item.spec || '-',
+            source: item.source || '-',
+            date: item.date || '-',
+            qty: String(item.qty || '1'),
+            tax: String(item.tax || '7'),
+            price: String(item.price || '-'),
+            location: item.location || '-',
+            res: item.res,
+            note: item.note || '',
+          })),
+        });
+      } catch (err) {
+        console.error('Failed to submit equipment inspection to GAS:', err);
+      }
+    }
+
+    // 2. Save snapshot into inspection history
+    const newRecord: InspectionHistoryRecord = {
+      id: `eq_${Date.now()}`,
+      timestamp: new Date().toLocaleString('th-TH'),
+      date: now.toISOString().split('T')[0],
+      type: 'eq',
+      title: 'ทะเบียนรายการครุภัณฑ์และอุปกรณ์ (ภาพรวมทุกห้อง)',
+      who: currentUser?.name || 'ผู้ดูแลระบบ (Admin)',
+      rows: formattedEqItems,
+    };
+    const nextHist = [newRecord, ...historyRecords.filter((r) => r.id !== newRecord.id)].slice(0, 50);
+    setHistoryRecords(nextHist);
+    setStored(STORAGE_KEYS.HISTORY, nextHist);
+
+    // 3. Open OfficialReportModal with 'eq' tab active and eqItems populated
+    setReportCategory('eq');
+    setIsOfficialReportOpen(true);
+  };
+
+  // Bottom Sheet Drawer States for Google Sheets Config
+  const [drawerActiveTab, setDrawerActiveTab] = useState<'sheets' | 'menu'>('sheets');
+  const [inputSheetUrl, setInputSheetUrl] = useState<string>(sheetUrl);
+  const [inputApiUrl, setInputApiUrl] = useState<string>(apiUrl);
+  const [copiedGasCode, setCopiedGasCode] = useState(false);
+  const [isTestingGas, setIsTestingGas] = useState(false);
+  const [gasTestResult, setGasTestResult] = useState<{ ok: boolean; msg: string } | null>(null);
+  const [savedConfigMsg, setSavedConfigMsg] = useState(false);
+  const [showScriptPreview, setShowScriptPreview] = useState(false);
+
+  useEffect(() => {
+    setInputSheetUrl(sheetUrl);
+    setInputApiUrl(apiUrl);
+  }, [sheetUrl, apiUrl, isDrawerOpen]);
+
+  const handleSaveSheetsConfig = () => {
+    const trimmedSheet = inputSheetUrl.trim();
+    const trimmedApi = inputApiUrl.trim();
+    setSheetUrl(trimmedSheet);
+    setStoredString(STORAGE_KEYS.SHEET_URL, trimmedSheet);
+    setApiUrl(trimmedApi);
+    setStoredString(STORAGE_KEYS.API_URL, trimmedApi);
+    setSavedConfigMsg(true);
+    setTimeout(() => setSavedConfigMsg(false), 3000);
+  };
+
+  const handleCopyGasCode = async () => {
+    try {
+      await navigator.clipboard.writeText(GAS_SCRIPT_V5);
+      setCopiedGasCode(true);
+      setTimeout(() => setCopiedGasCode(false), 4000);
+    } catch (e) {
+      const ta = document.createElement('textarea');
+      ta.value = GAS_SCRIPT_V5;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      setCopiedGasCode(true);
+      setTimeout(() => setCopiedGasCode(false), 4000);
+    }
+  };
+
+  const handleTestGasConnection = async () => {
+    if (!inputApiUrl.trim()) {
+      setGasTestResult({ ok: false, msg: 'กรุณากรอก Web App URL ของ Google Apps Script ก่อนกดทดสอบ' });
+      return;
+    }
+    setIsTestingGas(true);
+    setGasTestResult(null);
+    try {
+      const res = await testGasConnection(inputApiUrl.trim());
+      setGasTestResult({ ok: res.ok, msg: res.message });
+    } catch (e: any) {
+      setGasTestResult({ ok: false, msg: e?.message || 'ไม่สามารถทดสอบการเชื่อมต่อได้' });
+    } finally {
+      setIsTestingGas(false);
+    }
+  };
+
   // Barcode Scan Success Handler
   const handleScanSuccess = (decodedText: string) => {
     setIsBarcodeScannerOpen(false);
@@ -486,15 +723,38 @@ export default function App() {
       </div>
 
       {/* Desktop Header Navbar */}
-      <header className="hidden lg:flex fixed top-0 left-0 right-0 z-30 px-8 py-6 items-center justify-between">
+      <header className="hidden lg:flex fixed top-0 left-0 right-0 z-30 px-8 py-4 items-center justify-between backdrop-blur-xl border-b border-white/10 bg-[#0E0F12]/80">
         <div className="font-valorant text-3xl font-bold tracking-wider">
           <span className="text-[#3B82F6]">ANESTHESIA</span>
           <span className={isDark ? 'text-white' : 'text-slate-900'}>CARE</span>
         </div>
         <div className="flex items-center gap-4">
-          <button onClick={() => setCurrentView('home')} className="font-bold">หน้าหลัก</button>
-          <button onClick={() => setIsOfficialReportOpen(true)} className="font-bold">รายงาน</button>
-          <button onClick={toggleTheme} className="p-2 bg-slate-800 rounded-full">{isDark ? <Sun size={20}/> : <Moon size={20}/>}</button>
+          <button onClick={() => setCurrentView('home')} className="font-bold text-sm px-3 py-1.5 rounded-xl hover:bg-slate-800 transition cursor-pointer">หน้าหลัก</button>
+          <button onClick={() => { setReportCategory('eq'); setIsOfficialReportOpen(true); }} className="font-bold text-sm px-3 py-1.5 rounded-xl hover:bg-slate-800 transition cursor-pointer">รายงาน</button>
+          
+          {/* User Profile Button on Desktop Header */}
+          <button
+            type="button"
+            onClick={() => setIsProfileOpen(true)}
+            title={currentUser?.role === 'admin' ? 'ระดับสิทธิ์: ผู้ดูแลระบบ (Admin) - คลิกเพื่อดู/แก้ไขโปรไฟล์ และเปลี่ยนรหัสผ่าน' : 'ระดับสิทธิ์: เจ้าหน้าที่ (Staff) - คลิกเพื่อดู/แก้ไขโปรไฟล์'}
+            className={`text-xs px-3.5 py-1.5 rounded-full font-bold border flex items-center gap-1.5 cursor-pointer hover:opacity-90 active:scale-95 transition-all shadow-xs ${
+              currentUser?.role === 'admin'
+                ? isDark
+                  ? 'bg-purple-950/60 border-purple-500/60 text-purple-200 hover:bg-purple-900/60'
+                  : 'bg-purple-100 border-purple-300 text-purple-800 hover:bg-purple-200'
+                : isDark
+                ? 'bg-blue-950/60 border-blue-500/60 text-blue-200 hover:bg-blue-900/60'
+                : 'bg-blue-100 border-blue-300 text-blue-800 hover:bg-blue-200'
+            }`}
+          >
+            <span className="w-2 h-2 rounded-full bg-current animate-pulse" />
+            <span>{currentUser?.role === 'admin' ? 'ผู้ดูแลระบบ (Admin)' : 'เจ้าหน้าที่ (Staff)'}</span>
+            <span className="text-[10px] opacity-70">✎</span>
+          </button>
+
+          <button onClick={toggleTheme} className="p-2 bg-slate-800/80 rounded-full hover:bg-slate-700 transition cursor-pointer">
+            {isDark ? <Sun size={18}/> : <Moon size={18}/>}
+          </button>
         </div>
       </header>
 
@@ -519,6 +779,7 @@ export default function App() {
               setCurrentView(view as any);
             }}
             onOpenNotifications={() => setIsNotificationOpen(true)}
+            onOpenProfile={() => setIsProfileOpen(true)}
             onToggleCheck={handleToggleCheck}
             onOpenBarcodeScan={() => setIsBarcodeScannerOpen(true)}
             overallStats={overallStats}
@@ -534,7 +795,10 @@ export default function App() {
             apiUrl={apiUrl}
             drugs={drugs}
             onDrugsChange={handleDrugsChange}
-            onOpenPreview={() => setIsOfficialReportOpen(true)}
+            onOpenPreview={() => {
+              setReportCategory('drug');
+              setIsOfficialReportOpen(true);
+            }}
           />
         )}
 
@@ -603,7 +867,7 @@ export default function App() {
               onToggleCheck={handleToggleCheck}
               onUpdateNote={handleUpdateNote}
               onZoomImage={(imgUrl) => setZoomedImgUrl(imgUrl)}
-              onOpenReport={() => setIsOfficialReportOpen(true)}
+              onOpenReport={handleSaveEquipmentAndPreview}
             />
           </div>
         )}
@@ -639,60 +903,92 @@ export default function App() {
         )}
       </main>
 
-      {/* 📂 SAMSUNG ONE UI BOTTOM SHEET DRAWER (Touch Swipe Down to Dismiss) */}
+      {/* 📂 SAMSUNG ONE UI BOTTOM SHEET (Smooth Auto Slide-Up Transition) */}
       {isDrawerOpen && (
         <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/75 backdrop-blur-md transition-opacity animate-in fade-in duration-200"
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-xs transition-opacity duration-300 animate-in fade-in"
           onClick={() => setIsDrawerOpen(false)}
         >
           <div
-            className={`w-full max-w-md rounded-t-[2.5rem] p-6 space-y-4 border-t shadow-2xl transition-transform transform translate-y-0 animate-in slide-in-from-bottom duration-300 max-h-[85vh] overflow-y-auto no-scrollbar ${
-              isDark ? 'bg-[#181A20] border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-900'
+            className={`w-full max-w-lg rounded-t-[2.5rem] p-6 pb-8 space-y-4 border-t border-x shadow-2xl max-h-[90vh] overflow-y-auto no-scrollbar relative ${
+              isDark
+                ? 'bg-[#181A20] border-slate-700 text-white shadow-black/80'
+                : 'bg-white border-slate-200 text-slate-900 shadow-slate-300/80'
             }`}
-            style={drawerDragY > 0 ? { transform: `translateY(${drawerDragY}px)`, transition: 'none' } : undefined}
+            style={{
+              transform: drawerDragY > 0 ? `translateY(${drawerDragY}px)` : isDrawerMounted ? 'translateY(0)' : 'translateY(100%)',
+              transition: 'transform 0.35s cubic-bezier(0.32, 0.72, 0, 1)',
+            }}
             onClick={(e) => e.stopPropagation()}
+            onTouchStart={handleTouchStartDrawer}
+            onTouchMove={handleTouchMoveDrawer}
+            onTouchEnd={handleTouchEndDrawer}
+            onMouseDown={handleMouseDownDrawer}
+            onMouseMove={handleMouseMoveDrawer}
+            onMouseUp={handleMouseUpDrawer}
           >
-            {/* One UI Touch Drag Handle Bar (Swipe up/down to drag/close) */}
+            {/* Drag Handle Bar with touch-action none */}
             <div
-              className="py-2.5 -mt-2 cursor-grab active:cursor-grabbing touch-none select-none flex justify-center items-center"
-              onTouchStart={handleTouchStartDrawer}
-              onTouchMove={handleTouchMoveDrawer}
-              onTouchEnd={handleTouchEndDrawer}
-              onMouseDown={handleMouseDownDrawer}
-              onMouseMove={handleMouseMoveDrawer}
-              onMouseUp={handleMouseUpDrawer}
-              onMouseLeave={handleMouseUpDrawer}
-            >
-              <div className="w-12 h-1.5 bg-slate-500/60 hover:bg-slate-400 rounded-full mx-auto" />
-            </div>
+              style={{ touchAction: 'none' }}
+              className="w-12 h-1.5 bg-slate-300 dark:bg-slate-600 rounded-full mx-auto mb-2 cursor-grab active:cursor-grabbing hover:bg-slate-400 dark:hover:bg-slate-500 transition-colors"
+            />
 
-            {/* Drawer Header (Removed [✕] button) */}
-            <div className="flex justify-between items-center pb-3 border-b border-slate-700/30">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-[#3B82F6] text-white font-bold flex items-center justify-center text-sm shadow-md">
-                  {currentUser?.name?.charAt(0) || 'A'}
-                </div>
-                <div>
-                  <h3 className="text-base font-bold leading-none">{currentUser?.name || 'ผู้ใช้งาน'}</h3>
-                  <span className="text-[11px] opacity-60">Anesthesia Care • Samsung One UI</span>
-                </div>
-              </div>
-            </div>
-
-            {/* One UI Quick Actions Menu */}
-            <div className="space-y-2.5 py-1">
+            {/* Bottom Sheet Header with Clickable User Profile */}
+            <div className="flex justify-between items-center pb-3 border-b border-slate-200 dark:border-slate-800">
               <button
                 type="button"
                 onClick={() => {
+                  setIsProfileOpen(true);
+                  setIsDrawerOpen(false);
+                }}
+                className="flex items-center gap-3 p-1.5 -m-1.5 rounded-2xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer text-left group active:scale-98"
+                title="คลิกเพื่อแก้ไขรูปโปรไฟล์และข้อมูลผู้ใช้"
+              >
+                <div className="relative">
+                  <div className="w-11 h-11 rounded-full bg-[#3B82F6] text-white font-bold flex items-center justify-center text-sm shadow-md group-hover:scale-105 transition-transform">
+                    {currentUser?.name?.charAt(0) || 'A'}
+                  </div>
+                  <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-emerald-500 border-2 border-white dark:border-[#181A20] rounded-full" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-base font-bold leading-none group-hover:text-blue-500 transition-colors">
+                      {currentUser?.name || 'ผู้ใช้งาน'}
+                    </h3>
+                    <span className="text-[10px] text-blue-500 bg-blue-50 dark:bg-blue-900/40 px-2 py-0.5 rounded-full font-bold">
+                      แก้ไขโปรไฟล์
+                    </span>
+                  </div>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsDrawerOpen(false)}
+                className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 flex items-center justify-center hover:opacity-80 transition cursor-pointer"
+                title="ปิด"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Menu Content */}
+            <div className="space-y-3 py-1">
+              {/* 1. รายงานสรุปประจำวัน & พรีวิว PDF (A4) */}
+              <button
+                type="button"
+                onClick={() => {
+                  setReportCategory('eq');
                   setIsOfficialReportOpen(true);
                   setIsDrawerOpen(false);
                 }}
-                className="w-full flex items-center gap-3.5 p-3.5 rounded-2xl text-sm font-bold bg-white text-slate-900 border border-slate-200 hover:bg-slate-100 shadow-sm transition cursor-pointer"
+                className="w-full flex items-center gap-3.5 p-3.5 rounded-2xl text-sm font-bold bg-white dark:bg-slate-800/90 text-slate-900 dark:text-white border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700/80 shadow-xs transition cursor-pointer"
               >
                 <span className="text-lg">📊</span>
-                <span>รายงานสรุปประจำวัน & พรีวิว PDF</span>
+                <span>รายงานสรุปประจำวัน & พรีวิว PDF (A4)</span>
               </button>
 
+              {/* 2. จัดการผู้ใช้ (Admin) */}
               {currentUser?.role === 'admin' && (
                 <button
                   type="button"
@@ -703,7 +999,7 @@ export default function App() {
                   className={`w-full flex items-center gap-3.5 p-3.5 rounded-2xl text-sm font-bold transition cursor-pointer border ${
                     currentView === 'users'
                       ? 'bg-[#3B82F6] text-white border-[#3B82F6] shadow-md'
-                      : 'bg-white text-slate-900 border-slate-200 hover:bg-slate-100 shadow-sm'
+                      : 'bg-white dark:bg-slate-800/90 text-slate-900 dark:text-white border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700/80 shadow-xs'
                   }`}
                 >
                   <span className="text-lg">⚙️</span>
@@ -711,36 +1007,151 @@ export default function App() {
                 </button>
               )}
 
+              {/* 3. Accordion Toggle Button สำหรับ "ตั้งค่าการเชื่อมต่อ Google Sheets" (วางใต้ปุ่ม จัดการผู้ใช้) */}
               <button
                 type="button"
-                onClick={() => {
-                  setIsProfileOpen(true);
-                  setIsDrawerOpen(false);
-                }}
-                className="w-full flex items-center gap-3.5 p-3.5 rounded-2xl text-sm font-bold bg-white text-slate-900 border border-slate-200 hover:bg-slate-100 shadow-sm transition cursor-pointer"
+                onClick={() => setIsSheetsAccordionOpen((prev) => !prev)}
+                className="w-full flex items-center justify-between p-3.5 rounded-2xl text-sm font-bold bg-white dark:bg-slate-800/90 text-slate-900 dark:text-white border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700/80 shadow-xs transition cursor-pointer"
               >
-                <UserIcon size={18} className="text-blue-500" />
-                <span>โปรไฟล์ผู้ใช้งาน</span>
+                <div className="flex items-center gap-3.5">
+                  <FileSpreadsheet size={18} className="text-emerald-500" />
+                  <span>ตั้งค่าการเชื่อมต่อ Google Sheets</span>
+                </div>
+                <ChevronDown
+                  size={18}
+                  className={`text-slate-400 transition-transform duration-200 ${
+                    isSheetsAccordionOpen ? 'rotate-180 text-blue-500' : ''
+                  }`}
+                />
               </button>
 
-              <button
-                type="button"
-                onClick={() => {
-                  setIsPasswordOpen(true);
-                  setIsDrawerOpen(false);
-                }}
-                className="w-full flex items-center gap-3.5 p-3.5 rounded-2xl text-sm font-bold bg-white text-slate-900 border border-slate-200 hover:bg-slate-100 shadow-sm transition cursor-pointer"
-              >
-                <Lock size={18} className="text-amber-500" />
-                <span>เปลี่ยนรหัสผ่าน</span>
-              </button>
+              {/* 3.1 Accordion Collapsible Content */}
+              {isSheetsAccordionOpen && (
+                <div className="p-4 rounded-2xl border border-blue-500/30 bg-blue-50/50 dark:bg-blue-950/20 space-y-3.5 animate-in slide-in-from-top-2 duration-200">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold flex items-center gap-1.5 text-blue-600 dark:text-blue-400">
+                      <FileSpreadsheet size={16} />
+                      <span>Google Sheets & GAS V5</span>
+                    </span>
+                    {inputSheetUrl && (
+                      <a
+                        href={inputSheetUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-[11px] text-blue-500 hover:underline flex items-center gap-1 font-semibold"
+                      >
+                        <span>เปิดดูชีตจริง</span>
+                        <ExternalLink size={12} />
+                      </a>
+                    )}
+                  </div>
 
+                  {/* Sheet URL Input */}
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300 block">
+                      URL ลิงก์ Google Sheets:
+                    </label>
+                    <input
+                      type="url"
+                      value={inputSheetUrl}
+                      onChange={(e) => setInputSheetUrl(e.target.value)}
+                      placeholder="https://docs.google.com/spreadsheets/d/..."
+                      className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-blue-500 transition shadow-inner font-mono"
+                    />
+                  </div>
+
+                  {/* Script URL Input & Test Connection */}
+                  <div className="space-y-1">
+                    <div className="flex justify-between items-center">
+                      <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">
+                        Google Apps Script Web App URL:
+                      </label>
+                      <button
+                        type="button"
+                        onClick={handleTestGasConnection}
+                        disabled={isTestingGas || !inputApiUrl.trim()}
+                        className="text-[11px] text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 font-semibold disabled:opacity-40 cursor-pointer"
+                      >
+                        {isTestingGas ? (
+                          <>
+                            <RefreshCw size={11} className="animate-spin" />
+                            <span>กำลังทดสอบ...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Sparkles size={11} />
+                            <span>ทดสอบการเชื่อมต่อ</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                    <input
+                      type="url"
+                      value={inputApiUrl}
+                      onChange={(e) => setInputApiUrl(e.target.value)}
+                      placeholder="https://script.google.com/macros/s/.../exec"
+                      className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-blue-500 transition shadow-inner font-mono"
+                    />
+                    {gasTestResult && (
+                      <div
+                        className={`p-2 rounded-xl text-[11px] font-semibold flex items-center gap-1.5 ${
+                          gasTestResult.ok
+                            ? 'bg-emerald-50 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800'
+                            : 'bg-rose-50 text-rose-800 dark:bg-rose-950/40 dark:text-rose-300 border border-rose-300 dark:border-rose-800'
+                        }`}
+                      >
+                        {gasTestResult.ok ? <Check size={13} /> : <X size={13} />}
+                        <span>{gasTestResult.msg}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Action Buttons */}
+                  <div className="grid grid-cols-2 gap-2 pt-0.5">
+                    <button
+                      type="button"
+                      onClick={handleSaveSheetsConfig}
+                      className="py-2.5 px-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-md transition flex items-center justify-center gap-1.5 cursor-pointer active:scale-95"
+                    >
+                      <Check size={15} />
+                      <span>{savedConfigMsg ? '✓ บันทึกแล้ว!' : '💾 บันทึกการตั้งค่าชีต'}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleCopyGasCode}
+                      className="py-2.5 px-3 rounded-xl bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-750 font-bold text-xs shadow-xs transition flex items-center justify-center gap-1.5 cursor-pointer active:scale-95"
+                    >
+                      {copiedGasCode ? <Check size={15} className="text-emerald-500" /> : <Copy size={15} />}
+                      <span>{copiedGasCode ? '✓ คัดลอกแล้ว' : 'คัดลอกโค้ด V5'}</span>
+                    </button>
+                  </div>
+
+                  {/* Script Code Preview Toggle */}
+                  <div>
+                    <button
+                      type="button"
+                      onClick={() => setShowScriptPreview(!showScriptPreview)}
+                      className="text-[10.5px] text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 flex items-center gap-1 cursor-pointer"
+                    >
+                      <span>{showScriptPreview ? 'ซ่อนตัวอย่างโค้ด Google Apps Script' : 'แสดงตัวอย่างโค้ด Google Apps Script V5'}</span>
+                    </button>
+                    {showScriptPreview && (
+                      <div className="mt-2 p-2.5 rounded-xl bg-slate-900 text-emerald-400 text-[10px] font-mono max-h-32 overflow-y-auto border border-slate-800">
+                        <pre className="whitespace-pre-wrap">{GAS_SCRIPT_V5.slice(0, 600)}... (กดปุ่มคัดลอกด้านบนเพื่อนำไปวางฉบับสมบูรณ์)</pre>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* 4. สลับธีม */}
               <button
                 type="button"
                 onClick={() => {
                   toggleTheme();
                 }}
-                className="w-full flex items-center justify-between p-3.5 rounded-2xl text-sm font-bold bg-white text-slate-900 border border-slate-200 hover:bg-slate-100 shadow-sm transition cursor-pointer"
+                className="w-full flex items-center justify-between p-3.5 rounded-2xl text-sm font-bold bg-white dark:bg-slate-800/90 text-slate-900 dark:text-white border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700/80 shadow-xs transition cursor-pointer"
               >
                 <div className="flex items-center gap-3.5">
                   {isDark ? <Moon size={18} className="text-indigo-500" /> : <Sun size={18} className="text-amber-500" />}
@@ -759,12 +1170,18 @@ export default function App() {
         theme={theme}
         onToggleTheme={toggleTheme}
         onNavigate={(view) => setCurrentView(view as any)}
-        onOpenReport={() => setIsOfficialReportOpen(true)}
-        onOpenGoogleSheet={() => {
-          if (sheetUrl) window.open(sheetUrl, '_blank');
-          else alert('ยังไม่ได้ตั้งค่า Google Sheet URL');
+        onOpenReport={() => {
+          setReportCategory('eq');
+          setIsOfficialReportOpen(true);
         }}
-        onOpenDrawer={() => setIsDrawerOpen(true)}
+        onOpenGoogleSheet={() => {
+          setDrawerActiveTab('sheets');
+          setIsDrawerOpen(true);
+        }}
+        onOpenDrawer={() => {
+          setDrawerActiveTab('menu');
+          setIsDrawerOpen(true);
+        }}
         onOpenBarcodeScanner={() => setIsBarcodeScannerOpen(true)}
         isDrawerOpen={isDrawerOpen}
       />
@@ -779,7 +1196,7 @@ export default function App() {
             <button
               type="button"
               onClick={() => setZoomedImgUrl(null)}
-              className="absolute -top-10 right-0 p-2 text-white bg-slate-800 rounded-full hover:bg-slate-700"
+              className="absolute -top-10 right-0 p-2 text-white bg-slate-800 rounded-full hover:bg-slate-700 cursor-pointer"
             >
               <X size={20} />
             </button>
@@ -797,6 +1214,11 @@ export default function App() {
         <OfficialReportModal
           isOpen={isOfficialReportOpen}
           onClose={() => setIsOfficialReportOpen(false)}
+          initialCategory={reportCategory}
+          eqItems={formattedEqItems}
+          bagItems={formattedBagItems}
+          cartItems={formattedCartItems}
+          items={formattedEqItems}
           drugs={drugs}
           apiUrl={apiUrl}
           sheetUrl={sheetUrl}
@@ -825,6 +1247,7 @@ export default function App() {
           alerts={expiryAlerts}
           onOpenReport={() => {
             setIsNotificationOpen(false);
+            setReportCategory('eq');
             setIsOfficialReportOpen(true);
           }}
         />
@@ -835,6 +1258,7 @@ export default function App() {
           isOpen={isProfileOpen}
           onClose={() => setIsProfileOpen(false)}
           currentUser={currentUser}
+          onOpenPasswordModal={() => setIsPasswordOpen(true)}
           onUpdateAvatar={(newAvatar) => {
             const updated = { ...currentUser, avatar: newAvatar };
             setCurrentUser(updated);

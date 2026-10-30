@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import {
   Printer,
   X,
@@ -220,47 +220,51 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const sheetRef = useRef<HTMLDivElement>(null);
-  const [modalContentWidth, setModalContentWidth] = useState<number>(typeof window !== 'undefined' ? window.innerWidth : 1200);
-  const [sheetHeight, setSheetHeight] = useState<number>(1280);
+  const [modalContentWidth, setModalContentWidth] = useState<number>(
+    typeof window !== 'undefined' ? Math.min(window.innerWidth - 32, 1200) : 1120
+  );
+  const [sheetHeight, setSheetHeight] = useState<number>(850);
 
   useEffect(() => {
-    if (initialCategory) {
-      setSelectedCategory(initialCategory);
+    if (isOpen) {
+      if (initialCategory) {
+        setSelectedCategory(initialCategory);
+      }
+      if (initialDrugSubCategory) {
+        setDrugSubCategory(initialDrugSubCategory);
+      }
+      setSelectedRoundId('current');
+      setFeedback(null);
+      setIsFitToScreen(true);
     }
-    if (initialDrugSubCategory) {
-      setDrugSubCategory(initialDrugSubCategory);
-    }
-    setSelectedRoundId('current');
-    setFeedback(null);
   }, [initialCategory, initialDrugSubCategory, isOpen]);
 
-  // Window resize & container size observer for accurate scale calculation
-  useEffect(() => {
-    const updateSize = () => {
+  // Synchronous layout effect & observer for immediate mount render measurement
+  useLayoutEffect(() => {
+    if (!isOpen) return;
+
+    const measureSizes = () => {
       if (scrollContainerRef.current) {
-        setModalContentWidth(scrollContainerRef.current.clientWidth);
-      } else if (typeof window !== 'undefined') {
-        setModalContentWidth(window.innerWidth);
+        const cw = scrollContainerRef.current.clientWidth;
+        if (cw > 0) setModalContentWidth(cw);
       }
       if (sheetRef.current) {
-        setSheetHeight(sheetRef.current.offsetHeight);
+        const sh = sheetRef.current.offsetHeight;
+        if (sh > 0) setSheetHeight(sh);
       }
     };
 
-    updateSize();
-    window.addEventListener('resize', updateSize);
-    return () => window.removeEventListener('resize', updateSize);
-  }, [isOpen, selectedCategory, isFullscreen, isFitToScreen]);
+    measureSizes();
+    const raf = requestAnimationFrame(measureSizes);
+    const timer = setTimeout(measureSizes, 60);
 
-  // Update sheet height after re-render of report contents
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      if (sheetRef.current) {
-        setSheetHeight(sheetRef.current.offsetHeight);
-      }
-    }, 120);
-    return () => clearTimeout(timer);
-  }, [selectedCategory, selectedRoundId, drugSubCategory, isFullscreen]);
+    window.addEventListener('resize', measureSizes);
+    return () => {
+      cancelAnimationFrame(raf);
+      clearTimeout(timer);
+      window.removeEventListener('resize', measureSizes);
+    };
+  }, [isOpen, selectedCategory, selectedRoundId, drugSubCategory, isFullscreen, isFitToScreen]);
 
   const resolvedDrugs: DrugItem[] = useMemo(() => {
     if (propDrugs && propDrugs.length > 0) return propDrugs;
@@ -372,8 +376,8 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
   if (!isOpen) return null;
 
   // Base Paper Width for clean A4 printing without font reflow
-  const basePaperWidth = selectedCategory === 'eq' ? 1080 : 940;
-  const availableContentWidth = Math.max(280, modalContentWidth - 32);
+  const basePaperWidth = 1120;
+  const availableContentWidth = Math.max(300, modalContentWidth - 48);
   const scaleFactor = isFitToScreen ? Math.min(1, availableContentWidth / basePaperWidth) : 1;
 
   const handlePrintPdf = () => {
@@ -386,6 +390,7 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
       clinicName: cleanClinicName,
       mainDocHeading: mainDocHeading,
       orientation: orientation,
+      currentUser: currentUser,
     };
 
     if (selectedCategory === 'drug') {
@@ -563,33 +568,49 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
 
   return (
     <div
+      className="official-report-modal-backdrop"
       style={{
         position: 'fixed',
         inset: 0,
-        zIndex: 9999,
-        background: 'rgba(0,0,0,0.65)',
+        zIndex: 50,
         display: 'flex',
-        justifyContent: 'center',
         alignItems: 'center',
+        justifyContent: 'center',
+        overflow: 'hidden',
+        background: 'rgba(0, 0, 0, 0.65)',
         padding: '12px',
         boxSizing: 'border-box',
       }}
     >
       <div
+        className="official-report-modal-card"
         style={{
-          width: '100%',
-          maxWidth: isFullscreen ? '100%' : '1240px',
-          height: isFullscreen ? '98vh' : '92vh',
-          background: '#f8fafc',
-          borderRadius: '20px',
+          width: isFullscreen ? '100vw' : '95vw',
+          maxWidth: isFullscreen ? '100vw' : '1240px',
+          height: isFullscreen ? '100vh' : '90vh',
+          maxHeight: isFullscreen ? '100vh' : '90vh',
           display: 'flex',
           flexDirection: 'column',
           overflow: 'hidden',
+          borderRadius: isFullscreen ? '0px' : '16px',
+          position: 'relative',
+          background: '#f8fafc',
           boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
         }}
       >
         {/* Modal Sticky Header Bar */}
-        <div className="p-3 sm:p-4 border-b border-slate-200 bg-white flex flex-col gap-3 shrink-0">
+        <div
+          className="p-3 sm:p-4 border-b border-slate-200 bg-white flex flex-col gap-3 shrink-0"
+          style={{
+            flexShrink: 0,
+            zIndex: 20,
+            background: '#ffffff',
+            position: 'sticky',
+            top: 0,
+            width: '100%',
+            boxSizing: 'border-box',
+          }}
+        >
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-1">
               {[
@@ -665,7 +686,7 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
                 title={isFitToScreen ? 'แสดงขนาดจริง 100%' : 'ปรับขนาดพอดีหน้าจอ'}
               >
                 <Scaling className="w-3.5 h-3.5" />
-                <span>{isFitToScreen ? '⤢ พอดีหน้าจอ' : 'ขนาดจริง 100%'}</span>
+                <span>{isFitToScreen ? '[⤢ พอดีหน้าจอ]' : '[🔍 ขนาดจริง 100%]'}</span>
               </button>
 
               <button
@@ -723,18 +744,21 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
         {/* Printable Area Content Scrollable Wrapper */}
         <div
           ref={scrollContainerRef}
+          className="paper-scroll-viewport report-viewport-area"
           style={{
             flex: 1,
-            overflowX: isFitToScreen ? 'hidden' : 'auto',
-            overflowY: 'auto',
-            padding: '16px',
-            WebkitOverflowScrolling: 'touch',
-            background: '#e2e8f0',
+            overflow: 'auto',
+            position: 'relative',
+            width: '100%',
+            height: '100%',
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
-            width: '100%',
+            justifyContent: 'flex-start',
+            padding: '16px',
             boxSizing: 'border-box',
+            background: '#e2e8f0',
+            WebkitOverflowScrolling: 'touch',
           }}
         >
           {/* Print Guidance Banner */}
@@ -742,29 +766,43 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
             <span>💡 <b>คำแนะนำ:</b> แนะนำเลือกการจัดวางเป็น <b>"แนวนอน" (Landscape)</b> ในหน้าต่างพิมพ์ PDF เพื่อตารางรายงาน A4 ที่สมบูรณ์แบบที่สุด</span>
           </div>
 
-          {/* Scaled A4 Paper Holder (Exact PDF zoom behavior without responsive re-flow) */}
+          {/* Scaled A4 Paper Holder (Isolated Canvas Viewport) */}
           <div
+            className="a4-paper-holder"
             style={{
               width: isFitToScreen ? `${basePaperWidth * scaleFactor}px` : `${basePaperWidth}px`,
-              height: isFitToScreen ? `${sheetHeight * scaleFactor}px` : 'auto',
+              height: isFitToScreen ? `${sheetHeight * scaleFactor}px` : `${sheetHeight}px`,
+              minHeight: isFitToScreen ? `${794 * scaleFactor}px` : '794px',
               position: 'relative',
               margin: '0 auto',
-              transition: 'width 0.15s ease, height 0.15s ease',
               boxSizing: 'border-box',
+              overflow: 'visible',
+              flexShrink: 0,
             }}
           >
             <div
               ref={sheetRef}
+              className="a4-paper-sheet a4-paper-wrapper"
               style={{
-                width: `${basePaperWidth}px`,
-                transform: isFitToScreen ? `scale(${scaleFactor})` : 'none',
-                transformOrigin: 'top left',
+                width: '1120px',
+                minWidth: '1120px',
+                transform: isFitToScreen
+                  ? `translate(-50%, 0) scale(${scaleFactor})`
+                  : 'translate(-50%, 0) scale(1)',
+                WebkitTransform: isFitToScreen
+                  ? `translate(-50%, 0) scale(${scaleFactor})`
+                  : 'translate(-50%, 0) scale(1)',
+                transformOrigin: 'top center',
+                willChange: 'transform',
                 background: '#ffffff',
-                borderRadius: '8px',
-                boxShadow: '0 4px 20px rgba(0,0,0,0.12)',
+                boxShadow: '0 10px 25px rgba(0,0,0,0.15)',
+                borderRadius: '2px',
                 boxSizing: 'border-box',
-                padding: '24px 28px',
-                minHeight: '1240px',
+                padding: '32px',
+                position: 'absolute',
+                top: 0,
+                left: '50%',
+                minHeight: '794px',
                 display: 'flex',
                 flexDirection: 'column',
                 justifyContent: 'space-between',
@@ -824,6 +862,7 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
                   signature={userSignature}
                   agencyName={cleanClinicName}
                   weekItemValues={weekItemValues}
+                  currentUser={currentUser}
                 />
               ) : (
                 <EquipmentReportPreview
@@ -833,6 +872,7 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
                   signature={userSignature}
                   clinicName={cleanClinicName}
                   mainDocHeading={mainDocHeading}
+                  currentUser={currentUser}
                 />
               )}
             </div>

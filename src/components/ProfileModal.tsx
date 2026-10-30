@@ -592,6 +592,30 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                 </div>
               </div>
 
+              {/* Quick Action Profile Edit Buttons */}
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('avatar')}
+                  className="flex-1 py-2.5 px-3 rounded-xl bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 font-bold border border-blue-200 dark:border-blue-900/50 hover:bg-blue-100 dark:hover:bg-blue-900/60 flex items-center justify-center gap-1.5 transition text-xs cursor-pointer active:scale-95 shadow-2xs"
+                >
+                  <Camera className="w-3.5 h-3.5" />
+                  <span>แก้ไขรูปโปรไฟล์</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (onOpenPasswordModal) {
+                      onOpenPasswordModal();
+                    }
+                  }}
+                  className="flex-1 py-2.5 px-3 rounded-xl bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 font-bold border border-amber-200 dark:border-amber-900/50 hover:bg-amber-100 dark:hover:bg-amber-900/60 flex items-center justify-center gap-1.5 transition text-xs cursor-pointer active:scale-95 shadow-2xs"
+                >
+                  <Key className="w-3.5 h-3.5" />
+                  <span>เปลี่ยนรหัสผ่าน</span>
+                </button>
+              </div>
+
               {/* 1. Health App Style Personal Activity Stats Widget */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between">

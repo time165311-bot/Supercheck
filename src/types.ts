@@ -102,24 +102,29 @@ export interface InspectionHistoryRecord {
   id: string;
   timestamp: string;
   date: string;
-  time: string;
+  time?: string;
   who: string;
   type: 'eq' | 'bag' | 'cart' | 'drug';
   title: string;
   rows: Array<{
-    no?: string;
+    no?: string | number;
     code?: string;
     sap?: string;
     name: string;
     spec?: string;
     source?: string;
     date?: string;
-    qty?: string;
-    tax?: string;
-    price?: string;
+    qty?: string | number;
+    tax?: string | number;
+    price?: string | number;
     location?: string;
     res: string;
     note?: string;
+    exp?: string;
+    group?: string;
+    val?: string;
+    weekVals?: { [week: number]: string };
+    [key: string]: any;
   }>;
 }
 

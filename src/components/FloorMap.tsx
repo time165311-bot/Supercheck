@@ -13,6 +13,7 @@ import {
   Maximize2,
   AlertCircle,
   FileSpreadsheet,
+  RefreshCw,
 } from 'lucide-react';
 import { EquipmentItem, RoomDef, CheckItemState } from '../types';
 import { CORRIDOR_LABELS, CORRIDORS } from '../constants/initialData';
@@ -32,7 +33,7 @@ interface FloorMapProps {
   ) => void;
   onUpdateNote?: (categoryOrRoomId: string, itemKey: string, note: string) => void;
   onZoomImage?: (url: string) => void;
-  onOpenReport?: () => void;
+  onOpenReport?: () => Promise<void> | void;
 }
 
 export const FloorMap: React.FC<FloorMapProps> = ({
@@ -51,6 +52,7 @@ export const FloorMap: React.FC<FloorMapProps> = ({
   const [zoomScale, setZoomScale] = useState<number>(1.0);
   const [pan, setPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState<boolean>(false);
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [roomFilterMode, setRoomFilterMode] = useState<'pending' | 'defective' | 'all'>('pending');
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -873,11 +875,28 @@ export const FloorMap: React.FC<FloorMapProps> = ({
           <div className="pt-4 border-t border-slate-100 flex items-center justify-center">
             <button
               type="button"
-              onClick={onOpenReport}
-              className="w-full sm:w-auto px-6 py-3.5 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm shadow-md transition cursor-pointer active:scale-95 flex items-center justify-center gap-2.5"
+              onClick={async () => {
+                try {
+                  setIsSubmitting(true);
+                  await onOpenReport();
+                } finally {
+                  setIsSubmitting(false);
+                }
+              }}
+              disabled={isSubmitting}
+              className="w-full sm:w-auto px-6 py-3.5 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm shadow-md transition cursor-pointer active:scale-95 flex items-center justify-center gap-2.5 disabled:opacity-60"
             >
-              <FileSpreadsheet size={18} />
-              <span>💾 บันทึกข้อมูลเข้า Google Sheets & พรีวิวรายงาน</span>
+              {isSubmitting ? (
+                <>
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                  <span>กำลังบันทึกข้อมูลเข้า Google Sheets...</span>
+                </>
+              ) : (
+                <>
+                  <FileSpreadsheet size={18} />
+                  <span>💾 บันทึกข้อมูลเข้า Google Sheets & พรีวิวรายงาน</span>
+                </>
+              )}
             </button>
           </div>
         )}
