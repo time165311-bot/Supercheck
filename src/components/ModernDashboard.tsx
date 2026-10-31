@@ -6,12 +6,19 @@ import {
   CheckCircle2,
   Clock,
   XCircle,
+  Sun,
+  Moon,
+  Menu,
+  User as UserIcon,
+  FileText,
+  FileSpreadsheet,
 } from 'lucide-react';
 import { CheckItemState, DrugItem, EquipmentItem, ExpiryAlertItem, ListConfig, User } from '../types';
 import { categoryCovers } from '../assets/categoryCovers';
 import operatingRoomBg from '../assets/images/modern_operating_room_1793107748862.jpg';
 import { Swiper, SwiperSlide } from 'swiper/react';
 import { EffectCoverflow, Pagination } from 'swiper/modules';
+import AiInsightsWidget from './AiInsightsWidget';
 
 // Import Swiper styles
 import 'swiper/css';
@@ -31,6 +38,10 @@ interface ModernDashboardProps {
   onLogout?: () => void;
   onOpenNotifications?: () => void;
   onOpenProfile?: () => void;
+  onOpenDrawer?: () => void;
+  onOpenMenu?: () => void;
+  onOpenReport?: () => void;
+  onOpenSheets?: () => void;
   onToggleCheck?: (categoryOrRoomId: string, itemKey: string, result: 'ปกติ' | 'ผิดปกติ', itemName: string) => void;
   onUpdateNote?: (categoryOrRoomId: string, itemKey: string, note: string) => void;
   onZoomImage?: (url: string) => void;
@@ -52,9 +63,14 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
   globalChecks,
   expiryAlerts: _expiryAlerts,
   theme,
+  onToggleTheme,
   onNavigate,
   onOpenNotifications,
   onOpenProfile,
+  onOpenDrawer,
+  onOpenMenu,
+  onOpenReport,
+  onOpenSheets,
   overallStats,
 }) => {
   const isDarkMode = theme ? theme === 'dark' : true;
@@ -269,35 +285,86 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
 
       {/* Main Container */}
       <div className="p-4 pt-3 space-y-4 relative z-10 max-w-md lg:max-w-[1400px] mx-auto lg:grid lg:grid-cols-2 lg:gap-6">
+        
         {/* 📱 1. Samsung One UI Header Card & Weather Widget with Vibrant Royal Blue Gradient */}
         <div
           style={{
             background: 'linear-gradient(135deg, #1d4ed8 0%, #2563eb 50%, #3b82f6 100%)',
           }}
-          className="w-full p-4 sm:p-5 rounded-[2rem] border border-blue-400/40 shadow-2xl transition-all duration-300 space-y-3 lg:col-span-2 relative overflow-hidden backdrop-blur-2xl hover:scale-[1.003] text-white"
+          className="w-full p-4 sm:p-6 rounded-[2rem] border border-blue-400/40 shadow-2xl transition-all duration-300 space-y-4 lg:col-span-2 relative overflow-hidden backdrop-blur-2xl text-white"
         >
           {/* Subtle Ambient Pulse Light */}
-          <div className="absolute -top-12 -right-12 w-36 h-36 bg-cyan-300/30 rounded-full blur-2xl pointer-events-none animate-pulse" />
-          <div className="absolute -bottom-10 -left-10 w-32 h-32 bg-blue-300/30 rounded-full blur-2xl pointer-events-none animate-pulse" />
+          <div className="absolute -top-12 -right-12 w-48 h-48 bg-cyan-300/30 rounded-full blur-3xl pointer-events-none animate-pulse" />
+          <div className="absolute -bottom-10 -left-10 w-44 h-44 bg-blue-300/30 rounded-full blur-3xl pointer-events-none animate-pulse" />
 
-          {/* Top Row: Title + Notifications (Purple Admin Badge Permanently Removed) */}
-          <div className="flex justify-between items-center relative z-10 gap-2">
-            <div className="flex items-center gap-1.5 font-valorant text-2xl sm:text-3xl font-bold tracking-wider shrink-0">
+          {/* Top Row: Title + User Profile + Menu + Notifications + Theme Toggle */}
+          <div className="flex flex-wrap sm:flex-nowrap justify-between items-center relative z-10 gap-3">
+            {/* Title / Brand */}
+            <div className="flex items-center gap-2 font-valorant text-2xl sm:text-3xl lg:text-4xl font-bold tracking-wider shrink-0">
               <span className="text-[#67e8f9] drop-shadow-[0_2px_8px_rgba(103,232,249,0.5)]">ANESTHESIA</span>
               <span className="text-white drop-shadow-sm">CARE</span>
             </div>
 
-            <div className="flex items-center gap-2 shrink-0">
+            {/* Controls Right: 1. [ รายงาน ] 2. [ ชีต ] 3. [ เมนู ] */}
+            <div className="flex items-center gap-2 flex-wrap shrink-0">
+              {/* 1. รายงาน (Leftmost) */}
+              <button
+                type="button"
+                onClick={onOpenReport || (() => onNavigate('room_check'))}
+                title="เปิดรายงานสรุปประจำวัน & พรีวิว PDF"
+                className="text-xs px-3.5 py-2 rounded-full font-bold border border-white/30 bg-white/20 hover:bg-white/30 text-white flex items-center gap-1.5 cursor-pointer transition active:scale-95 shadow-sm backdrop-blur-md"
+              >
+                <FileText size={15} />
+                <span>รายงาน</span>
+              </button>
+
+              {/* 2. ชีต (Next to รายงาน) */}
+              <button
+                type="button"
+                onClick={onOpenSheets || onOpenDrawer || onOpenMenu}
+                title="ตั้งค่าการเชื่อมต่อ Google Sheets"
+                className="text-xs px-3.5 py-2 rounded-full font-bold border border-white/30 bg-white/20 hover:bg-white/30 text-white flex items-center gap-1.5 cursor-pointer transition active:scale-95 shadow-sm backdrop-blur-md"
+              >
+                <FileSpreadsheet size={15} className="text-emerald-300" />
+                <span>ชีต</span>
+              </button>
+
+              {/* 3. เมนู (Rightmost, next to ชีต) */}
+              {(onOpenDrawer || onOpenMenu) && (
+                <button
+                  type="button"
+                  onClick={onOpenMenu || onOpenDrawer}
+                  title="เปิดเมนูตั้งค่าและจัดการ"
+                  className="text-xs px-3.5 py-2 rounded-full font-bold border border-white/30 bg-white/20 hover:bg-white/30 text-white flex items-center gap-1.5 cursor-pointer transition active:scale-95 shadow-sm backdrop-blur-md"
+                >
+                  <Menu size={16} />
+                  <span>เมนู</span>
+                </button>
+              )}
+
+              {/* Notifications Bell */}
               {onOpenNotifications && (
                 <button
                   type="button"
                   onClick={onOpenNotifications}
-                  className="relative p-2.5 rounded-full border border-white/30 bg-white/15 text-white hover:bg-white/25 transition active:scale-90 cursor-pointer shadow-sm backdrop-blur-md"
+                  className="relative p-2 rounded-full border border-white/30 bg-white/20 hover:bg-white/30 text-white transition active:scale-90 cursor-pointer shadow-sm backdrop-blur-md"
                   title="การแจ้งเตือน"
                 >
-                  <Bell size={16} />
+                  <Bell size={15} />
                   <span className="absolute top-1 right-1 w-2 h-2 bg-rose-500 rounded-full animate-ping" />
                   <span className="absolute top-1 right-1 w-2 h-2 bg-rose-500 rounded-full" />
+                </button>
+              )}
+
+              {/* Theme Toggle */}
+              {onToggleTheme && (
+                <button
+                  type="button"
+                  onClick={onToggleTheme}
+                  className="p-2 rounded-full border border-white/30 bg-white/20 hover:bg-white/30 text-white transition active:scale-90 cursor-pointer shadow-sm backdrop-blur-md"
+                  title={isDarkMode ? 'เปลี่ยนเป็นโหมดสว่าง' : 'เปลี่ยนเป็นโหมดมืด'}
+                >
+                  {isDarkMode ? <Sun size={15} /> : <Moon size={15} />}
                 </button>
               )}
             </div>
@@ -309,14 +376,14 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
               width: '100%',
               boxSizing: 'border-box',
               overflow: 'hidden',
-              padding: '10px 12px',
+              padding: '12px 16px',
             }}
-            className="rounded-[1.5rem] border border-white/20 bg-black/20 text-white backdrop-blur-md flex items-center justify-between gap-2.5 transition-all relative z-10 shadow-inner"
+            className="rounded-[1.5rem] border border-white/20 bg-black/20 text-white backdrop-blur-md flex items-center justify-between gap-3 transition-all relative z-10 shadow-inner"
           >
-            <div className="flex items-center gap-2.5 min-w-0 shrink">
+            <div className="flex items-center gap-3 min-w-0 shrink">
               <span className="text-2xl sm:text-3xl filter drop-shadow shrink-0">🌤️</span>
               <div className="min-w-0">
-                <div className="flex items-baseline gap-1.5 flex-wrap">
+                <div className="flex items-baseline gap-2 flex-wrap">
                   <span className="text-xl sm:text-2xl font-black nowrap-unit text-white drop-shadow-sm">
                     {weatherData.temp}°C
                   </span>
@@ -324,21 +391,34 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
                     {weatherData.locationName}
                   </span>
                 </div>
-                <div className="text-[10px] text-cyan-200/90 font-medium truncate">
+                <div className="text-[10px] sm:text-xs text-cyan-200/90 font-medium truncate">
                   {weatherData.condition}
                 </div>
               </div>
             </div>
 
-            <div className="flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded-xl border border-white/20 bg-white/10 text-white shrink-0 overflow-hidden shadow-xs backdrop-blur-xs">
+            <div className="flex items-center gap-2 text-[11px] sm:text-xs px-3 py-1.5 rounded-xl border border-white/20 bg-white/10 text-white shrink-0 overflow-hidden shadow-xs backdrop-blur-xs">
               <span className="nowrap-unit">ความชื้น {weatherData.humidity}%</span>
-              <span className="border-l border-white/30 pl-1.5 nowrap-unit">ลม 12 km/h</span>
+              <span className="border-l border-white/30 pl-2 nowrap-unit">ลม 12 km/h</span>
             </div>
           </div>
         </div>
 
-        {/* 🗂️ 2. หมวดหมู่ตรวจเช็ก (Squircle Swiper Cards) */}
-        <div className="space-y-3">
+        {/* 🤖 1.5 วิดเจ็ต AI สรุปความพร้อมประจำวัน (AiInsightsWidget) */}
+        <div className="lg:col-span-2">
+          <AiInsightsWidget
+            readinessData={{
+              completionPct: stats.completionPct,
+              defectiveCount: stats.grandDefective,
+            }}
+            isDarkMode={isDarkMode}
+            stats={stats}
+            defectiveItems={defectiveItems}
+          />
+        </div>
+
+        {/* 🗂️ 2. หมวดหมู่ตรวจเช็ก (Original One UI Category Cards Block with Swiper Coverflow) */}
+        <div className="space-y-3 lg:col-span-1">
           <div className="flex justify-between items-center px-2">
             <h2 className={`text-base font-bold ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>
               หมวดหมู่ตรวจเช็ก
@@ -411,9 +491,9 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
           </Swiper>
         </div>
 
-        {/* 📊 3. สถิติความพร้อมประจำวัน (One UI Widget Style) */}
+        {/* 📊 3. สถิติความพร้อมประจำวัน (One UI Widget Style - Placed on the Right Side in Desktop) */}
         <div
-          className={`w-full rounded-[2rem] p-5 border shadow-xl space-y-4 transition-colors duration-500 ${
+          className={`w-full rounded-[2rem] p-5 lg:p-6 border shadow-xl space-y-4 transition-colors duration-500 lg:col-span-1 flex flex-col justify-between ${
             isDarkMode
               ? 'bg-[#181A20]/90 backdrop-blur-2xl border-white/10 text-white'
               : 'bg-white/90 backdrop-blur-2xl border-white/80 text-slate-800'
@@ -426,8 +506,8 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
             </span>
           </div>
 
-          <div className="flex items-center justify-between">
-            <div className="relative w-20 h-20 flex items-center justify-center shrink-0">
+          <div className="flex items-center justify-between my-auto py-2">
+            <div className="relative w-20 h-20 sm:w-24 sm:h-24 flex items-center justify-center shrink-0">
               <svg className="w-full h-full transform -rotate-90" viewBox="0 0 36 36">
                 <path
                   className={isDarkMode ? 'text-slate-800' : 'text-slate-200'}
@@ -458,44 +538,44 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
                   />
                 )}
               </svg>
-              <span className="absolute text-lg font-black nowrap-unit">
+              <span className="absolute text-lg sm:text-xl font-black nowrap-unit">
                 {stats.completionPct}%
               </span>
             </div>
 
             <div className="space-y-2 flex-1 ml-4">
               <div
-                className={`flex justify-between items-center px-3 py-1.5 rounded-xl text-xs border ${
+                className={`flex justify-between items-center px-3 py-2 rounded-xl text-xs border ${
                   isDarkMode ? 'bg-[#101216] border-slate-800' : 'bg-slate-50 border-slate-200'
                 }`}
               >
                 <span className="font-bold flex items-center gap-1">
-                  <CheckCircle2 size={13} className="text-emerald-400" />
+                  <CheckCircle2 size={14} className="text-emerald-400" />
                   <span>ปกติพร้อมใช้</span>
                 </span>
-                <span className="font-black text-emerald-400">{stats.grandNormal}</span>
+                <span className="font-black text-emerald-400 text-sm">{stats.grandNormal}</span>
               </div>
               <div
-                className={`flex justify-between items-center px-3 py-1.5 rounded-xl text-xs border ${
+                className={`flex justify-between items-center px-3 py-2 rounded-xl text-xs border ${
                   isDarkMode ? 'bg-[#101216] border-slate-800' : 'bg-slate-50 border-slate-200'
                 }`}
               >
                 <span className="font-bold flex items-center gap-1">
-                  <XCircle size={13} className="text-rose-500" />
+                  <XCircle size={14} className="text-rose-500" />
                   <span>ต้องตรวจสอบ</span>
                 </span>
-                <span className="font-black text-rose-500">{stats.grandDefective}</span>
+                <span className="font-black text-rose-500 text-sm">{stats.grandDefective}</span>
               </div>
               <div
-                className={`flex justify-between items-center px-3 py-1.5 rounded-xl text-xs border ${
+                className={`flex justify-between items-center px-3 py-2 rounded-xl text-xs border ${
                   isDarkMode ? 'bg-[#101216] border-slate-800' : 'bg-slate-50 border-slate-200'
                 }`}
               >
                 <span className="font-bold flex items-center gap-1 opacity-80">
-                  <Clock size={13} />
+                  <Clock size={14} />
                   <span>รอตรวจเช็ก</span>
                 </span>
-                <span className="font-black opacity-80">{pendingCount}</span>
+                <span className="font-black opacity-80 text-sm">{pendingCount}</span>
               </div>
             </div>
           </div>
@@ -504,7 +584,7 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
         {/* 🚨 4. รายการข้อบกพร่องที่ต้องตรวจสอบด่วน */}
         {defectiveItems.length > 0 && (
           <div
-            className={`rounded-[2rem] p-5 border shadow-xl space-y-3 transition-colors duration-500 ${
+            className={`rounded-[2rem] p-5 border shadow-xl space-y-3 transition-colors duration-500 lg:col-span-2 ${
               isDarkMode
                 ? 'bg-[#181A20]/90 backdrop-blur-2xl border-slate-800 text-white'
                 : 'bg-white/95 backdrop-blur-2xl border-rose-200 text-slate-800'
@@ -514,8 +594,8 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
               <AlertTriangle size={16} />
               <span>รายการที่ต้องตรวจสอบด่วน ({defectiveItems.length} รายการ)</span>
             </h3>
-            <div className="space-y-2">
-              {defectiveItems.slice(0, 3).map((item, idx) => (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              {defectiveItems.slice(0, 6).map((item, idx) => (
                 <div
                   key={`def_${idx}`}
                   onClick={() => onNavigate(item.targetView)}

@@ -236,8 +236,31 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
       setSelectedRoundId('current');
       setFeedback(null);
       setIsFitToScreen(true);
+      if (scrollContainerRef.current) {
+        scrollContainerRef.current.scrollTop = 0;
+        scrollContainerRef.current.scrollLeft = 0;
+      }
     }
   }, [initialCategory, initialDrugSubCategory, isOpen]);
+
+  // Reset scroll position to top-left corner whenever switching to 100% actual size
+  useEffect(() => {
+    if (!isFitToScreen && scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTop = 0;
+      scrollContainerRef.current.scrollLeft = 0;
+    }
+  }, [isFitToScreen]);
+
+  const handleToggleFitToScreen = () => {
+    setIsFitToScreen((prev) => {
+      const next = !prev;
+      if (!next && scrollContainerRef.current) {
+        scrollContainerRef.current.scrollTop = 0;
+        scrollContainerRef.current.scrollLeft = 0;
+      }
+      return next;
+    });
+  };
 
   // Synchronous layout effect & observer for immediate mount render measurement
   useLayoutEffect(() => {
@@ -596,17 +619,19 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
           position: 'relative',
           background: '#f8fafc',
           boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
+          margin: 'auto',
         }}
       >
         {/* Modal Sticky Header Bar */}
         <div
-          className="p-3 sm:p-4 border-b border-slate-200 bg-white flex flex-col gap-3 shrink-0"
+          className="official-report-modal-header p-3 sm:p-4 border-b border-slate-200 bg-white flex flex-col gap-3 shrink-0"
           style={{
-            flexShrink: 0,
-            zIndex: 20,
-            background: '#ffffff',
             position: 'sticky',
             top: 0,
+            zIndex: 50,
+            background: '#ffffff',
+            flexShrink: 0,
+            borderBottom: '1px solid #e5e7eb',
             width: '100%',
             boxSizing: 'border-box',
           }}
@@ -677,7 +702,7 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
 
               <button
                 type="button"
-                onClick={() => setIsFitToScreen(!isFitToScreen)}
+                onClick={handleToggleFitToScreen}
                 className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-xl shadow-md transition cursor-pointer active:scale-95 ${
                   isFitToScreen
                     ? 'bg-purple-600 hover:bg-purple-700 text-white'
@@ -744,7 +769,7 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
         {/* Printable Area Content Scrollable Wrapper */}
         <div
           ref={scrollContainerRef}
-          className="paper-scroll-viewport report-viewport-area"
+          className="paper-viewport-area paper-scroll-viewport report-viewport-area"
           style={{
             flex: 1,
             overflow: 'auto',
@@ -914,6 +939,40 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
       <style>{`
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+        .official-report-modal-backdrop {
+          position: fixed !important;
+          inset: 0 !important;
+          z-index: 50 !important;
+          overflow: hidden !important;
+        }
+
+        .official-report-modal-card {
+          display: flex !important;
+          flex-direction: column !important;
+          max-width: 95vw !important;
+          max-height: 90vh !important;
+          margin: auto !important;
+          overflow: hidden !important;
+          border-radius: 16px !important;
+        }
+
+        .official-report-modal-header {
+          flex-shrink: 0 !important;
+          position: sticky !important;
+          top: 0 !important;
+          z-index: 20 !important;
+          background: #ffffff !important;
+        }
+
+        .paper-viewport-area {
+          flex: 1 !important;
+          overflow: auto !important;
+          position: relative !important;
+          width: 100% !important;
+          height: 100% !important;
+          padding: 16px !important;
+        }
 
         @media print {
           .no-print, button, select, header, footer { display: none !important; }

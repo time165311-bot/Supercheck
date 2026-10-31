@@ -2,6 +2,7 @@ import express from 'express';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
+import { GoogleGenAI } from '@google/genai';
 
 process.on('uncaughtException', (err) => {
   console.error('[Server] Uncaught Exception:', err);
@@ -158,6 +159,74 @@ async function startServer() {
       res.status(500).json({
         success: false,
         message: 'Failed to write state file on server',
+      });
+    }
+  });
+
+  // Gemini AI Chat Assistant endpoint with real-time equipment status context
+  app.post('/api/ai/chat', async (req, res) => {
+    const { message, context } = req.body || {};
+    const apiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || '';
+
+    if (!apiKey) {
+      return res.status(503).json({
+        success: false,
+        isQuotaExceeded: false,
+        error: 'NO_API_KEY',
+        message: 'No Gemini API key configured',
+      });
+    }
+
+    try {
+      const aiClient = new GoogleGenAI({
+        apiKey: apiKey,
+        httpOptions: {
+          headers: {
+            'User-Agent': 'aistudio-build',
+          },
+        },
+      });
+
+      const systemInstruction = `คุณคือ "AI Assistant (วิสัญญี)" ผู้ช่วยอัจฉริยะประจำห้องผ่าตัดและงานวิสัญญี
+หน้าที่ของคุณคือสรุป วิเคราะห์ และตอบคำถามเกี่ยวกับความพร้อมของอุปกรณ์และงานวิสัญญีอย่างมืออาชีพ
+ข้อมูลสถานะระบบแบบเรียลไทม์ปัจจุบัน:
+- ความพร้อมโดยรวม: ${context?.completionPct ?? 98}%
+- ตรวจเช็กแล้ว: ${context?.grandChecked ?? 0} จากทั้งหมด ${context?.grandTotal ?? 0} รายการ
+- อุปกรณ์ปกติพร้อมใช้: ${context?.grandNormal ?? 0} รายการ
+- อุปกรณ์ที่พบข้อบกพร่อง/ต้องตรวจสอบ: ${context?.grandDefective ?? 0} รายการ
+- รายการชำรุด/ข้อบกพร่อง: ${JSON.stringify(context?.defectiveItems ?? [])}
+- รายการรอตรวจเช็ก: ${context?.pendingCount ?? 0} รายการ
+
+ข้อกำหนดการตอบ:
+1. ตอบเป็นภาษาไทยที่สุภาพ กระชับ ชัดเจน มีความรู้ทางการแพทย์และงานวิสัญญี
+2. ตอบคำถามตรงประเด็น โดยอ้างอิงข้อมูลสถานะจริงข้างต้นเสมอ
+3. หากมีข้อสงสัยเกี่ยวกับอุปกรณ์ชำรุด ให้ระบุตำแหน่งห้อง และแนะนำการตรวจเช็กหรือสลับใช้อุปกรณ์สำรอง`;
+
+      const response = await aiClient.models.generateContent({
+        model: 'gemini-3.8-flash',
+        contents: [
+          { role: 'user', parts: [{ text: message || 'สรุปความพร้อมวันนี้' }] }
+        ],
+        config: {
+          systemInstruction: systemInstruction,
+          temperature: 0.7,
+        },
+      });
+
+      const replyText = response.text || '';
+      return res.json({ success: true, text: replyText });
+    } catch (error: any) {
+      console.warn('[Gemini API Call]:', error?.message || error);
+      const isQuota = error?.status === 429 || 
+        error?.message?.includes('429') || 
+        error?.message?.includes('quota') || 
+        error?.message?.includes('RESOURCE_EXHAUSTED');
+
+      return res.status(isQuota ? 429 : 500).json({
+        success: false,
+        isQuotaExceeded: isQuota,
+        error: isQuota ? 'QUOTA_EXCEEDED' : 'API_ERROR',
+        message: error?.message || 'Error communicating with Gemini API',
       });
     }
   });
