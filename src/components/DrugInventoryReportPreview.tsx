@@ -102,11 +102,11 @@ export const DrugInventoryReportPreview: React.FC<DrugInventoryReportPreviewProp
 
   return (
     <div
-      className="a4-page-sheet a4-print-container paper-preview sheet-preview isolate !bg-white !text-black flex flex-col justify-between"
+      className="a4-page-sheet a4-print-container paper-preview sheet-preview isolate !bg-white !text-black flex flex-col justify-start gap-2"
       style={{
         width: '100%',
         margin: '0 auto',
-        padding: '16px',
+        padding: '8px 16px',
         boxSizing: 'border-box',
         overflow: 'visible',
         background: '#ffffff',
@@ -435,25 +435,6 @@ export const DrugInventoryReportPreview: React.FC<DrugInventoryReportPreviewProp
       </table>
       </div>
 
-      {/* Signature Area */}
-      <div className="mt-auto pt-12 border-t border-slate-200 flex justify-between text-sm" style={{ fontSize: '11pt', color: '#000000 !important', backgroundColor: '#ffffff !important', background: '#ffffff !important', display: 'flex', justifyContent: 'space-around', width: '100%', marginTop: 'auto', paddingTop: '48px' }}>
-        <div className="text-center flex flex-col items-center" style={{ textAlign: 'center' }}>
-          {signature ? (
-            <div className="h-12 flex items-end justify-center mb-1">
-              <img src={signature} alt="ลายเซ็น" className="max-h-12 max-w-[140px] object-contain" />
-            </div>
-          ) : (
-            <div className="h-12" />
-          )}
-          <p style={{ color: '#000000 !important', fontWeight: 'bold', whiteSpace: 'nowrap', wordBreak: 'keep-all' }}>ลงชื่อ .................................................... ผู้ตรวจสอบ</p>
-          <p style={{ color: '#000000 !important', whiteSpace: 'nowrap', wordBreak: 'keep-all' }}>({inspector || '....................................................'})</p>
-        </div>
-        <div className="text-center flex flex-col items-center" style={{ textAlign: 'center' }}>
-          <div className="h-12" />
-          <p style={{ color: '#000000 !important', fontWeight: 'bold', whiteSpace: 'nowrap', wordBreak: 'keep-all' }}>ลงชื่อ .................................................... หัวหน้างาน</p>
-          <p style={{ color: '#000000 !important', whiteSpace: 'nowrap', wordBreak: 'keep-all' }}>(....................................................)</p>
-        </div>
-      </div>
     </div>
   );
 };
@@ -649,20 +630,6 @@ export function generateDrugPrintHtml(
             ${rowsHtml || '<tr><td colspan="8" style="text-align:center; padding: 20px;">ไม่มีข้อมูลรายการยา</td></tr>'}
           </tbody>
         </table>
-        <div class="signature-section">
-          <div class="sign-col" style="display: flex; flex-direction: column; align-items: center;">
-            <div style="height: 48px; display: flex; align-items: flex-end; justify-content: center; margin-bottom: 2px;">
-              ${signature ? `<img src="${signature}" style="max-height: 48px; max-width: 140px; object-fit: contain;" alt="ลายเซ็น" />` : ''}
-            </div>
-            <p style="white-space: nowrap !important; word-break: keep-all !important; margin: 0; font-weight: bold;">ลงชื่อ .................................................... ผู้ตรวจสอบ</p>
-            <p style="white-space: nowrap !important; word-break: keep-all !important; margin: 4px 0 0 0;">(${inspector || '....................................................'})</p>
-          </div>
-          <div class="sign-col" style="display: flex; flex-direction: column; align-items: center;">
-            <div style="height: 48px;"></div>
-            <p style="white-space: nowrap !important; word-break: keep-all !important; margin: 0; font-weight: bold;">ลงชื่อ .................................................... หัวหน้างาน</p>
-            <p style="white-space: nowrap !important; word-break: keep-all !important; margin: 4px 0 0 0;">(....................................................)</p>
-          </div>
-        </div>
       </body>
     </html>
   `;

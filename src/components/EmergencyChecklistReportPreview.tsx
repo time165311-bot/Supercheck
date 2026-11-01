@@ -6,6 +6,8 @@ import {
   stripEmojis,
   isCurrentYearExp,
   formatRealQuantity,
+  cleanQuantityUnit,
+  formatStrictCountableNumbers,
 } from './OfficialReportModal';
 import { getMonthAndYearThai } from './DrugInventoryReportPreview';
 import { Calendar, User as UserIcon, Building2 } from 'lucide-react';
@@ -419,12 +421,12 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
                     >
                       {item.name || '-'}
                     </td>
-                    {/* Col 2: จำนวนตั้งต้น (ตรงกลาง, nowrap) - Standard configured item quantity */}
+                    {/* Col 2: จำนวนตั้งต้น (ตรงกลาง, nowrap) - Standard configured item quantity cleaned of unit words */}
                     <td
                       className="border border-slate-300"
                       style={{ textAlign: 'center', whiteSpace: 'nowrap', lineHeight: '1.4 !important', padding: '6px 4px !important' }}
                     >
-                      {item.qty || '1'}
+                      {formatStrictCountableNumbers(item.qty || '1')}
                     </td>
                     {/* Col 3-7: ผลการตรวจเช็คในสัปดาห์ที่ 1 ถึง 5 */}
                     {[1, 2, 3, 4, 5].map((w) => {
@@ -433,14 +435,14 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
 
                       let displayVal = '-';
                       if (customVal !== undefined && customVal !== '') {
-                        displayVal = customVal;
+                        displayVal = formatStrictCountableNumbers(customVal);
                       } else if (itemWeekVal !== undefined && itemWeekVal !== '') {
-                        displayVal = itemWeekVal;
+                        displayVal = formatStrictCountableNumbers(itemWeekVal);
                       } else if (currentWeek === w) {
                         if (item.val && item.val !== '✓') {
-                          displayVal = item.val;
+                          displayVal = formatStrictCountableNumbers(item.val);
                         } else if (isOk) {
-                          displayVal = realCheckVal !== '1' && realCheckVal.includes(',') ? realCheckVal : '✓';
+                          displayVal = formatStrictCountableNumbers(realCheckVal || item.qty || '1');
                         } else if (isBad) {
                           displayVal = '✗';
                         } else if (isMiss) {
@@ -448,7 +450,6 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
                         }
                       }
 
-                      const isValOk = displayVal === '✓' || displayVal.toLowerCase() === 'ok' || displayVal.includes(',');
                       const isValBad = displayVal === '✗' || displayVal.toLowerCase() === 'fail';
                       const isValEmpty = displayVal === '-' || displayVal === '';
 
@@ -465,16 +466,15 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
                             value={isValEmpty ? '' : displayVal}
                             placeholder="-"
                             onChange={(e) => handleCellValChange(itemKey, w, e.target.value)}
-                            className={`w-full h-8 text-center bg-transparent border-0 focus:ring-1 focus:ring-blue-500 rounded text-xs p-1 outline-none font-semibold ${
-                              isValOk
-                                ? 'text-emerald-700 text-sm font-bold'
-                                : isValBad
+                            className={`w-full h-8 text-center bg-transparent border-0 focus:ring-1 focus:ring-blue-500 rounded text-xs p-1 outline-none font-bold ${
+                              isValBad
                                 ? 'text-rose-700 text-sm font-bold'
                                 : isValEmpty
                                 ? 'text-slate-400'
-                                : 'text-slate-900 font-bold'
+                                : 'text-black text-sm font-bold'
                             }`}
-                            title={`สัปดาห์ที่ ${w}: พิมพ์ค่าที่ตรวจได้ เช่น 1, 1, 1, 1 หรือ 1400/1700 PSI หรือ ✓, ✗`}
+                            style={{ color: isValBad ? '#be123c' : isValEmpty ? '#94a3b8' : '#000000 !important' }}
+                            title={`สัปดาห์ที่ ${w}: พิมพ์ค่าที่ตรวจได้ เช่น 1, 1 หรือ 1, 1/2`}
                           />
                         </td>
                       );
@@ -605,14 +605,14 @@ export function generateEmergencyPrintHtml(
 
               let displayVal = '-';
               if (customVal !== undefined && customVal !== '') {
-                displayVal = customVal;
+                displayVal = formatStrictCountableNumbers(customVal);
               } else if (itemWeekVal !== undefined && itemWeekVal !== '') {
-                displayVal = itemWeekVal;
+                displayVal = formatStrictCountableNumbers(itemWeekVal);
               } else if (activeWeek === w) {
                 if (item.val && item.val !== '✓') {
-                  displayVal = item.val;
+                  displayVal = formatStrictCountableNumbers(item.val);
                 } else if (isOk) {
-                  displayVal = realCheckVal !== '1' && realCheckVal.includes(',') ? realCheckVal : '✓';
+                  displayVal = formatStrictCountableNumbers(realCheckVal || item.qty || '1');
                 } else if (isBad) {
                   displayVal = '✗';
                 } else if (isMiss) {
@@ -620,17 +620,14 @@ export function generateEmergencyPrintHtml(
                 }
               }
 
-              const isValOk = displayVal === '✓' || displayVal.toLowerCase() === 'ok' || displayVal.includes(',');
               const isValBad = displayVal === '✗' || displayVal.toLowerCase() === 'fail';
               const isValEmpty = displayVal === '-' || displayVal === '';
 
-              const cellStyle = isValOk
-                ? 'color: #15803d; font-weight: bold; font-size: 11pt;'
-                : isValBad
+              const cellStyle = isValBad
                 ? 'color: #b91c1c; font-weight: bold; font-size: 11pt;'
                 : isValEmpty
                 ? 'color: #94a3b8;'
-                : 'color: #0f172a; font-weight: bold; font-size: 9.5pt;';
+                : 'color: #000000; font-weight: bold; font-size: 10.5pt;';
 
               return `<td style="text-align: center; border: 1px solid #000; ${cellStyle}">${displayVal}</td>`;
             })
@@ -639,7 +636,7 @@ export function generateEmergencyPrintHtml(
           return `
             <tr>
               <td style="text-align: left; padding-left: 8px; border: 1px solid #000;">${item.name || '-'}</td>
-              <td style="text-align: center; border: 1px solid #000; white-space: nowrap;">${item.qty || '1'}</td>
+              <td style="text-align: center; border: 1px solid #000; white-space: nowrap;">${formatStrictCountableNumbers(item.qty || '1')}</td>
               ${weekCells}
               <td style="text-align: center; border: 1px solid #000; white-space: nowrap; font-size: 9.5pt; ${expStyle}">${formattedExp}</td>
             </tr>

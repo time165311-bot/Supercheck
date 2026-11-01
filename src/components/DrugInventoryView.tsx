@@ -35,7 +35,7 @@ interface DrugInventoryViewProps {
 export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
   currentUser,
   onBack,
-  apiUrl,
+  apiUrl: _apiUrl,
   onOpenPreview,
   drugs: externalDrugs,
   onDrugsChange,
@@ -272,7 +272,7 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
   const isAdmin = !currentUser || currentUser.role === 'admin';
 
   return (
-    <div className="space-y-4 max-w-6xl mx-auto pb-10">
+    <div className="space-y-4 max-w-6xl mx-auto pb-10 font-['TH_Sarabun_New','Sarabun',sans-serif]">
       {/* Toast Feedback Notification Banner */}
       {toastMsg && (
         <div className="fixed top-4 right-4 z-50 bg-emerald-600 text-white font-bold px-4 py-2.5 rounded-2xl shadow-xl text-xs flex items-center gap-2 animate-in fade-in border border-emerald-400">
@@ -281,21 +281,21 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
         </div>
       )}
 
-      {/* Header Bar */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-white dark:bg-slate-900 p-4 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm">
+      {/* Header Bar - Clean One UI Palette (Royal Blue Gradient) */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-gradient-to-r from-blue-600 via-blue-500 to-cyan-500 text-white p-4 rounded-3xl border border-blue-400/30 shadow-md">
         <div className="flex items-center gap-3">
           <button
             onClick={onBack}
-            className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition cursor-pointer"
+            className="p-2 rounded-xl bg-white/20 hover:bg-white/30 text-white transition cursor-pointer flex items-center justify-center border border-white/20"
             title="กลับหน้าหลัก"
           >
             <ArrowLeft className="w-4 h-4" />
           </button>
           <div>
-            <h2 className="text-base font-extrabold text-slate-800 dark:text-slate-100 tracking-tight">
+            <h2 className="text-lg font-bold text-white tracking-tight leading-tight">
               ระบบคลังยาและสารน้ำ (Medicine Inventory)
             </h2>
-            <p className="text-xs text-slate-500 dark:text-slate-400">
+            <p className="text-xs text-blue-100/90 font-medium">
               ตรวจสอบสต็อก ยอดคงเหลือ และวันหมดอายุคลังยาวิสัญญี
             </p>
           </div>
@@ -305,9 +305,9 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
           {onOpenPreview && (
             <button
               onClick={() => onOpenPreview(activeTab)}
-              className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 font-bold text-xs flex items-center gap-1.5 transition cursor-pointer border border-slate-200 dark:border-slate-700"
+              className="px-3.5 py-2 rounded-xl bg-white text-blue-700 hover:bg-blue-50 font-bold text-xs flex items-center gap-1.5 transition cursor-pointer shadow-xs"
             >
-              <Printer className="w-4 h-4 text-slate-600 dark:text-slate-400" />
+              <Printer className="w-4 h-4 text-blue-600" />
               <span>พิมพ์แบบฟอร์มรายงาน A4</span>
             </button>
           )}
@@ -315,7 +315,7 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
           {isAdmin && (
             <button
               onClick={handleOpenAdd}
-              className="px-3.5 py-2 rounded-xl bg-accent hover:bg-accent-hover text-white font-bold text-xs flex items-center gap-1.5 transition shadow-sm cursor-pointer active:scale-95"
+              className="px-3.5 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-700 text-white font-bold text-xs flex items-center gap-1.5 transition shadow-xs cursor-pointer active:scale-95"
             >
               <Plus className="w-4 h-4" />
               <span>เพิ่มรายการยาใหม่</span>
@@ -329,10 +329,10 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
         <button
           type="button"
           onClick={() => setActiveTab('monthly')}
-          className={`px-4 py-2.5 rounded-xl transition-all cursor-pointer whitespace-nowrap flex-shrink-0 ${
+          className={`px-4 py-2.5 rounded-2xl transition-all cursor-pointer whitespace-nowrap flex-shrink-0 ${
             activeTab === 'monthly'
-              ? 'bg-[#1877F2] text-white shadow-md font-extrabold'
-              : 'bg-slate-200/80 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white border border-slate-300/50 dark:border-slate-700'
+              ? 'bg-blue-600 text-white shadow-md font-extrabold'
+              : 'bg-white text-slate-700 hover:bg-slate-50 border border-slate-200'
           }`}
         >
           <span>💊 ยาและสารน้ำประจำเดือน</span>
@@ -340,10 +340,10 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
         <button
           type="button"
           onClick={() => setActiveTab('quarterly')}
-          className={`px-4 py-2.5 rounded-xl transition-all cursor-pointer whitespace-nowrap flex-shrink-0 ${
+          className={`px-4 py-2.5 rounded-2xl transition-all cursor-pointer whitespace-nowrap flex-shrink-0 ${
             activeTab === 'quarterly'
-              ? 'bg-[#1877F2] text-white shadow-md font-extrabold'
-              : 'bg-slate-200/80 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white border border-slate-300/50 dark:border-slate-700'
+              ? 'bg-blue-600 text-white shadow-md font-extrabold'
+              : 'bg-white text-slate-700 hover:bg-slate-50 border border-slate-200'
           }`}
         >
           <span>🚨 ยาความเสี่ยงสูง/กู้ชีพ (3 เดือน)</span>
@@ -351,10 +351,10 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
         <button
           type="button"
           onClick={() => setActiveTab('adhoc')}
-          className={`px-4 py-2.5 rounded-xl transition-all cursor-pointer whitespace-nowrap flex-shrink-0 ${
+          className={`px-4 py-2.5 rounded-2xl transition-all cursor-pointer whitespace-nowrap flex-shrink-0 ${
             activeTab === 'adhoc'
-              ? 'bg-[#1877F2] text-white shadow-md font-extrabold'
-              : 'bg-slate-200/80 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white border border-slate-300/50 dark:border-slate-700'
+              ? 'bg-blue-600 text-white shadow-md font-extrabold'
+              : 'bg-white text-slate-700 hover:bg-slate-50 border border-slate-200'
           }`}
         >
           <span>📦 ยาฉุกเฉินเฉพาะกิจ (ครั้งคราว)</span>
@@ -362,7 +362,7 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
       </div>
 
       {/* Search & Status Filter Control Bar */}
-      <div className="p-3 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs space-y-2.5">
+      <div className="p-3 bg-white rounded-2xl border border-slate-200 shadow-xs space-y-2.5">
         <div className="flex flex-col sm:flex-row items-center justify-between gap-2">
           {/* Search Input */}
           <div className="relative flex-1 w-full">
@@ -372,12 +372,12 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               placeholder="ค้นหาชื่อยา, สารน้ำ, รหัสบาร์โค้ด..."
-              className="w-full pl-9 pr-8 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs outline-none focus:ring-2 focus:ring-sky-500 font-medium text-slate-800 dark:text-slate-100"
+              className="w-full pl-9 pr-8 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs outline-none focus:ring-2 focus:ring-blue-100 font-medium text-slate-800"
             />
             {searchTerm && (
               <button
                 onClick={() => setSearchTerm('')}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
@@ -390,8 +390,8 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
               onClick={() => setStatusFilter('all')}
               className={`px-3 py-1.5 min-h-[32px] rounded-xl font-semibold whitespace-nowrap transition cursor-pointer ${
                 statusFilter === 'all'
-                  ? 'bg-slate-800 dark:bg-slate-200 text-white dark:text-slate-900 shadow-xs'
-                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                  ? 'bg-blue-600 text-white shadow-xs'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
               }`}
             >
               ทั้งหมด ({drugs.filter((d) => d.category === activeTab).length})
@@ -401,7 +401,7 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
               className={`px-3 py-1.5 min-h-[32px] rounded-xl font-semibold whitespace-nowrap transition cursor-pointer ${
                 statusFilter === 'low'
                   ? 'bg-orange-500 text-white shadow-xs'
-                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
               }`}
             >
               สต็อกต่ำ
@@ -411,7 +411,7 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
               className={`px-3 py-1.5 min-h-[32px] rounded-xl font-semibold whitespace-nowrap transition cursor-pointer ${
                 statusFilter === 'expiring'
                   ? 'bg-amber-500 text-white shadow-xs'
-                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
               }`}
             >
               ใกล้หมดอายุ
@@ -421,7 +421,7 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
               className={`px-3 py-1.5 min-h-[32px] rounded-xl font-semibold whitespace-nowrap transition cursor-pointer ${
                 statusFilter === 'expired'
                   ? 'bg-rose-600 text-white shadow-xs'
-                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
               }`}
             >
               หมดอายุแล้ว
@@ -430,14 +430,14 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
         </div>
 
         {/* Quick Batch Check Action Bar */}
-        <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs">
-          <span className="text-slate-500 dark:text-slate-400 font-medium">
+        <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs">
+          <span className="text-slate-500 font-medium">
             พบ <b>{displayedDrugs.length}</b> รายการยาในหมวดนี้
           </span>
 
           <button
             onClick={handleBatchCheckAll}
-            className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold flex items-center gap-1.5 transition cursor-pointer active:scale-95 shadow-xs"
+            className="px-3.5 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold flex items-center gap-1.5 transition cursor-pointer active:scale-95 shadow-xs"
           >
             <Check className="w-4 h-4 shrink-0" />
             <span>บันทึกเช็คปกติครบทุกรายการ</span>
@@ -445,9 +445,9 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
         </div>
       </div>
 
-      {/* 1. Clean Inventory List View (Single-mode view, NO duplicate cards) */}
+      {/* Clean Inventory List View */}
       {displayedDrugs.length === 0 ? (
-        <div className="p-10 text-center bg-white dark:bg-slate-900 rounded-3xl border border-dashed border-slate-200 dark:border-slate-800 text-slate-400 text-xs">
+        <div className="p-10 text-center bg-white rounded-3xl border border-dashed border-slate-200 text-slate-400 text-xs">
           ไม่พบรายการยาที่ตรงกับเงื่อนไขการค้นหา
         </div>
       ) : (
@@ -462,14 +462,14 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
             return (
               <div
                 key={item.id || idx}
-                className={`p-3 sm:p-3.5 rounded-2xl border transition-all duration-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs hover:border-accent/40 ${
+                className={`p-3 sm:p-3.5 rounded-2xl border transition-all duration-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs hover:border-blue-300 ${
                   isExpired
-                    ? 'bg-rose-50/70 dark:bg-rose-950/20 border-rose-200 dark:border-rose-900/40'
+                    ? 'bg-rose-50/70 border-rose-200'
                     : isExpiringSoon
-                    ? 'bg-amber-50/70 dark:bg-amber-950/20 border-amber-200 dark:border-amber-900/40'
+                    ? 'bg-amber-50/70 border-amber-200'
                     : isLowStock
-                    ? 'bg-orange-50/70 dark:bg-orange-950/20 border-orange-200 dark:border-orange-900/40'
-                    : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800'
+                    ? 'bg-orange-50/70 border-orange-200'
+                    : 'bg-white border-slate-200'
                 }`}
               >
                 {/* Left Info Column */}
@@ -477,25 +477,25 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
                   className="flex items-center gap-3 flex-1 min-w-0 cursor-pointer"
                   onClick={() => setDetailItem(item)}
                 >
-                  <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-950/50 text-accent font-black border border-blue-100 dark:border-blue-900/40 flex items-center justify-center shrink-0 text-sm">
+                  <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-700 font-black border border-blue-100 flex items-center justify-center shrink-0 text-sm">
                     {idx + 1}
                   </div>
 
                   <div className="space-y-0.5 min-w-0 flex-1">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <h3 className="text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-100 truncate leading-tight">
+                      <h3 className="text-xs sm:text-sm font-bold text-slate-800 truncate leading-tight">
                         {item.name}
                       </h3>
                       {item.unit && (
-                        <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-[10px] font-bold border border-slate-200 dark:border-slate-700 shrink-0">
+                        <span className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 text-[10px] font-bold border border-slate-200 shrink-0">
                           {item.unit}
                         </span>
                       )}
                     </div>
 
-                    <div className="flex items-center gap-3 text-[11px] text-slate-500 dark:text-slate-400 flex-wrap">
+                    <div className="flex items-center gap-3 text-[11px] text-slate-500 flex-wrap font-sans">
                       <span>
-                        คงเหลือ: <b className="text-slate-800 dark:text-slate-200 font-extrabold">{item.remaining}</b> {item.unit || ''} (Min: {item.minStock})
+                        คงเหลือ: <b className="text-slate-900 font-extrabold">{item.remaining}</b> {item.unit || ''} (Min: {item.minStock})
                       </span>
                       {item.expDate && (
                         <span className={`font-semibold ${isCurrentYear ? 'text-red-600 font-bold' : ''}`}>
@@ -507,7 +507,7 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
                 </div>
 
                 {/* Right Actions & Stepper Controls */}
-                <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto justify-between sm:justify-end pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100 dark:border-slate-800">
+                <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto justify-between sm:justify-end pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100">
                   {/* Status Badge */}
                   <div
                     className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase shrink-0 ${
@@ -517,26 +517,26 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
                         ? 'bg-amber-500 text-white'
                         : isLowStock
                         ? 'bg-orange-500 text-white'
-                        : 'bg-emerald-600 text-white'
+                        : 'bg-emerald-500 text-white'
                     }`}
                   >
                     {isExpired ? 'หมดอายุ' : isExpiringSoon ? 'ใกล้หมดอายุ' : isLowStock ? 'สต็อกต่ำ' : 'ปกติ'}
                   </div>
 
                   {/* Quantity Stepper [-] count [+] */}
-                  <div className="flex items-center bg-slate-100 dark:bg-slate-800 rounded-xl p-0.5 border border-slate-200 dark:border-slate-700">
+                  <div className="flex items-center bg-slate-100 rounded-xl p-0.5 border border-slate-200">
                     <button
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation();
                         handleDeltaQty(item.id, -1);
                       }}
-                      className="w-7 h-7 rounded-lg bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-600 flex items-center justify-center transition cursor-pointer active:scale-95 shadow-xs"
+                      className="w-7 h-7 rounded-lg bg-white text-slate-700 hover:bg-slate-200 flex items-center justify-center transition cursor-pointer active:scale-95 shadow-xs"
                       title="ลดจำนวน 1"
                     >
                       <Minus className="w-3.5 h-3.5" />
                     </button>
-                    <span className="w-9 text-center font-extrabold text-xs text-slate-800 dark:text-slate-100">
+                    <span className="w-9 text-center font-extrabold text-xs text-slate-900">
                       {item.remaining}
                     </span>
                     <button
@@ -545,17 +545,17 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
                         e.stopPropagation();
                         handleDeltaQty(item.id, 1);
                       }}
-                      className="w-7 h-7 rounded-lg bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-600 flex items-center justify-center transition cursor-pointer active:scale-95 shadow-xs"
+                      className="w-7 h-7 rounded-lg bg-white text-slate-700 hover:bg-slate-200 flex items-center justify-center transition cursor-pointer active:scale-95 shadow-xs"
                       title="เพิ่มจำนวน 1"
                     >
                       <Plus className="w-3.5 h-3.5" />
                     </button>
                   </div>
 
-                  {/* 2. Quick Detail Modal Button (ℹ️ รายละเอียด) */}
+                  {/* Quick Detail Modal Button (ℹ️ รายละเอียด) */}
                   <button
                     onClick={() => setDetailItem(item)}
-                    className="px-2.5 py-1.5 rounded-xl bg-blue-50 dark:bg-blue-950/50 hover:bg-blue-100 text-accent font-bold text-xs flex items-center gap-1 transition cursor-pointer border border-blue-100 dark:border-blue-900/40"
+                    className="px-2.5 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-xs flex items-center gap-1 transition cursor-pointer border border-blue-100"
                     title="ดูรายละเอียดข้อมูลยาครบถ้วน"
                   >
                     <Info className="w-3.5 h-3.5" />
@@ -567,14 +567,14 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
                     <div className="flex items-center gap-1">
                       <button
                         onClick={() => handleOpenEdit(item)}
-                        className="p-1.5 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+                        className="p-1.5 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition cursor-pointer"
                         title="แก้ไขข้อมูลยา"
                       >
                         <Pencil className="w-3.5 h-3.5" />
                       </button>
                       <button
                         onClick={() => setItemToDelete(item)}
-                        className="p-1.5 rounded-xl text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition cursor-pointer"
+                        className="p-1.5 rounded-xl text-rose-500 hover:bg-rose-50 transition cursor-pointer"
                         title="ลบรายการยา"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -588,366 +588,210 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
         </div>
       )}
 
-      {/* 2. Quick Detail Pop-up Modal (Add Item Quick Detail Modal - รูป 48, 49) */}
+      {/* Quick Detail Pop-up Modal */}
       {detailItem && (
-        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 animate-in fade-in">
-          <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-lg w-full p-5 sm:p-6 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4 max-h-[90vh] overflow-y-auto relative">
-            {/* Modal Header */}
-            <div className="flex items-start justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-3">
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 animate-in fade-in">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-5 sm:p-6 shadow-2xl border border-slate-200 space-y-4 max-h-[90vh] overflow-y-auto relative font-sans">
+            <div className="flex items-start justify-between gap-3 border-b border-slate-100 pb-3">
               <div>
-                <span className="text-[10px] font-bold text-accent uppercase tracking-wider">
+                <span className="text-[10px] font-bold text-blue-600 uppercase tracking-wider">
                   รายละเอียดข้อมูลยาและสารน้ำ
                 </span>
-                <h3 className="text-base font-extrabold text-slate-800 dark:text-slate-100 mt-0.5 leading-snug">
+                <h3 className="text-base font-bold text-slate-900 mt-0.5">
                   {detailItem.name}
                 </h3>
               </div>
               <button
+                type="button"
                 onClick={() => setDetailItem(null)}
-                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 flex items-center justify-center transition cursor-pointer shrink-0"
+                className="p-1.5 rounded-full text-slate-400 hover:text-slate-700 transition cursor-pointer"
               >
-                <X className="w-4 h-4" />
+                <X className="w-5 h-5" />
               </button>
             </div>
 
-            {/* Modal Grid Matching Official PDF Report Table */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-              {/* ชนิดยา/สารน้ำ */}
-              <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-100 dark:border-slate-800">
-                <span className="block text-[10px] font-semibold text-slate-400 uppercase mb-0.5">
-                  [ชนิดยา / สารน้ำ]
-                </span>
-                <p className="font-bold text-slate-800 dark:text-slate-100">
-                  {detailItem.name}
-                </p>
+            <div className="grid grid-cols-2 gap-3 text-xs">
+              <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200/80">
+                <span className="text-slate-500 block font-medium">ยอดคงเหลือในคลัง</span>
+                <span className="text-lg font-black text-blue-600">{detailItem.remaining} {detailItem.unit || ''}</span>
               </div>
-
-              {/* ยอดต่ำสุด (Min) */}
-              <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-100 dark:border-slate-800">
-                <span className="block text-[10px] font-semibold text-slate-400 uppercase mb-0.5">
-                  [ยอดต่ำสุด (Min Stock)]
-                </span>
-                <p className="font-bold text-slate-800 dark:text-slate-100">
-                  {detailItem.minStock} {detailItem.unit || 'หน่วย'}
-                </p>
+              <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200/80">
+                <span className="text-slate-500 block font-medium">ยอดขั้นต่ำ (Min Stock)</span>
+                <span className="text-lg font-black text-slate-700">{detailItem.minStock} {detailItem.unit || ''}</span>
               </div>
-
-              {/* เบิกครั้งละ */}
-              <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-100 dark:border-slate-800">
-                <span className="block text-[10px] font-semibold text-slate-400 uppercase mb-0.5">
-                  [เบิกครั้งละ]
-                </span>
-                <p className="font-bold text-slate-800 dark:text-slate-100">
-                  {detailItem.batchRequest || '10'} {detailItem.unit || ''}
-                </p>
+              <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200/80">
+                <span className="text-slate-500 block font-medium">วันที่รับเข้า</span>
+                <span className="text-xs font-bold text-slate-800">{detailItem.receivedDate || '-'}</span>
               </div>
-
-              {/* วันรับยา / จำนวนรับ */}
-              <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-100 dark:border-slate-800">
-                <span className="block text-[10px] font-semibold text-slate-400 uppercase mb-0.5">
-                  [วันรับยา / จำนวนรับ]
-                </span>
-                <p className="font-bold text-slate-800 dark:text-slate-100">
-                  {detailItem.receivedDate || '-'} ({detailItem.receivedQty || 0} {detailItem.unit || ''})
-                </p>
-              </div>
-
-              {/* วันหมดอายุ (EXP) */}
-              <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-100 dark:border-slate-800 col-span-1 sm:col-span-2">
-                <span className="block text-[10px] font-semibold text-slate-400 uppercase mb-0.5">
-                  [วันหมดอายุ (EXP)]
-                </span>
-                <p className={`font-bold text-sm ${isExpCurrentYear(detailItem.expDate) ? 'text-red-600 font-black' : 'text-slate-800 dark:text-slate-100'}`}>
-                  {detailItem.expDate || 'ไม่ระบุวันหมดอายุ'}
-                  {isExpCurrentYear(detailItem.expDate) && (
-                    <span className="ml-2 text-[10px] bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-bold">
-                      ⚠️ หมดอายุปีนี้
-                    </span>
-                  )}
-                </p>
-              </div>
-
-              {/* หมายเหตุ */}
-              <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-100 dark:border-slate-800 col-span-1 sm:col-span-2">
-                <span className="block text-[10px] font-semibold text-slate-400 uppercase mb-0.5">
-                  [หมายเหตุ / สถานะเบิกจ่าย]
-                </span>
-                <p className="font-medium text-slate-700 dark:text-slate-300">
-                  {detailItem.note || 'ปกติ / สำรองครบถ้วน'}
-                </p>
+              <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200/80">
+                <span className="text-slate-500 block font-medium">วันหมดอายุ (EXP)</span>
+                <span className="text-xs font-bold text-rose-600">{detailItem.expDate || '-'}</span>
               </div>
             </div>
 
-            {/* Stepper Control for Remaining Quantity Inside Modal */}
-            <div className="p-4 bg-blue-50/70 dark:bg-blue-950/40 rounded-2xl border border-blue-100 dark:border-blue-900/40 flex items-center justify-between gap-3">
-              <div>
-                <span className="block text-[11px] font-bold text-accent uppercase">
-                  [ปรับจำนวนคงเหลือปัจจุบัน]
-                </span>
-                <span className="text-xs text-slate-500 dark:text-slate-400">
-                  กดปุ่ม + / - เพื่ออัปเดตยอดเรียลไทม์
-                </span>
+            {detailItem.note && (
+              <div className="p-3 rounded-2xl bg-amber-50 border border-amber-200 text-xs text-amber-900">
+                <b>หมายเหตุ:</b> {detailItem.note}
               </div>
+            )}
 
-              <div className="flex items-center bg-white dark:bg-slate-800 rounded-2xl p-1 border border-blue-200 dark:border-blue-900 shadow-sm">
-                <button
-                  type="button"
-                  onClick={() => handleDeltaQty(detailItem.id, -1)}
-                  className="w-8 h-8 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-800 dark:text-slate-100 font-bold flex items-center justify-center transition cursor-pointer active:scale-95"
-                >
-                  <Minus className="w-4 h-4" />
-                </button>
-                <span className="w-12 text-center font-extrabold text-base text-accent">
-                  {detailItem.remaining}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => handleDeltaQty(detailItem.id, 1)}
-                  className="w-8 h-8 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-800 dark:text-slate-100 font-bold flex items-center justify-center transition cursor-pointer active:scale-95"
-                >
-                  <Plus className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-
-            {/* 3. Clean Check Button (3. ปรับแต่งปุ่มบันทึกเช็คให้คลีน ไม่ลิเก) */}
-            <div className="pt-2 flex flex-col sm:flex-row items-center justify-end gap-2">
-              {isAdmin && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    const item = detailItem;
-                    setDetailItem(null);
-                    handleOpenEdit(item);
-                  }}
-                  className="w-full sm:w-auto px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-semibold text-xs hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
-                >
-                  <Pencil className="w-3.5 h-3.5 inline mr-1 text-slate-500" />
-                  <span>แก้ไขข้อมูล</span>
-                </button>
-              )}
-
-              {/* Clean Vector Checkmark Button (100% Sport/Minimal Style, No duplicate emojis) */}
+            <div className="pt-2 flex justify-end gap-2">
               <button
                 type="button"
-                onClick={() => {
-                  showToast(`✓ บันทึกการเช็ค "${detailItem.name}" เรียบร้อยแล้ว`);
-                  setDetailItem(null);
-                  if (onCelebrate) onCelebrate();
-                }}
-                className="w-full sm:w-auto px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-sm transition active:scale-95 cursor-pointer leading-normal"
+                onClick={() => setDetailItem(null)}
+                className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition cursor-pointer"
               >
-                <Check className="w-4 h-4 shrink-0" />
-                <span>บันทึกการเช็ค</span>
+                ปิด
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Add / Edit Modal */}
+      {/* Add / Edit Drug Modal */}
       {showAddModal && (
-        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 animate-in fade-in">
-          <form
-            onSubmit={handleSaveDrugForm}
-            className="bg-white dark:bg-slate-900 rounded-3xl max-w-md w-full p-5 sm:p-6 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4 max-h-[90vh] overflow-y-auto"
-          >
-            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
-              <h3 className="font-bold text-sm text-slate-800 dark:text-slate-100">
-                {editingDrug ? 'แก้ไขข้อมูลยา / สารน้ำ' : 'เพิ่มรายการยาใหม่'}
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 animate-in fade-in">
+          <div className="bg-white rounded-3xl max-w-md w-full p-5 sm:p-6 shadow-2xl border border-slate-200 space-y-4 max-h-[90vh] overflow-y-auto relative font-sans">
+            <div className="flex justify-between items-center pb-2.5 border-b border-slate-100">
+              <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                <Package className="w-5 h-5 text-blue-600" />
+                <span>{editingDrug ? 'แก้ไขรายการยา/สารน้ำ' : 'เพิ่มรายการยา/สารน้ำใหม่'}</span>
               </h3>
               <button
                 type="button"
                 onClick={() => setShowAddModal(false)}
-                className="p-1 text-slate-400 hover:text-slate-600 cursor-pointer"
+                className="p-1.5 rounded-full text-slate-400 hover:text-slate-700 transition cursor-pointer"
               >
-                <X className="w-4 h-4" />
+                <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="space-y-3 text-xs">
+            <form onSubmit={handleSaveDrugForm} className="space-y-3 text-xs">
               <div>
-                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  หมวดหมู่
-                </label>
-                <select
-                  value={formCategory}
-                  onChange={(e) => setFormCategory(e.target.value as DrugCategory)}
-                  className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-medium"
-                >
-                  <option value="monthly">ประจำเดือน (คลังยาหลัก)</option>
-                  <option value="quarterly">3 เดือน (ยาความเสี่ยงสูง/กู้ชีพ)</option>
-                  <option value="adhoc">ครั้งคราว (ยาฉุกเฉินเฉพาะกิจ)</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  ชื่อยา / สารน้ำเต็ม
-                </label>
+                <label className="block text-slate-700 font-bold mb-1">ชื่อยา / สารน้ำ <span className="text-rose-500">*</span></label>
                 <input
                   type="text"
-                  required
                   value={formName}
                   onChange={(e) => setFormName(e.target.value)}
-                  placeholder="เช่น Adrenaline 1 mg/ml amp"
-                  className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-medium"
+                  placeholder="เช่น Atropine 0.6 mg/ml"
+                  className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  required
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="block text-slate-700 font-bold mb-1">หมวดหมู่ยา</label>
+                <select
+                  value={formCategory}
+                  onChange={(e) => setFormCategory(e.target.value as DrugCategory)}
+                  className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-slate-900 outline-none focus:border-blue-500"
+                >
+                  <option value="monthly">💊 ยาและสารน้ำประจำเดือน</option>
+                  <option value="quarterly">🚨 ยาความเสี่ยงสูง/กู้ชีพ (3 เดือน)</option>
+                  <option value="adhoc">📦 ยาฉุกเฉินเฉพาะกิจ (ครั้งคราว)</option>
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2.5">
                 <div>
-                  <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    จำนวนคงเหลือ
-                  </label>
+                  <label className="block text-slate-700 font-bold mb-1">จำนวนคงเหลือ</label>
                   <input
                     type="number"
-                    min="0"
                     value={formRemaining}
                     onChange={(e) => setFormRemaining(Number(e.target.value))}
-                    className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-medium"
+                    className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-slate-900 outline-none focus:border-blue-500"
                   />
                 </div>
-
                 <div>
-                  <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    ยอดต่ำสุด (Min)
-                  </label>
+                  <label className="block text-slate-700 font-bold mb-1">ยอดขั้นต่ำ (Min)</label>
                   <input
                     type="number"
-                    min="0"
                     value={formMinStock}
                     onChange={(e) => setFormMinStock(Number(e.target.value))}
-                    className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-medium"
+                    className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-slate-900 outline-none focus:border-blue-500"
                   />
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-2 gap-2.5">
                 <div>
-                  <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    เบิกครั้งละ
-                  </label>
-                  <input
-                    type="text"
-                    value={formBatchRequest}
-                    onChange={(e) => setFormBatchRequest(e.target.value)}
-                    placeholder="10"
-                    className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-medium"
-                  />
-                </div>
-
-                <div>
-                  <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    หน่วยนับ
-                  </label>
+                  <label className="block text-slate-700 font-bold mb-1">หน่วยนับ</label>
                   <input
                     type="text"
                     value={formUnit}
                     onChange={(e) => setFormUnit(e.target.value)}
-                    placeholder="amp, vial, bottle"
-                    className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-medium"
+                    placeholder="เช่น amp, vial, bottle"
+                    className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-slate-900 outline-none focus:border-blue-500"
                   />
                 </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    วันที่รับยา
-                  </label>
+                  <label className="block text-slate-700 font-bold mb-1">วันหมดอายุ (EXP)</label>
                   <input
-                    type="date"
-                    value={formReceivedDate}
-                    onChange={(e) => setFormReceivedDate(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-medium"
-                  />
-                </div>
-
-                <div>
-                  <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    จำนวนที่รับ
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={formReceivedQty}
-                    onChange={(e) => setFormReceivedQty(Number(e.target.value))}
-                    className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-medium"
+                    type="text"
+                    value={formExpDate}
+                    onChange={(e) => setFormExpDate(e.target.value)}
+                    placeholder="YYYY-MM-DD"
+                    className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-slate-900 outline-none focus:border-blue-500"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  วันหมดอายุ (EXP)
-                </label>
-                <input
-                  type="date"
-                  value={formExpDate}
-                  onChange={(e) => setFormExpDate(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-medium"
-                />
-              </div>
-
-              <div>
-                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  หมายเหตุเพิ่มเติม
-                </label>
+                <label className="block text-slate-700 font-bold mb-1">หมายเหตุเพิ่มเติม</label>
                 <input
                   type="text"
                   value={formNote}
                   onChange={(e) => setFormNote(e.target.value)}
-                  placeholder="ระบุสถานะเบิกจ่าย หรือสำรอง"
-                  className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-medium"
+                  placeholder="เช่น เก็บในตู้เย็น 2-8°C"
+                  className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-slate-900 outline-none focus:border-blue-500"
                 />
               </div>
-            </div>
 
-            <div className="pt-2 flex items-center justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setShowAddModal(false)}
-                className="px-4 py-2 rounded-xl border border-slate-300 text-slate-700 dark:text-slate-300 hover:bg-slate-100 text-xs font-semibold cursor-pointer"
-              >
-                ยกเลิก
-              </button>
-              <button
-                type="submit"
-                className="px-5 py-2 rounded-xl bg-accent text-white font-bold text-xs hover:bg-accent-hover transition cursor-pointer shadow-sm"
-              >
-                {editingDrug ? 'บันทึกการแก้ไข' : 'เพิ่มรายการยา'}
-              </button>
-            </div>
-          </form>
+              <div className="pt-2 flex items-center justify-end gap-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setShowAddModal(false)}
+                  className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold transition cursor-pointer"
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold transition shadow-xs cursor-pointer"
+                >
+                  บันทึกรายการ
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
 
       {/* Delete Confirmation Modal */}
       {itemToDelete && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
-          <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 max-w-sm w-full shadow-2xl border border-slate-200 dark:border-slate-800 space-y-3 text-xs">
-            <div className="flex items-center gap-2 text-rose-600 font-bold text-base">
-              <Trash2 className="w-5 h-5" />
-              <span>ยืนยันการลบรายการยา?</span>
-            </div>
-            <p className="text-slate-600 dark:text-slate-300 leading-relaxed">
-              คุณต้องการลบรายการยา <b>"{itemToDelete.name}"</b> ออกจากระบบคลังยาหรือไม่? การดำเนินการนี้จะลบข้อมูลออกถาวร
+          <div className="bg-white rounded-3xl max-w-sm w-full p-5 space-y-3 border border-slate-200 shadow-2xl font-sans text-xs">
+            <h3 className="text-base font-bold text-rose-600 flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5" />
+              <span>ยืนยันการลบรายการยา</span>
+            </h3>
+            <p className="text-slate-700">
+              คุณต้องการลบรายการยา <b>"{itemToDelete.name}"</b> ออกจากคลังใช่หรือไม่?
             </p>
-            <div className="flex items-center justify-end gap-2 pt-2">
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
               <button
                 type="button"
                 onClick={() => setItemToDelete(null)}
-                className="px-3.5 py-1.5 rounded-xl border border-slate-300 text-slate-700 dark:text-slate-300 hover:bg-slate-100 font-semibold cursor-pointer"
+                className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold transition cursor-pointer"
               >
                 ยกเลิก
               </button>
               <button
                 type="button"
                 onClick={handleExecuteDelete}
-                className="px-4 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold transition cursor-pointer shadow-xs"
+                className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold transition shadow-xs cursor-pointer"
               >
-                ยืนยันการลบ
+                ลบรายการ
               </button>
             </div>
           </div>

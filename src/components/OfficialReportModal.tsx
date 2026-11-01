@@ -4,7 +4,6 @@ import {
   X,
   FileSpreadsheet,
   Trash2,
-  Maximize2,
   RefreshCw,
   Scaling,
 } from 'lucide-react';
@@ -162,6 +161,24 @@ export function isCurrentYearExp(expVal?: string | null): boolean {
   return false;
 }
 
+export function cleanQuantityUnit(valStr?: string | number): string {
+  if (!valStr && valStr !== 0) return '1';
+  let str = String(valStr).trim();
+  if (!str || str === '-') return '1';
+
+  // [เงื่อนไขเด็ดขาด]: แสดงเฉพาะ "ตัวเลขจำนวนนับ" เท่านั้น ห้ามใส่คำลักษณนาม/สรรพนามต่อท้ายเด็ดขาด!
+  // Strip all Thai characters, English letters, and units (e.g. amp, vial, อัน, หลอด, ขวด, etc.)
+  str = str.replace(/[ก-๙a-zA-Z]+/g, '').trim();
+  str = str.replace(/[()]/g, '').trim();
+  str = str.replace(/\s+/g, ' ').trim();
+  if (/^\d+\s+\d+$/.test(str)) {
+    str = str.replace(/\s+/g, ', ');
+  }
+  return str || '1';
+}
+
+export const formatStrictCountableNumbers = cleanQuantityUnit;
+
 export function formatRealQuantity(qtyVal?: string | number, nameStr?: string, specStr?: string): string {
   const combined = `${nameStr || ''} ${specStr || ''} ${qtyVal || ''}`;
   const strQty = String(qtyVal || '').trim();
@@ -183,7 +200,7 @@ export function formatRealQuantity(qtyVal?: string | number, nameStr?: string, s
     return '1';
   }
 
-  return strQty || '1';
+  return cleanQuantityUnit(strQty || '1');
 }
 
 export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
@@ -601,7 +618,7 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
 
   // Mouse Drag-to-Scroll (Pan) handlers for desktop A4 paper
   const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (e.button !== 0) return;
+    if (e.button !== 0) return; // Primary left click only
     const target = e.target as HTMLElement | null;
     if (target && target.closest('input, button, select, textarea, a, [role="button"], label')) {
       return;
@@ -616,20 +633,57 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
     };
   };
 
-  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!isMouseDragging || !scrollContainerRef.current) return;
-    e.preventDefault();
-    const dx = e.pageX - dragStartRef.current.x;
-    const dy = e.pageY - dragStartRef.current.y;
-    scrollContainerRef.current.scrollLeft = dragStartRef.current.scrollLeft - dx;
-    scrollContainerRef.current.scrollTop = dragStartRef.current.scrollTop - dy;
+  // Touch Drag-to-Scroll (Pan) handlers for mobile touch devices
+  const touchStartRef = useRef({ x: 0, y: 0, scrollLeft: 0, scrollTop: 0 });
+
+  const handleTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (e.touches.length !== 1) return;
+    const target = e.target as HTMLElement | null;
+    if (target && target.closest('input, button, select, textarea, a, [role="button"], label')) {
+      return;
+    }
+    if (!scrollContainerRef.current) return;
+    const touch = e.touches[0];
+    touchStartRef.current = {
+      x: touch.clientX,
+      y: touch.clientY,
+      scrollLeft: scrollContainerRef.current.scrollLeft,
+      scrollTop: scrollContainerRef.current.scrollTop,
+    };
   };
 
-  const handleMouseUpOrLeave = () => {
-    if (isMouseDragging) {
-      setIsMouseDragging(false);
-    }
+  const handleTouchMove = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (e.touches.length !== 1 || !scrollContainerRef.current) return;
+    const touch = e.touches[0];
+    const dx = touch.clientX - touchStartRef.current.x;
+    const dy = touch.clientY - touchStartRef.current.y;
+    scrollContainerRef.current.scrollLeft = touchStartRef.current.scrollLeft - dx;
+    scrollContainerRef.current.scrollTop = touchStartRef.current.scrollTop - dy;
   };
+
+  useEffect(() => {
+    if (!isMouseDragging) return;
+
+    const handleWindowMouseMove = (e: MouseEvent) => {
+      if (!scrollContainerRef.current) return;
+      e.preventDefault();
+      const dx = e.pageX - dragStartRef.current.x;
+      const dy = e.pageY - dragStartRef.current.y;
+      scrollContainerRef.current.scrollLeft = dragStartRef.current.scrollLeft - dx;
+      scrollContainerRef.current.scrollTop = dragStartRef.current.scrollTop - dy;
+    };
+
+    const handleWindowMouseUp = () => {
+      setIsMouseDragging(false);
+    };
+
+    window.addEventListener('mousemove', handleWindowMouseMove);
+    window.addEventListener('mouseup', handleWindowMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleWindowMouseMove);
+      window.removeEventListener('mouseup', handleWindowMouseUp);
+    };
+  }, [isMouseDragging]);
 
   return (
     <div
@@ -733,28 +787,39 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
             </div>
 
             <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setIsFullscreen(!isFullscreen)}
-                className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition cursor-pointer"
-                title={isFullscreen ? 'ย่อหน้าจอ' : 'เต็มหน้าจอ'}
-              >
-                <Maximize2 size={16} />
-              </button>
+              {/* ปุ่มสลับขนาดพอดีจอ (Fit Screen) / ขนาดจริง 100% */}
+              <div className="flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200 text-xs font-bold shadow-xs">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!isFitToScreen) handleToggleFitToScreen();
+                  }}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition cursor-pointer active:scale-95 ${
+                    isFitToScreen
+                      ? 'bg-white text-blue-600 shadow-xs font-extrabold'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                  title="ย่อตาราง A4 ให้พอดีกับความกว้างหน้าจอ (Fit to Screen)"
+                >
+                  <Scaling className="w-3.5 h-3.5" />
+                  <span>พอดีจอ</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (isFitToScreen) handleToggleFitToScreen();
+                  }}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition cursor-pointer active:scale-95 ${
+                    !isFitToScreen
+                      ? 'bg-white text-blue-600 shadow-xs font-extrabold'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                  title="แสดงขนาดจริง 100% (สามารถคลิกลากเมาส์เลื่อนดูตารางได้)"
+                >
+                  <span>100% ขนาดจริง</span>
+                </button>
+              </div>
 
-              <button
-                type="button"
-                onClick={handleToggleFitToScreen}
-                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-xl shadow-md transition cursor-pointer active:scale-95 ${
-                  isFitToScreen
-                    ? 'bg-purple-600 hover:bg-purple-700 text-white'
-                    : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200'
-                }`}
-                title={isFitToScreen ? 'แสดงขนาดจริง 100%' : 'ปรับขนาดพอดีหน้าจอ'}
-              >
-                <Scaling className="w-3.5 h-3.5" />
-                <span>{isFitToScreen ? '[⤢ พอดีหน้าจอ]' : '[🔍 ขนาดจริง 100%]'}</span>
-              </button>
 
               <button
                 type="button"
@@ -812,9 +877,8 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
         <div
           ref={scrollContainerRef}
           onMouseDown={handleMouseDown}
-          onMouseMove={handleMouseMove}
-          onMouseUp={handleMouseUpOrLeave}
-          onMouseLeave={handleMouseUpOrLeave}
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
           className="paper-viewport-area paper-scroll-viewport report-viewport-area"
           style={{
             flex: 1,
@@ -824,13 +888,14 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
             height: '100%',
             display: 'flex',
             flexDirection: 'column',
-            alignItems: 'center',
+            alignItems: isFitToScreen ? 'center' : 'flex-start',
             justifyContent: 'flex-start',
             padding: '16px',
             boxSizing: 'border-box',
             background: '#e2e8f0',
             WebkitOverflowScrolling: 'touch',
-            cursor: isMouseDragging ? 'grabbing' : 'grab',
+            touchAction: 'pan-x pan-y',
+            cursor: isFitToScreen ? 'default' : (isMouseDragging ? 'grabbing' : 'grab'),
             userSelect: isMouseDragging ? 'none' : 'auto',
           }}
         >
@@ -844,12 +909,13 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
             className="a4-paper-holder"
             style={{
               width: isFitToScreen ? `${basePaperWidth * scaleFactor}px` : `${basePaperWidth}px`,
-              height: isFitToScreen ? `${sheetHeight * scaleFactor}px` : `${sheetHeight}px`,
+              minWidth: isFitToScreen ? undefined : `${basePaperWidth}px`,
+              height: isFitToScreen ? `${sheetHeight * scaleFactor}px` : 'auto',
               minHeight: isFitToScreen ? `${794 * scaleFactor}px` : '794px',
               position: 'relative',
               margin: '0 auto',
               boxSizing: 'border-box',
-              overflow: 'visible',
+              overflow: isFitToScreen ? 'hidden' : 'visible',
               flexShrink: 0,
             }}
           >
@@ -860,21 +926,21 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
                 width: '1120px',
                 minWidth: '1120px',
                 transform: isFitToScreen
-                  ? `translate(-50%, 0) scale(${scaleFactor})`
-                  : 'translate(-50%, 0) scale(1)',
+                  ? `scale(${scaleFactor})`
+                  : 'none',
                 WebkitTransform: isFitToScreen
-                  ? `translate(-50%, 0) scale(${scaleFactor})`
-                  : 'translate(-50%, 0) scale(1)',
-                transformOrigin: 'top center',
+                  ? `scale(${scaleFactor})`
+                  : 'none',
+                transformOrigin: 'top left',
                 willChange: 'transform',
                 background: '#ffffff',
                 boxShadow: '0 10px 25px rgba(0,0,0,0.15)',
                 borderRadius: '2px',
                 boxSizing: 'border-box',
-                padding: '32px',
-                position: 'absolute',
+                padding: '16px',
+                position: isFitToScreen ? 'absolute' : 'relative',
                 top: 0,
-                left: '50%',
+                left: 0,
                 minHeight: '794px',
                 display: 'flex',
                 flexDirection: 'column',

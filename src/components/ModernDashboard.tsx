@@ -36,6 +36,8 @@ interface ModernDashboardProps {
   theme?: 'light' | 'dark';
   onToggleTheme?: () => void;
   onNavigate: (view: 'home' | 'eq_overview' | 'room_check' | 'bag_check' | 'cart_check' | 'users' | 'drug_check') => void;
+  activeCategory?: 'equipment' | 'bag' | 'cart' | 'medicine';
+  onSelectCategory?: (category: 'equipment' | 'bag' | 'cart' | 'medicine') => void;
   onSelectRoom?: (roomId: string) => void;
   onLogout?: () => void;
   onOpenNotifications?: () => void;
@@ -67,6 +69,8 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
   theme,
   onToggleTheme,
   onNavigate,
+  activeCategory = 'bag',
+  onSelectCategory,
   onSelectRoom,
   onOpenNotifications,
   onOpenProfile,
@@ -78,6 +82,41 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
 }) => {
   const isDarkMode = theme ? theme === 'dark' : true;
   const swiperRef = React.useRef<any>(null);
+
+  // Map category ID to Swiper slide index (in second cycle of looped categories)
+  const getCategorySlideIndex = (catId?: string) => {
+    if (catId === 'medicine') return 4;
+    if (catId === 'equipment') return 5;
+    if (catId === 'bag') return 6;
+    if (catId === 'cart') return 7;
+    return 6; // Default to Emergency Bag
+  };
+
+  const initialSlideIndex = React.useMemo(() => getCategorySlideIndex(activeCategory), [activeCategory]);
+
+  React.useEffect(() => {
+    if (swiperRef.current && activeCategory) {
+      const idx = getCategorySlideIndex(activeCategory);
+      try {
+        swiperRef.current.slideTo(idx, 350);
+      } catch (e) {
+        // ignore
+      }
+    }
+  }, [activeCategory]);
+
+  // Detect touch capability to decouple mouse clicks on desktop from touch dragging on mobile
+  const [isTouchDevice, setIsTouchDevice] = useState(false);
+  useEffect(() => {
+    const checkTouch = () => {
+      setIsTouchDevice(
+        'ontouchstart' in window || navigator.maxTouchPoints > 0 || window.matchMedia('(pointer: coarse)').matches
+      );
+    };
+    checkTouch();
+    window.addEventListener('resize', checkTouch, { passive: true });
+    return () => window.removeEventListener('resize', checkTouch);
+  }, []);
 
   // Window Resize & Viewport Breakpoint Listener to re-calculate Swiper dimensions & reset layout
   useLayoutEffect(() => {
@@ -106,10 +145,66 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
     };
   }, []);
 
+  // Strict Drag vs Click tracking with 5px distance threshold
+  const pointerStartRef = React.useRef<{ x: number; y: number; time: number } | null>(null);
+  const isDragActionRef = React.useRef<boolean>(false);
+  const dragSuppressionUntilRef = React.useRef<number>(0);
+  const lastNavTimeRef = React.useRef<number>(0);
+
+  const handlePointerDown = (e: React.PointerEvent | React.MouseEvent) => {
+    pointerStartRef.current = { x: e.clientX, y: e.clientY, time: Date.now() };
+    isDragActionRef.current = false;
+  };
+
+  const handlePointerMove = (e: React.PointerEvent | React.MouseEvent) => {
+    if (!pointerStartRef.current) return;
+    const dx = Math.abs(e.clientX - pointerStartRef.current.x);
+    const dy = Math.abs(e.clientY - pointerStartRef.current.y);
+    if (dx > 5 || dy > 5) {
+      isDragActionRef.current = true;
+    }
+  };
+
   const handleCategorySelect = (
     targetView: 'home' | 'eq_overview' | 'room_check' | 'bag_check' | 'cart_check' | 'users' | 'drug_check'
   ) => {
+    // [เงื่อนไขเด็ดขาด]: หากเพิ่งลากการ์ดมา (Drag-Release) หรือกำลังลากอยู่ ห้ามรันฟังก์ชันเปิดหน้าตรวจเช็กเด็ดขาด!
+    if (Date.now() < dragSuppressionUntilRef.current || isDragActionRef.current) {
+      return;
+    }
+
+    const now = Date.now();
+    if (now - lastNavTimeRef.current < 250) return;
+    lastNavTimeRef.current = now;
+
+    if (onSelectCategory) {
+      if (targetView === 'room_check' || targetView === 'eq_overview') onSelectCategory('equipment');
+      else if (targetView === 'bag_check') onSelectCategory('bag');
+      else if (targetView === 'cart_check') onSelectCategory('cart');
+      else if (targetView === 'drug_check') onSelectCategory('medicine');
+    }
+
     onNavigate(targetView);
+  };
+
+  const handlePointerUp = (e: React.PointerEvent | React.MouseEvent, targetView?: any) => {
+    if (!pointerStartRef.current) return;
+    const dx = Math.abs(e.clientX - pointerStartRef.current.x);
+    const dy = Math.abs(e.clientY - pointerStartRef.current.y);
+    const movedOverThreshold = dx > 5 || dy > 5 || isDragActionRef.current;
+    pointerStartRef.current = null;
+    isDragActionRef.current = false;
+
+    if (movedOverThreshold) {
+      // [เงื่อนไขเด็ดขาด]: หากเมาส์ขยับเกิน 5px ➔ ถือเป็นการ "ลาก/เลื่อนการ์ด (Drag)" ห้ามรันฟังก์ชันเปิดหน้าตรวจเช็กเด็ดขาด!
+      dragSuppressionUntilRef.current = Date.now() + 450;
+      return;
+    }
+
+    // [เงื่อนไขเด็ดขาด]: หากเมาส์ขยับไม่เกิน 5px ➔ ถือเป็นการ "กดเลือก (Click)" ให้รันฟังก์ชันเปิดหน้าตรวจเช็กทันที
+    if (targetView) {
+      handleCategorySelect(targetView);
+    }
   };
 
   // Weather State
@@ -278,6 +373,16 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
     },
   ];
 
+  // Looped categories (12 items total: 3 cycles of the 4 categories)
+  // Ensures seamless infinite looping in Swiper without edge snapping or boundaries.
+  const loopedCategories = useMemo(() => {
+    return [
+      ...categories.map((c) => ({ ...c, uniqueId: `${c.id}-c1` })),
+      ...categories.map((c) => ({ ...c, uniqueId: `${c.id}-c2` })),
+      ...categories.map((c) => ({ ...c, uniqueId: `${c.id}-c3` })),
+    ];
+  }, [categories]);
+
   return (
     <div
       className={`w-full min-h-screen font-['TH_Sarabun_New','Sarabun',sans-serif] pb-28 overflow-x-hidden relative transition-colors duration-500 select-none ${
@@ -297,6 +402,32 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
           background: #3B82F6 !important;
           width: 22px !important;
           border-radius: 6px !important;
+        }
+        .card-grab-cursor,
+        .swiper,
+        .swiper-slide {
+          cursor: grab !important;
+          user-select: none !important;
+          -webkit-user-select: none !important;
+        }
+        .card-grab-cursor:active,
+        .swiper:active,
+        .swiper.swiper-grabbing,
+        .swiper.swiper-grabbing *,
+        .swiper-slide:active {
+          cursor: grabbing !important;
+        }
+        .carousel-action-btn {
+          cursor: pointer !important;
+          pointer-events: auto !important;
+        }
+        .swiper-slide {
+          pointer-events: auto !important;
+        }
+        .swiper-slide img {
+          -webkit-user-drag: none;
+          user-drag: none;
+          pointer-events: none;
         }
       `}</style>
 
@@ -479,8 +610,8 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
             </span>
           </div>
 
-          {/* Carousel Wrapper with White Glassmorphic Side-by-Side Arrows (pointer-events-none on wrapper so overlay won't block clicks) */}
-          <div className="relative pointer-events-none">
+          {/* Carousel Wrapper with White Glassmorphic Side-by-Side Arrows */}
+          <div className="relative w-full">
             {/* Left Arrow Button [<] */}
             <button
               type="button"
@@ -493,9 +624,8 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
                 backdropFilter: 'blur(8px)',
                 border: '1px solid rgba(255, 255, 255, 0.7)',
                 boxShadow: '0 4px 14px rgba(0, 0, 0, 0.12)',
-                pointerEvents: 'auto',
               }}
-              className="absolute left-1 sm:left-3 top-1/2 -translate-y-1/2 z-40 w-11 h-11 sm:w-13 sm:h-13 rounded-full text-slate-800 hover:text-blue-600 hover:bg-white flex items-center justify-center transition active:scale-90 cursor-pointer hover:scale-110 pointer-events-auto"
+              className="absolute left-1 sm:left-3 top-1/2 -translate-y-1/2 z-40 w-11 h-11 sm:w-13 sm:h-13 rounded-full text-slate-800 hover:text-blue-600 hover:bg-white flex items-center justify-center transition active:scale-90 cursor-pointer hover:scale-110"
               title="เลื่อนซ้าย"
             >
               <ChevronLeft size={24} className="stroke-[2.5]" />
@@ -513,9 +643,8 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
                 backdropFilter: 'blur(8px)',
                 border: '1px solid rgba(255, 255, 255, 0.7)',
                 boxShadow: '0 4px 14px rgba(0, 0, 0, 0.12)',
-                pointerEvents: 'auto',
               }}
-              className="absolute right-1 sm:right-3 top-1/2 -translate-y-1/2 z-40 w-11 h-11 sm:w-13 sm:h-13 rounded-full text-slate-800 hover:text-blue-600 hover:bg-white flex items-center justify-center transition active:scale-90 cursor-pointer hover:scale-110 pointer-events-auto"
+              className="absolute right-1 sm:right-3 top-1/2 -translate-y-1/2 z-40 w-11 h-11 sm:w-13 sm:h-13 rounded-full text-slate-800 hover:text-blue-600 hover:bg-white flex items-center justify-center transition active:scale-90 cursor-pointer hover:scale-110"
               title="เลื่อนขวา"
             >
               <ChevronRight size={24} className="stroke-[2.5]" />
@@ -523,69 +652,127 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
 
             <Swiper
               onSwiper={(swiper) => (swiperRef.current = swiper)}
+              onTouchStart={(_swiper, e) => handlePointerDown(e as any)}
+              onTouchMove={(_swiper, e) => handlePointerMove(e as any)}
+              onTouchEnd={(_swiper, e) => handlePointerUp(e as any)}
               modules={[EffectCoverflow, Pagination]}
               effect={'coverflow'}
-              grabCursor={false}
-              simulateTouch={false}
+              grabCursor={true}
+              simulateTouch={true}
               allowTouchMove={true}
-              slideToClickedSlide={true}
-              touchEventsTarget="container"
+              slideToClickedSlide={false}
               loop={true}
-              speed={400}
+              loopPreventsSliding={false}
+              loopAdditionalSlides={4}
+              initialSlide={initialSlideIndex}
+              speed={450}
+              resistance={true}
+              resistanceRatio={0.82}
+              touchRatio={1}
+              touchAngle={45}
+              longSwipes={true}
+              longSwipesRatio={0.2}
+              longSwipesMs={250}
+              shortSwipes={true}
+              followFinger={true}
+              preventClicks={true}
+              preventClicksPropagation={true}
               observer={true}
               observeParents={true}
               resizeObserver={true}
-              preventClicks={false}
-              preventClicksPropagation={false}
-              touchStartPreventDefault={false}
-              threshold={10}
+              threshold={5}
               breakpoints={{
-                320: { slidesPerView: 1.05, spaceBetween: 12, centeredSlides: true },
-                640: { slidesPerView: 1.8, spaceBetween: 16, centeredSlides: false },
-                1024: { slidesPerView: 2.8, spaceBetween: 20, centeredSlides: false },
-                1280: { slidesPerView: 3.6, spaceBetween: 24, centeredSlides: false },
+                320: { slidesPerView: 1.15, spaceBetween: 14, centeredSlides: true },
+                640: { slidesPerView: 2.1, spaceBetween: 16, centeredSlides: true },
+                1024: { slidesPerView: 2.8, spaceBetween: 20, centeredSlides: true },
+                1280: { slidesPerView: 3.4, spaceBetween: 22, centeredSlides: true },
                 1600: { slidesPerView: 4, spaceBetween: 24, centeredSlides: false },
               }}
               coverflowEffect={{
                 rotate: 0,
-                stretch: -10,
-                depth: 80,
+                stretch: 0,
+                depth: 25,
                 modifier: 1,
                 slideShadows: false,
               }}
               pagination={{ clickable: true, dynamicBullets: true }}
-              className="w-full pb-8 px-6 sm:px-12 pointer-events-auto"
+              onClick={(_swiper, event) => {
+                if (Date.now() < dragSuppressionUntilRef.current || isDragActionRef.current) return;
+                const target = event.target as HTMLElement;
+                if (!target) return;
+                const cardEl = target.closest('[data-target-view]') as HTMLElement | null;
+                if (cardEl) {
+                  const view = cardEl.getAttribute('data-target-view') as any;
+                  if (view) {
+                    handleCategorySelect(view);
+                  }
+                }
+              }}
+              className="w-full pb-8 px-6 sm:px-12 card-grab-cursor select-none"
             >
-              {categories.map((item) => (
-                <SwiperSlide key={item.id} className="pointer-events-auto">
+              {loopedCategories.map((item) => (
+                <SwiperSlide key={item.uniqueId} className="select-none pointer-events-auto">
                   {({ isActive }) => (
                     <div
-                      onClick={() => handleCategorySelect(item.targetView)}
-                      style={{ pointerEvents: 'auto', cursor: 'pointer', position: 'relative', zIndex: isActive ? 25 : 20 }}
-                      className={`relative h-72 sm:h-80 lg:h-84 rounded-[2.2rem] overflow-hidden transition-all duration-300 cursor-pointer group active:scale-98 pointer-events-auto hover:scale-105 ${
+                      data-target-view={item.targetView}
+                      onPointerDown={handlePointerDown}
+                      onPointerMove={handlePointerMove}
+                      onPointerUp={(e) => handlePointerUp(e, item.targetView)}
+                      onClick={(e) => {
+                        // Only handle click if not dragging
+                        if (!isDragActionRef.current && Date.now() >= dragSuppressionUntilRef.current) {
+                          handleCategorySelect(item.targetView);
+                        }
+                      }}
+                      style={{
+                        pointerEvents: 'auto',
+                        position: 'relative',
+                        zIndex: isActive ? 30 : 20,
+                        touchAction: 'pan-y pinch-zoom',
+                      }}
+                      className={`card-grab-cursor relative h-72 sm:h-80 lg:h-84 rounded-[2.2rem] overflow-hidden transition-all duration-300 group select-none pointer-events-auto cursor-grab active:cursor-grabbing ${
                         isActive
-                          ? 'scale-100 opacity-100 shadow-2xl z-20 ring-2 ring-white/30'
-                          : 'scale-95 opacity-85 blur-[0.2px] z-10'
+                          ? 'scale-100 opacity-100 shadow-2xl ring-2 ring-white/30 z-30'
+                          : 'scale-95 opacity-85 blur-[0.2px] z-20'
                       }`}
                     >
-                      <img src={item.bg} alt={item.title} className="absolute inset-0 w-full h-full object-cover pointer-events-none select-none" />
+                      <img
+                        src={item.bg}
+                        alt={item.title}
+                        draggable={false}
+                        className="absolute inset-0 w-full h-full object-cover pointer-events-none select-none"
+                      />
                       <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/40 to-transparent pointer-events-none" />
 
-                      <div className="absolute inset-0 p-6 sm:p-8 flex flex-col justify-between z-10 pointer-events-auto">
+                      <div className="absolute inset-0 p-6 sm:p-8 flex flex-col justify-between z-10 pointer-events-none">
                         <span className="self-start bg-black/60 backdrop-blur-md text-white text-xs sm:text-sm px-4 py-1.5 rounded-full font-bold border border-white/20 shadow-md pointer-events-none">
                           {item.icon} {item.count}
                         </span>
 
                         <div className="space-y-4 pointer-events-auto">
-                          <h3 className="text-2xl sm:text-3xl font-extrabold text-white leading-tight drop-shadow-md pointer-events-none">{item.title}</h3>
+                          <h3 className="text-2xl sm:text-3xl font-extrabold text-white leading-tight drop-shadow-md pointer-events-none">
+                            {item.title}
+                          </h3>
                           <button
                             type="button"
+                            data-target-view={item.targetView}
+                            onPointerDown={handlePointerDown}
+                            onPointerMove={handlePointerMove}
+                            onPointerUp={(e) => {
+                              e.stopPropagation();
+                              handlePointerUp(e, item.targetView);
+                            }}
                             onClick={(e) => {
                               e.stopPropagation();
                               handleCategorySelect(item.targetView);
                             }}
-                            style={{ pointerEvents: 'auto', cursor: 'pointer', position: 'relative', zIndex: 30 }}
-                            className="w-full bg-[#3B82F6] hover:bg-blue-600 text-white font-bold text-sm sm:text-base py-3.5 px-6 rounded-2xl shadow-xl transition active:scale-95 cursor-pointer flex items-center justify-center gap-2 group-hover:bg-blue-600 relative z-30 pointer-events-auto"
+                            style={{
+                              pointerEvents: 'auto',
+                              cursor: 'pointer',
+                              position: 'relative',
+                              zIndex: 40,
+                            }}
+                            className="carousel-action-btn w-full bg-[#3B82F6] hover:bg-blue-600 active:bg-blue-700 text-white font-bold text-sm sm:text-base py-3.5 px-6 rounded-2xl shadow-xl transition active:scale-95 cursor-pointer flex items-center justify-center gap-2 group-hover:bg-blue-600 relative z-40 pointer-events-auto"
                           >
                             <span>เข้าตรวจเช็ก &rarr;</span>
                           </button>
@@ -599,21 +786,23 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
           </div>
         </div>
 
-        {/* 📊 3. สถิติความพร้อมประจำวัน (Full-Width Expanded Container Layout) */}
+        {/* 📊 3. สถิติความพร้อมประจำวัน (One UI Minimalist Blue-Cyan-Green-White Glassmorphic Theme) */}
         <div
           style={{ width: '100%' }}
           className={`w-full max-w-full rounded-[2.2rem] p-6 sm:p-8 border shadow-2xl space-y-5 transition-colors duration-500 lg:col-span-2 ${
             isDarkMode
-              ? 'bg-[#181A20]/95 backdrop-blur-2xl border-white/10 text-white'
+              ? 'bg-[#14161D]/95 backdrop-blur-2xl border-white/10 text-white'
               : 'bg-white/95 backdrop-blur-2xl border-white/80 text-slate-800'
           }`}
         >
           <div className="flex justify-between items-center border-b pb-4 border-slate-700/30">
             <h3 className="text-base sm:text-xl font-bold flex items-center gap-2">
+              <span className="text-cyan-400">📊</span>
               <span>สถิติความพร้อมประจำวัน</span>
             </h3>
-            <span className="text-xs sm:text-sm bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-3.5 py-1 rounded-full font-bold">
-              ● Real-time
+            <span className="text-xs sm:text-sm bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 px-3.5 py-1 rounded-full font-bold flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
+              Real-time One UI
             </span>
           </div>
 
@@ -621,20 +810,24 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
             {/* Donut Progress Chart & Total (Spans 4 columns on large screens) */}
             <div
               onClick={() => onNavigate('room_check')}
-              className="lg:col-span-4 flex items-center justify-center sm:justify-start gap-5 p-5 sm:p-6 rounded-[1.8rem] bg-black/15 border border-white/10 shadow-inner cursor-pointer hover:border-emerald-400/50 transition active:scale-98"
+              className={`lg:col-span-4 flex items-center justify-center sm:justify-start gap-5 p-5 sm:p-6 rounded-[1.8rem] border shadow-inner cursor-pointer hover:border-cyan-400/60 transition active:scale-98 ${
+                isDarkMode ? 'bg-[#0D0F14] border-cyan-500/20' : 'bg-cyan-50/50 border-cyan-200'
+              }`}
               title="คลิกเพื่อดูรายละเอียดผังห้องผ่าตัด"
             >
               <div className="relative w-28 h-28 sm:w-32 sm:h-32 flex items-center justify-center shrink-0">
                 <svg className="w-full h-full transform -rotate-90" viewBox="0 0 36 36">
+                  {/* Track */}
                   <path
-                    className={isDarkMode ? 'text-slate-800' : 'text-slate-200'}
+                    className={isDarkMode ? 'text-slate-800/80' : 'text-slate-200'}
                     strokeWidth="3.8"
                     stroke="currentColor"
                     fill="none"
                     d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
                   />
+                  {/* Cyan-Mint Ready Stroke */}
                   <path
-                    className="text-emerald-400"
+                    className="text-cyan-400"
                     strokeDasharray={`${normalStroke}, 100`}
                     strokeWidth="3.8"
                     strokeLinecap="round"
@@ -642,9 +835,10 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
                     fill="none"
                     d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
                   />
+                  {/* Deep Navy/Indigo Defective Stroke */}
                   {defectiveStroke > 0 && (
                     <path
-                      className="text-rose-500"
+                      className={isDarkMode ? 'text-slate-700' : 'text-indigo-950'}
                       strokeDasharray={`${defectiveStroke}, 100`}
                       strokeDashoffset={`-${normalStroke}`}
                       strokeWidth="3.8"
@@ -655,13 +849,13 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
                     />
                   )}
                 </svg>
-                <span className="absolute text-2xl sm:text-3xl font-black tabular-nums">
+                <span className="absolute text-2xl sm:text-3xl font-black tabular-nums text-cyan-400">
                   {stats.completionPct}%
                 </span>
               </div>
               <div className="space-y-1.5 text-left">
                 <p className="text-xs sm:text-sm font-bold text-slate-400">ระดับความพร้อมรวม</p>
-                <p className="text-base sm:text-lg font-black text-emerald-400 tabular-nums">
+                <p className="text-base sm:text-lg font-black text-cyan-400 tabular-nums">
                   {stats.grandNormal} / {stats.grandTotal} รายการ
                 </p>
                 <p className="text-xs text-slate-400">
@@ -672,51 +866,51 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
 
             {/* Detailed Breakdown Horizontal Cards Grid (Spans 8 columns on large screens) */}
             <div className="lg:col-span-8 grid grid-cols-1 sm:grid-cols-3 gap-3.5">
-              {/* Card 1: Normal */}
+              {/* Card 1: Normal (Cyan/Mint) */}
               <div
                 onClick={() => onNavigate('room_check')}
-                className={`p-4 sm:p-5 rounded-[1.5rem] border flex flex-col justify-between gap-3 cursor-pointer hover:border-emerald-400/50 transition active:scale-98 ${
-                  isDarkMode ? 'bg-[#101216] border-slate-800/80' : 'bg-slate-50/80 border-slate-200'
+                className={`p-4 sm:p-5 rounded-[1.5rem] border flex flex-col justify-between gap-3 cursor-pointer hover:border-cyan-400/50 transition active:scale-98 ${
+                  isDarkMode ? 'bg-[#101520] border-cyan-500/30' : 'bg-cyan-50/80 border-cyan-200'
                 }`}
                 title="ดูรายการครุภัณฑ์ปกติ"
               >
-                <span className="font-bold text-xs sm:text-sm text-slate-400 flex items-center gap-2">
-                  <CheckCircle2 size={18} className="text-emerald-400" />
+                <span className="font-bold text-xs sm:text-sm text-cyan-400 flex items-center gap-2">
+                  <CheckCircle2 size={18} className="text-cyan-400" />
                   <span>ปกติพร้อมใช้</span>
                 </span>
                 <div className="flex items-baseline justify-between">
-                  <span className="font-black text-emerald-400 text-2xl sm:text-3xl tabular-nums">{stats.grandNormal}</span>
+                  <span className="font-black text-cyan-400 text-2xl sm:text-3xl tabular-nums">{stats.grandNormal}</span>
                   <span className="text-xs text-slate-400 font-medium">รายการ</span>
                 </div>
               </div>
 
-              {/* Card 2: Defective */}
+              {/* Card 2: Defective (Deep Navy / Indigo) */}
               <div
                 onClick={() => onNavigate('eq_overview')}
-                className={`p-4 sm:p-5 rounded-[1.5rem] border flex flex-col justify-between gap-3 cursor-pointer hover:border-rose-400/50 transition active:scale-98 ${
-                  isDarkMode ? 'bg-[#101216] border-slate-800/80' : 'bg-slate-50/80 border-slate-200'
+                className={`p-4 sm:p-5 rounded-[1.5rem] border flex flex-col justify-between gap-3 cursor-pointer hover:border-indigo-400/50 transition active:scale-98 ${
+                  isDarkMode ? 'bg-[#0F1322] border-indigo-900/50' : 'bg-slate-100/90 border-slate-300'
                 }`}
                 title="ดูรายการข้อบกพร่อง/ชำรุด"
               >
-                <span className="font-bold text-xs sm:text-sm text-slate-400 flex items-center gap-2">
-                  <XCircle size={18} className="text-rose-500" />
+                <span className="font-bold text-xs sm:text-sm text-indigo-400 flex items-center gap-2">
+                  <XCircle size={18} className="text-indigo-400" />
                   <span>ต้องตรวจสอบ</span>
                 </span>
                 <div className="flex items-baseline justify-between">
-                  <span className="font-black text-rose-500 text-2xl sm:text-3xl tabular-nums">{stats.grandDefective}</span>
+                  <span className="font-black text-indigo-400 text-2xl sm:text-3xl tabular-nums">{stats.grandDefective}</span>
                   <span className="text-xs text-slate-400 font-medium">รายการ</span>
                 </div>
               </div>
 
-              {/* Card 3: Pending */}
+              {/* Card 3: Pending (Amber Accent) */}
               <div
                 onClick={() => onNavigate('room_check')}
                 className={`p-4 sm:p-5 rounded-[1.5rem] border flex flex-col justify-between gap-3 cursor-pointer hover:border-amber-400/50 transition active:scale-98 ${
-                  isDarkMode ? 'bg-[#101216] border-slate-800/80' : 'bg-slate-50/80 border-slate-200'
+                  isDarkMode ? 'bg-[#14161D] border-amber-500/30' : 'bg-amber-50/60 border-amber-200'
                 }`}
                 title="ดูรายการห้องค้างตรวจเช็ก"
               >
-                <span className="font-bold text-xs sm:text-sm text-slate-400 flex items-center gap-2">
+                <span className="font-bold text-xs sm:text-sm text-amber-400 flex items-center gap-2">
                   <Clock size={18} className="text-amber-400" />
                   <span>รอตรวจเช็ก</span>
                 </span>

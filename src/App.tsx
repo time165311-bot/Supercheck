@@ -15,6 +15,7 @@ import {
 } from './components/SwiperInspectionCarousel';
 import { EmergencyChecklistView } from './components/EmergencyChecklistView';
 import { GoogleSheetsSettings } from './components/GoogleSheetsSettings';
+import { GlobalScrollButtons } from './components/GlobalScrollButtons';
 
 import {
   STORAGE_KEYS,
@@ -69,6 +70,9 @@ export default function App() {
   const [currentView, setCurrentView] = useState<
     'home' | 'drug_check' | 'room_check' | 'bag_check' | 'cart_check' | 'eq_overview' | 'users'
   >('home');
+
+  // Remember Active Selected Category ('bag' by default or last inspected)
+  const [activeCategory, setActiveCategory] = useState<'medicine' | 'equipment' | 'bag' | 'cart'>('bag');
 
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
     return (getStoredString(STORAGE_KEYS.THEME, 'dark') as 'light' | 'dark') || 'dark';
@@ -291,6 +295,46 @@ export default function App() {
 
       setStored(STORAGE_KEYS.GLOBAL_CHECKS, updatedGlobal);
       return updatedGlobal;
+    });
+  };
+
+  // Add New Item to Emergency Bag or Crash Cart Checklist
+  const handleAddItem = (
+    type: 'bag' | 'cart',
+    newItem: { name: string; groupName: string; spec?: string; qty?: string; exp?: string; img?: string }
+  ) => {
+    setLists((prev) => {
+      const currentList = prev[type] || { title: type === 'bag' ? 'กระเป๋าฉุกเฉิน' : 'รถฉุกเฉิน', groups: {} };
+      const groups = { ...(currentList.groups || {}) };
+      const targetGroup = groups[newItem.groupName] ? [...groups[newItem.groupName]] : [];
+      const itemKey = `${type}_${newItem.groupName}_${Date.now()}`;
+
+      const itemObject = {
+        id: itemKey,
+        name: newItem.name,
+        no: String(targetGroup.length + 1),
+        code: `NEW-${Math.floor(1000 + Math.random() * 9000)}`,
+        spec: newItem.spec || '',
+        qty: newItem.qty || '1',
+        location: newItem.groupName,
+        exp: newItem.exp || '',
+        img: newItem.img || '',
+      };
+
+      groups[newItem.groupName] = [...targetGroup, itemObject];
+
+      const updatedList = {
+        ...currentList,
+        groups,
+      };
+
+      const updatedLists = {
+        ...prev,
+        [type]: updatedList,
+      };
+
+      setStored(STORAGE_KEYS.CUSTOM_LISTS, updatedLists);
+      return updatedLists;
     });
   };
 
@@ -775,12 +819,24 @@ export default function App() {
             expiryAlerts={expiryAlerts}
             theme={theme}
             onToggleTheme={toggleTheme}
+            activeCategory={activeCategory}
+            onSelectCategory={(cat) => setActiveCategory(cat)}
             onNavigate={(view) => {
-              if (view === 'room_check') setSelectedRoomId('or1');
+              if (view === 'room_check') {
+                setSelectedRoomId('or1');
+                setActiveCategory('equipment');
+              } else if (view === 'bag_check') {
+                setActiveCategory('bag');
+              } else if (view === 'cart_check') {
+                setActiveCategory('cart');
+              } else if (view === 'drug_check') {
+                setActiveCategory('medicine');
+              }
               setCurrentView(view as any);
             }}
             onSelectRoom={(roomId) => {
               setSelectedRoomId(roomId);
+              setActiveCategory('equipment');
               setCurrentView('room_check');
             }}
             onOpenNotifications={() => setIsNotificationOpen(true)}
@@ -832,6 +888,7 @@ export default function App() {
             onOpenBarcodeScan={() => setIsBarcodeScannerOpen(true)}
             onZoomImage={(imgUrl) => setZoomedImgUrl(imgUrl)}
             onBack={() => setCurrentView('home')}
+            onAddItem={(newItem) => handleAddItem('bag', newItem)}
           />
         )}
 
@@ -850,6 +907,7 @@ export default function App() {
             onOpenBarcodeScan={() => setIsBarcodeScannerOpen(true)}
             onZoomImage={(imgUrl) => setZoomedImgUrl(imgUrl)}
             onBack={() => setCurrentView('home')}
+            onAddItem={(newItem) => handleAddItem('cart', newItem)}
           />
         )}
 
@@ -1213,6 +1271,12 @@ export default function App() {
           currentUser={currentUser}
         />
       )}
+
+      {/* 📍 Floating Quick Controls (Scroll to Top, Scroll to Bottom, Back to Dashboard) */}
+      <GlobalScrollButtons
+        onNavigateHome={() => setCurrentView('home')}
+        showHomeButton={currentView !== 'home'}
+      />
     </div>
   );
 }
