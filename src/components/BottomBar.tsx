@@ -30,9 +30,14 @@ export const BottomBar: React.FC<BottomBarProps> = ({
 
   return (
     <nav
-      className={`fixed bottom-0 left-0 right-0 z-40 px-4 py-2.5 transition-all duration-300 lg:hidden ${
-        isVisible ? 'translate-y-0 opacity-100' : 'translate-y-28 opacity-0'
+      className={`fixed bottom-0 left-0 right-0 z-40 px-4 py-2.5 transition-all duration-300 ease-out lg:hidden ${
+        isVisible
+          ? 'translate-y-0 opacity-100 pointer-events-auto'
+          : 'translate-y-[150%] opacity-0 pointer-events-none'
       }`}
+      style={{
+        paddingBottom: 'calc(10px + env(safe-area-inset-bottom, 0px))',
+      }}
     >
       <div
         className={`max-w-md mx-auto px-5 py-2 rounded-[2rem] border backdrop-blur-2xl shadow-2xl transition-colors duration-300 ${

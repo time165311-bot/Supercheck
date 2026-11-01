@@ -88,7 +88,7 @@ export const DrugInventoryReportPreview: React.FC<DrugInventoryReportPreviewProp
   clinicName = 'คลินิกงานบริการผู้ป่วยในวิสัญญี',
   subCategory = 'monthly',
   onSubCategoryChange,
-  headerNote = '(เพิ่ม Column Exp.)',
+  headerNote = '',
   onHeaderNoteChange,
   editableNote = true,
 }) => {
@@ -445,13 +445,13 @@ export const DrugInventoryReportPreview: React.FC<DrugInventoryReportPreviewProp
           ) : (
             <div className="h-12" />
           )}
-          <p style={{ color: '#000000 !important', fontWeight: 'bold' }}>ลงชื่อ .................................................... ผู้ตรวจสอบ</p>
-          <p style={{ color: '#000000 !important' }}>({inspector || '....................................................'})</p>
+          <p style={{ color: '#000000 !important', fontWeight: 'bold', whiteSpace: 'nowrap', wordBreak: 'keep-all' }}>ลงชื่อ .................................................... ผู้ตรวจสอบ</p>
+          <p style={{ color: '#000000 !important', whiteSpace: 'nowrap', wordBreak: 'keep-all' }}>({inspector || '....................................................'})</p>
         </div>
         <div className="text-center flex flex-col items-center" style={{ textAlign: 'center' }}>
           <div className="h-12" />
-          <p style={{ color: '#000000 !important', fontWeight: 'bold' }}>ลงชื่อ .................................................... หัวหน้างาน</p>
-          <p style={{ color: '#000000 !important' }}>(....................................................)</p>
+          <p style={{ color: '#000000 !important', fontWeight: 'bold', whiteSpace: 'nowrap', wordBreak: 'keep-all' }}>ลงชื่อ .................................................... หัวหน้างาน</p>
+          <p style={{ color: '#000000 !important', whiteSpace: 'nowrap', wordBreak: 'keep-all' }}>(....................................................)</p>
         </div>
       </div>
     </div>
@@ -476,7 +476,7 @@ export function generateDrugPrintHtml(
     signature = '',
     clinicName = 'คลินิกงานบริการผู้ป่วยในวิสัญญี',
     subCategory = 'monthly',
-    headerNote = '(เพิ่ม Column Exp.)',
+    headerNote = '',
     orientation = 'landscape',
   } = options;
 
@@ -654,13 +654,13 @@ export function generateDrugPrintHtml(
             <div style="height: 48px; display: flex; align-items: flex-end; justify-content: center; margin-bottom: 2px;">
               ${signature ? `<img src="${signature}" style="max-height: 48px; max-width: 140px; object-fit: contain;" alt="ลายเซ็น" />` : ''}
             </div>
-            <p>ลงชื่อ .................................................... ผู้ตรวจสอบ</p>
-            <p>(${inspector || '....................................................'})</p>
+            <p style="white-space: nowrap !important; word-break: keep-all !important; margin: 0; font-weight: bold;">ลงชื่อ .................................................... ผู้ตรวจสอบ</p>
+            <p style="white-space: nowrap !important; word-break: keep-all !important; margin: 4px 0 0 0;">(${inspector || '....................................................'})</p>
           </div>
           <div class="sign-col" style="display: flex; flex-direction: column; align-items: center;">
             <div style="height: 48px;"></div>
-            <p>ลงชื่อ .................................................... หัวหน้างาน</p>
-            <p>(....................................................)</p>
+            <p style="white-space: nowrap !important; word-break: keep-all !important; margin: 0; font-weight: bold;">ลงชื่อ .................................................... หัวหน้างาน</p>
+            <p style="white-space: nowrap !important; word-break: keep-all !important; margin: 4px 0 0 0;">(....................................................)</p>
           </div>
         </div>
       </body>

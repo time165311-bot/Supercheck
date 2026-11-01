@@ -88,8 +88,25 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
   currentUser = null,
 }) => {
   const inspectorRole = currentUser?.role === 'admin' ? 'ผู้ดูแลระบบ' : 'เจ้าหน้าที่';
-  const rawInspector = inspector || currentUser?.name || 'คุณสาทิตย์ บุตรน้ำเพชร';
-  const displayInspectorWithRole = rawInspector.includes('/') ? rawInspector : `${rawInspector} / ${inspectorRole}`;
+  const rawInspector = (inspector || currentUser?.name || 'คุณสาทิตย์ บุตรน้ำเพชร').trim();
+  const displayInspectorWithRole = React.useMemo(() => {
+    if (rawInspector.includes('/')) return rawInspector;
+    if (rawInspector.includes('ผู้ดูแลระบบ') || rawInspector.toLowerCase().includes('admin')) {
+      return rawInspector;
+    }
+    return `${rawInspector} / ${inspectorRole}`;
+  }, [rawInspector, inspectorRole]);
+
+  // Sanitize agencyName: remove any 'หน่วยงาน:' or 'แบบฟอร์ม...' prefix or contaminated text
+  const cleanAgency = React.useMemo(() => {
+    let a = String(agencyName || '').trim();
+    a = a.replace(/^หน่วยงาน\s*:?\s*/g, '');
+    a = a.replace(/^แบบฟอร์ม.*$/g, '');
+    if (!a || a.includes('แบบฟอร์ม')) {
+      a = 'คลินิกงานบริการผู้ป่วยในวิสัญญี';
+    }
+    return a;
+  }, [agencyName]);
 
   const currentWeek = propActiveWeek || getWeekOfMonth(surveyDate);
   const { month, year } = getMonthAndYearThai(surveyDate);
@@ -135,7 +152,7 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
   // 1. Header Layout
   const headingTitle =
     type === 'cart'
-      ? `ตารางตรวจเช็ครถ Emergency ประจำเดือน ${month} / ปี ${year}  หน่วยงาน: ${agencyName}`
+      ? `ตารางตรวจเช็ครถ Emergency ประจำเดือน ${month} / ปี ${year}`
       : `ตารางตรวจเช็คกระเป๋ายา Emergency ประจำเดือน ${month} / ปี ${year}`;
 
   // Group items by their section/group
@@ -264,21 +281,15 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
       </div>
 
       {/* 1. Header Layout */}
-      <div className="text-center mb-4" style={{ backgroundColor: '#ffffff !important', background: '#ffffff !important', overflow: 'visible', textAlign: 'center', width: '100%', margin: '0 auto 12px auto' }}>
-        <h2 className="text-2xl font-bold tracking-wide" style={{ fontSize: '18pt', color: '#000000 !important', lineHeight: '1.4', overflow: 'visible', fontWeight: 'bold' }}>
+      <div className="text-center mb-2" style={{ backgroundColor: '#ffffff !important', background: '#ffffff !important', overflow: 'visible', textAlign: 'center', width: '100%', margin: '0 auto 6px auto' }}>
+        <h2 className="text-2xl font-bold tracking-wide" style={{ fontSize: '18pt', color: '#000000 !important', lineHeight: '1.3', overflow: 'visible', fontWeight: 'bold', margin: 0 }}>
           {headingTitle}
         </h2>
-        {type === 'bag' && (
-          <p className="text-sm font-semibold mt-1 flex items-center justify-center gap-1.5" style={{ fontSize: '12pt', color: '#000000 !important', lineHeight: '1.4', overflow: 'visible', fontWeight: 'bold' }}>
-            <Building2 className="w-4 h-4" style={{ color: '#000000 !important' }} />
-            หน่วยงาน: {agencyName}
-          </p>
-        )}
       </div>
 
-      <div className="flex justify-between items-center text-sm font-medium mb-3" style={{ fontSize: '12px', color: '#000000 !important', backgroundColor: '#ffffff !important', background: '#ffffff !important', overflow: 'visible', display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', marginBottom: '10px' }}>
+      <div className="flex justify-between items-center text-sm font-medium mb-2.5" style={{ fontSize: '12px', color: '#000000 !important', backgroundColor: '#ffffff !important', background: '#ffffff !important', overflow: 'visible', display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', marginBottom: '8px' }}>
         <div>
-          <span style={{ color: '#000000 !important', lineHeight: '1.4', fontWeight: 'bold' }}>{agencyName}</span>
+          <span style={{ color: '#000000 !important', lineHeight: '1.4', fontWeight: 'bold', fontSize: '12pt' }}>หน่วยงาน: {cleanAgency}</span>
         </div>
         <div className="flex items-center gap-4" style={{ display: 'flex', gap: '24px' }}>
           <span className="flex items-center gap-1" style={{ color: '#000000 !important', lineHeight: '1.4' }}>
@@ -488,103 +499,9 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
             </React.Fragment>
           ))}
         </tbody>
-        <tfoot>
-          <tr className="font-semibold" style={{ fontSize: '11pt', color: '#000000 !important', backgroundColor: '#ffffff !important' }}>
-            <td
-              colSpan={2}
-              className="border border-slate-400 font-bold"
-              style={{ textAlign: 'center', verticalAlign: 'middle', backgroundColor: '#f1f5f9 !important', color: '#000000 !important', lineHeight: '1.4 !important', padding: '6px 4px !important' }}
-            >
-              ผู้ตรวจสอบ 1 (ผู้ตรวจเช็ค)
-            </td>
-            {[1, 2, 3, 4, 5].map((w) => (
-              <td
-                key={w}
-                className={`border border-slate-400 ${
-                  currentWeek === w ? 'font-bold' : ''
-                }`}
-                style={{ textAlign: 'center', verticalAlign: 'middle', fontSize: '10pt', backgroundColor: currentWeek === w ? '#f1f5f9 !important' : '#ffffff !important', color: '#000000 !important', lineHeight: '1.4 !important', padding: '6px 4px !important' }}
-              >
-                {currentWeek === w ? (
-                  <div className="flex flex-col items-center justify-center min-h-[36px] py-1">
-                    {signature && (
-                      <img
-                        src={signature}
-                        alt="ลายเซ็น"
-                        className="max-h-7 max-w-[65px] object-contain mb-0.5"
-                      />
-                    )}
-                    <span style={{ color: '#000000 !important', fontSize: '8.5pt', fontWeight: 'bold' }}>
-                      {displayInspectorWithRole}
-                    </span>
-                  </div>
-                ) : (
-                  '....................'
-                )}
-              </td>
-            ))}
-            <td className="border border-slate-400" style={{ width: '120px', minWidth: '120px', color: '#000000 !important', lineHeight: '1.4 !important', padding: '6px 4px !important', textAlign: 'center' }}>-</td>
-          </tr>
-          <tr className="font-semibold" style={{ fontSize: '11pt', color: '#000000 !important', backgroundColor: '#ffffff !important' }}>
-            <td
-              colSpan={2}
-              className="border border-slate-400 font-bold"
-              style={{ textAlign: 'center', verticalAlign: 'middle', backgroundColor: '#f1f5f9 !important', color: '#000000 !important', lineHeight: '1.4 !important', padding: '6px 4px !important' }}
-            >
-              ผู้ตรวจสอบ 2 (หัวหน้างาน/ผู้รับรอง)
-            </td>
-            {[1, 2, 3, 4, 5].map((w) => (
-              <td
-                key={w}
-                className="border border-slate-400"
-                style={{ textAlign: 'center', verticalAlign: 'middle', fontSize: '10pt', color: '#000000 !important', lineHeight: '1.4 !important', padding: '6px 4px !important' }}
-              >
-                ....................
-              </td>
-            ))}
-            <td className="border border-slate-400" style={{ color: '#000000 !important', lineHeight: '1.4 !important', padding: '6px 4px !important', textAlign: 'center' }}>-</td>
-          </tr>
-        </tfoot>
       </table>
       </div>
 
-      {/* Note under table */}
-      <div className="mt-4 flex justify-between items-center text-xs text-slate-500">
-        <p>* เกณฑ์การตรวจสอบ: สัญลักษณ์ ✓ = ปกติ/พร้อมใช้งาน, ✗ = ผิดปกติ/ต้องเปลี่ยนทดแทน, - = ยังไม่ได้ตรวจ</p>
-        <p>เอกสารรับรองระบบคุณภาพงานวิสัญญีวิทยา</p>
-      </div>
-
-      {/* Signature Section Pinned to Bottom of Page */}
-      <div
-        className="mt-auto pt-10 flex justify-around text-[14px]"
-        style={{
-          display: 'flex',
-          justifyContent: 'space-around',
-          width: '100%',
-          marginTop: 'auto',
-          paddingTop: '36px',
-          paddingBottom: '20px',
-        }}
-      >
-        <div className="text-center" style={{ textAlign: 'center' }}>
-          <div className="h-14 flex items-end justify-center mb-1">
-            {signature && (
-              <img
-                src={signature}
-                style={{ maxHeight: '52px', maxWidth: '150px', objectFit: 'contain' }}
-                alt="signature"
-              />
-            )}
-          </div>
-          <p className="font-bold">ลงชื่อ .................................................... ผู้ตรวจสอบ</p>
-          <p className="mt-1">({displayInspectorWithRole})</p>
-        </div>
-        <div className="text-center" style={{ textAlign: 'center' }}>
-          <div className="h-14" />
-          <p className="font-bold">ลงชื่อ .................................................... หัวหน้างาน</p>
-          <p className="mt-1">(....................................................)</p>
-        </div>
-      </div>
     </div>
   );
 };
@@ -617,15 +534,29 @@ export function generateEmergencyPrintHtml(
   } = options;
 
   const printInspectorRole = currentUser?.role === 'admin' ? 'ผู้ดูแลระบบ' : 'เจ้าหน้าที่';
-  const printInspectorRaw = inspector || currentUser?.name || 'คุณสาทิตย์ บุตรน้ำเพชร';
-  const displayInspectorWithRole = printInspectorRaw.includes('/') ? printInspectorRaw : `${printInspectorRaw} / ${printInspectorRole}`;
+  const printInspectorRaw = (inspector || currentUser?.name || 'คุณสาทิตย์ บุตรน้ำเพชร').trim();
+  const displayInspectorWithRole = printInspectorRaw.includes('/')
+    ? printInspectorRaw
+    : (printInspectorRaw.includes('ผู้ดูแลระบบ') || printInspectorRaw.toLowerCase().includes('admin'))
+    ? printInspectorRaw
+    : `${printInspectorRaw} / ${printInspectorRole}`;
+
+  const cleanPrintAgency = (() => {
+    let a = String(agencyName || '').trim();
+    a = a.replace(/^หน่วยงาน\s*:?\s*/g, '');
+    a = a.replace(/^แบบฟอร์ม.*$/g, '');
+    if (!a || a.includes('แบบฟอร์ม')) {
+      a = 'คลินิกงานบริการผู้ป่วยในวิสัญญี';
+    }
+    return a;
+  })();
 
   const { month, year } = getMonthAndYearThai(date);
   const shortDate = formatShortDmy(date);
 
   const headingTitle =
     type === 'cart'
-      ? `ตารางตรวจเช็ครถ Emergency ประจำเดือน ${month} / ปี ${year}  หน่วยงาน: ${agencyName}`
+      ? `ตารางตรวจเช็ครถ Emergency ประจำเดือน ${month} / ปี ${year}`
       : `ตารางตรวจเช็คกระเป๋ายา Emergency ประจำเดือน ${month} / ปี ${year}`;
 
   // Group items by section
@@ -727,22 +658,7 @@ export function generateEmergencyPrintHtml(
     })
     .join('');
 
-  const inspector1Cells = [1, 2, 3, 4, 5]
-    .map((w) => {
-      const isTarget = activeWeek === w;
-      if (isTarget && (signature || inspector || currentUser)) {
-        return `<td style="text-align: center; border: 1px solid #000; font-size: 8.5pt; vertical-align: middle; padding: 2px;">
-          ${signature ? `<img src="${signature}" style="max-height: 24px; max-width: 65px; object-fit: contain; display: block; margin: 0 auto 1px auto;" alt="ลายเซ็น" />` : ''}
-          <span style="font-weight: bold;">${displayInspectorWithRole}</span>
-        </td>`;
-      }
-      return `<td style="text-align: center; border: 1px solid #000; font-size: 9.5pt;">....................</td>`;
-    })
-    .join('');
 
-  const inspector2Cells = [1, 2, 3, 4, 5]
-    .map(() => `<td style="text-align: center; border: 1px solid #000; font-size: 9.5pt;">....................</td>`)
-    .join('');
 
   return `
     <!DOCTYPE html>
@@ -837,11 +753,10 @@ export function generateEmergencyPrintHtml(
       <body>
         <div class="title-area">
           <h2>${headingTitle}</h2>
-          ${type === 'bag' ? `<p>หน่วยงาน: ${agencyName}</p>` : ''}
         </div>
         <div class="meta-header">
           <div>
-            <span>${agencyName}</span>
+            <span style="font-size: 11pt; font-weight: bold;">หน่วยงาน: ${cleanPrintAgency}</span>
           </div>
           <div>
             <span>วัน, เดือน, ปี ที่สำรวจ: ${formatThaiDate(date)}</span>
@@ -863,35 +778,7 @@ export function generateEmergencyPrintHtml(
           <tbody>
             ${tableBodyHtml || '<tr><td colspan="8" style="text-align:center; padding: 20px;">ไม่มีข้อมูลรายการ</td></tr>'}
           </tbody>
-          <tfoot>
-            <tr style="background-color: #f8fafc; font-weight: bold;">
-              <td colspan="2" style="text-align: center; border: 1px solid #000;">ผู้ตรวจสอบ 1 (ผู้ตรวจเช็ค)</td>
-              ${inspector1Cells}
-              <td style="text-align: center; border: 1px solid #000;">-</td>
-            </tr>
-            <tr style="background-color: #f8fafc; font-weight: bold;">
-              <td colspan="2" style="text-align: center; border: 1px solid #000;">ผู้ตรวจสอบ 2 (หัวหน้างาน/ผู้รับรอง)</td>
-              ${inspector2Cells}
-              <td style="text-align: center; border: 1px solid #000;">-</td>
-            </tr>
-          </tfoot>
         </table>
-
-        <!-- Footer Signature Section -->
-        <div class="signature-section" style="margin-top: 48px; display: flex; justify-content: space-around; font-size: 11pt; page-break-inside: avoid;">
-          <div class="sign-col" style="text-align: center; display: flex; flex-direction: column; align-items: center;">
-            <div style="height: 48px; display: flex; align-items: flex-end; justify-content: center; margin-bottom: 2px;">
-              ${signature ? `<img src="${signature}" style="max-height: 48px; max-width: 140px; object-fit: contain;" alt="ลายเซ็น" />` : ''}
-            </div>
-            <p style="font-weight: bold; margin: 0;">ลงชื่อ .................................................... ผู้ตรวจสอบ</p>
-            <p style="margin: 4px 0 0 0;">(${displayInspectorWithRole})</p>
-          </div>
-          <div class="sign-col" style="text-align: center; display: flex; flex-direction: column; align-items: center;">
-            <div style="height: 48px;"></div>
-            <p style="font-weight: bold; margin: 0;">ลงชื่อ .................................................... หัวหน้างาน</p>
-            <p style="margin: 4px 0 0 0;">(....................................................)</p>
-          </div>
-        </div>
       </body>
     </html>
   `;

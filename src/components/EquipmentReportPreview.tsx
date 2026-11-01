@@ -22,8 +22,12 @@ export const EquipmentReportPreview: React.FC<EquipmentReportPreviewProps> = ({
   currentUser = null,
 }) => {
   const inspectorRole = currentUser?.role === 'admin' ? 'ผู้ดูแลระบบ' : 'เจ้าหน้าที่';
-  const rawInspector = inspector || currentUser?.name || 'คุณสาทิตย์ บุตรน้ำเพชร';
-  const displayInspectorWithRole = rawInspector.includes('/') ? rawInspector : `${rawInspector} / ${inspectorRole}`;
+  const rawInspector = (inspector || currentUser?.name || 'คุณสาทิตย์ บุตรน้ำเพชร').trim();
+  const displayInspectorWithRole = rawInspector.includes('/')
+    ? rawInspector
+    : (rawInspector.includes('ผู้ดูแลระบบ') || rawInspector.toLowerCase().includes('admin'))
+    ? rawInspector
+    : `${rawInspector} / ${inspectorRole}`;
 
   return (
     <div className="w-full flex flex-col justify-between" style={{ minHeight: '1200px', height: '100%', boxSizing: 'border-box' }}>
@@ -123,13 +127,13 @@ export const EquipmentReportPreview: React.FC<EquipmentReportPreviewProps> = ({
               />
             )}
           </div>
-          <p className="font-bold">ลงชื่อ .................................................... ผู้ตรวจสอบ</p>
-          <p className="mt-1">({displayInspectorWithRole})</p>
+          <p className="font-bold" style={{ whiteSpace: 'nowrap', wordBreak: 'keep-all' }}>ลงชื่อ .................................................... ผู้ตรวจสอบ</p>
+          <p className="mt-1" style={{ whiteSpace: 'nowrap', wordBreak: 'keep-all' }}>({displayInspectorWithRole})</p>
         </div>
         <div className="text-center" style={{ textAlign: 'center' }}>
           <div className="h-16" />
-          <p className="font-bold">ลงชื่อ .................................................... หัวหน้างาน</p>
-          <p className="mt-1">(....................................................)</p>
+          <p className="font-bold" style={{ whiteSpace: 'nowrap', wordBreak: 'keep-all' }}>ลงชื่อ .................................................... หัวหน้างาน</p>
+          <p className="mt-1" style={{ whiteSpace: 'nowrap', wordBreak: 'keep-all' }}>(....................................................)</p>
         </div>
       </div>
     </div>
@@ -159,8 +163,12 @@ export function generateEquipmentPrintHtml(
   } = options;
 
   const printInspectorRole = currentUser?.role === 'admin' ? 'ผู้ดูแลระบบ' : 'เจ้าหน้าที่';
-  const printInspectorRaw = inspector || currentUser?.name || 'คุณสาทิตย์ บุตรน้ำเพชร';
-  const printInspectorWithRole = printInspectorRaw.includes('/') ? printInspectorRaw : `${printInspectorRaw} / ${printInspectorRole}`;
+  const printInspectorRaw = (inspector || currentUser?.name || 'คุณสาทิตย์ บุตรน้ำเพชร').trim();
+  const printInspectorWithRole = printInspectorRaw.includes('/')
+    ? printInspectorRaw
+    : (printInspectorRaw.includes('ผู้ดูแลระบบ') || printInspectorRaw.toLowerCase().includes('admin'))
+    ? printInspectorRaw
+    : `${printInspectorRaw} / ${printInspectorRole}`;
 
   const rowsHtml = items
     .map((item, idx) => {
@@ -331,13 +339,13 @@ export function generateEquipmentPrintHtml(
             <div style="height: 48px; display: flex; align-items: flex-end; justify-content: center; margin-bottom: 2px;">
               ${signature ? `<img src="${signature}" style="max-height: 48px; max-width: 140px; object-fit: contain;" alt="ลายเซ็น" />` : ''}
             </div>
-            <p>ลงชื่อ .................................................... ผู้ตรวจสอบ</p>
-            <p>(${printInspectorWithRole})</p>
+            <p style="white-space: nowrap !important; word-break: keep-all !important; margin: 0; font-weight: bold;">ลงชื่อ .................................................... ผู้ตรวจสอบ</p>
+            <p style="white-space: nowrap !important; word-break: keep-all !important; margin: 4px 0 0 0;">(${printInspectorWithRole})</p>
           </div>
           <div class="sign-col" style="display: flex; flex-direction: column; align-items: center;">
             <div style="height: 48px;"></div>
-            <p>ลงชื่อ .................................................... หัวหน้างาน</p>
-            <p>(....................................................)</p>
+            <p style="white-space: nowrap !important; word-break: keep-all !important; margin: 0; font-weight: bold;">ลงชื่อ .................................................... หัวหน้างาน</p>
+            <p style="white-space: nowrap !important; word-break: keep-all !important; margin: 4px 0 0 0;">(....................................................)</p>
           </div>
         </div>
       </body>

@@ -14,6 +14,7 @@ import {
   AlertCircle,
   FileSpreadsheet,
   RefreshCw,
+  ArrowLeft,
 } from 'lucide-react';
 import { EquipmentItem, RoomDef, CheckItemState } from '../types';
 import { CORRIDOR_LABELS, CORRIDORS } from '../constants/initialData';
@@ -72,12 +73,23 @@ export const FloorMap: React.FC<FloorMapProps> = ({
 
   const activeRoomId = selectedRoomId || 'or1';
 
-  // Auto scroll down to room checklist when room is selected
+  // Right Slide-Over Inspection Drawer State
+  const [isInspectionDrawerOpen, setIsInspectionDrawerOpen] = useState<boolean>(() => !!selectedRoomId);
+
   useEffect(() => {
-    if (activeRoomId && checklistPanelRef.current) {
-      checklistPanelRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (selectedRoomId) {
+      setIsInspectionDrawerOpen(true);
     }
-  }, [activeRoomId]);
+  }, [selectedRoomId]);
+
+  const handleOpenRoomDrawer = (roomId: string) => {
+    onSelectRoom(roomId);
+    setIsInspectionDrawerOpen(true);
+  };
+
+  const handleCloseRoomDrawer = () => {
+    setIsInspectionDrawerOpen(false);
+  };
 
   const handleZoomIn = () => {
     setZoomScale((prev) => Math.min(Number((prev + 0.15).toFixed(2)), 3.5));
@@ -443,7 +455,7 @@ export const FloorMap: React.FC<FloorMapProps> = ({
                 <button
                   key={r.id}
                   type="button"
-                  onClick={() => onSelectRoom(r.id)}
+                  onClick={() => handleOpenRoomDrawer(r.id)}
                   className={`px-3.5 py-2 rounded-2xl border text-left transition flex items-center gap-2 cursor-pointer text-xs active:scale-95 ${
                     isActive
                       ? 'bg-blue-600 text-white border-blue-600 font-bold shadow-md shadow-blue-500/20 ring-2 ring-blue-300'
@@ -539,7 +551,7 @@ export const FloorMap: React.FC<FloorMapProps> = ({
               matches.map((m, idx) => (
                 <button
                   key={idx}
-                  onClick={() => onSelectRoom(m.room.id)}
+                  onClick={() => handleOpenRoomDrawer(m.room.id)}
                   className="w-full text-left p-2 rounded-xl hover:bg-slate-50 flex items-center justify-between gap-2 transition cursor-pointer border border-transparent hover:border-slate-200"
                 >
                   <div>
@@ -712,49 +724,118 @@ export const FloorMap: React.FC<FloorMapProps> = ({
         </div>
       </div>
 
-      {/* 📋 3. SELECTED ROOM EQUIPMENT CHECKLIST PANEL (Samsung One UI Light Style) */}
+      {/* Quick Re-open Banner on Main View if Drawer is closed */}
+      {!isInspectionDrawerOpen && (
+        <div className="p-4 rounded-2xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 flex items-center justify-between gap-3 text-xs font-bold text-blue-900 dark:text-blue-200 shadow-sm">
+          <div className="flex items-center gap-2">
+            <span className="w-2.5 h-2.5 rounded-full bg-blue-600 animate-ping" />
+            <span>📍 กำลังเลือก: <b>{currentRoomDef?.n || activeRoomId}</b> ({currentRoomItems.length} รายการ)</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setIsInspectionDrawerOpen(true)}
+            className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold shadow-xs transition cursor-pointer active:scale-95 flex items-center gap-1.5"
+          >
+            <span>[🔍 เปิดแผงตรวจเช็ก]</span>
+          </button>
+        </div>
+      )}
+
+      {/* 📱 3. RIGHT SLIDE-OVER INSPECTION PANEL (Side Sheet Drawer) */}
+      {/* Backdrop */}
       <div
-        ref={checklistPanelRef}
-        className="p-4 sm:p-5 rounded-3xl border border-slate-200/80 bg-white shadow-md space-y-4 transition-all duration-300"
+        className={`fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs transition-opacity duration-300 ${
+          isInspectionDrawerOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+        }`}
+        onClick={handleCloseRoomDrawer}
+      />
+
+      {/* Slide-Over Side Sheet Container */}
+      <div
+        className={`fixed inset-y-0 right-0 z-50 w-full sm:max-w-xl md:max-w-2xl bg-white dark:bg-[#181A20] text-slate-900 dark:text-white shadow-2xl flex flex-col transition-transform duration-300 ease-out transform ${
+          isInspectionDrawerOpen ? 'translate-x-0' : 'translate-x-full'
+        }`}
+        style={{
+          boxShadow: '-8px 0 32px rgba(0, 0, 0, 0.3)',
+        }}
       >
-        {/* Selected Room Header */}
-        <div className="flex justify-between items-center pb-3 border-b border-slate-100 flex-wrap gap-2">
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="w-3 h-3 rounded-full bg-blue-600 animate-pulse" />
-              <h3 className="text-base sm:text-lg font-bold text-slate-900">
-                📍 {currentRoomDef?.n || activeRoomId} ({currentRoomItems.length} รายการครุภัณฑ์)
-              </h3>
-            </div>
-            <p className="text-xs text-slate-500 mt-0.5">
-              สถานะ: ตรวจแล้ว {currentRoomStat?.checked || 0}/{currentRoomItems.length} รายการ
-              {currentRoomStat?.hasDefect && (
-                <span className="text-rose-600 font-bold ml-2">
-                  (⚠️ พบชำรุด {currentRoomStat.defective} รายการ)
+        {/* Drawer Header with Prominent Back Button [<] & Close Button [X] */}
+        <div className="p-4 sm:p-5 border-b border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-[#181A20]/95 backdrop-blur-md flex items-center justify-between gap-3 shrink-0 sticky top-0 z-10">
+          <div className="flex items-center gap-2.5 min-w-0">
+            {/* Back Button to Floor Map */}
+            <button
+              type="button"
+              onClick={handleCloseRoomDrawer}
+              className="px-3.5 py-2 rounded-2xl bg-blue-50 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 text-xs font-bold hover:bg-blue-100 transition flex items-center gap-1.5 cursor-pointer active:scale-95 shrink-0"
+              title="กลับไปผังห้องผ่าตัด"
+            >
+              <ArrowLeft className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+              <span>[← ผังห้อง]</span>
+            </button>
+
+            <div className="min-w-0">
+              <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white truncate flex items-center gap-1.5">
+                <span>📍 {currentRoomDef?.n || activeRoomId}</span>
+                <span className="text-xs font-normal text-slate-500 dark:text-slate-400">
+                  ({currentRoomItems.length} รายการ)
                 </span>
-              )}
-            </p>
+              </h3>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                ตรวจแล้ว {currentRoomStat?.checked || 0}/{currentRoomItems.length} รายการ
+                {currentRoomStat?.hasDefect && (
+                  <span className="text-rose-600 dark:text-rose-400 font-bold ml-1.5">
+                    (⚠️ ชำรุด {currentRoomStat.defective})
+                  </span>
+                )}
+              </p>
+            </div>
           </div>
 
+          <div className="flex items-center gap-2 shrink-0">
+            {/* Quick Mark All Normal Button */}
+            <button
+              type="button"
+              onClick={handleMarkAllRoomNormal}
+              className="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs transition cursor-pointer active:scale-95 flex items-center gap-1 hidden sm:flex"
+              title="ทำเครื่องหมายปกติทุกรายการในห้องนี้"
+            >
+              <CheckCheck size={16} />
+              <span>ผ่านหมด</span>
+            </button>
+
+            {/* Close Button X */}
+            <button
+              type="button"
+              onClick={handleCloseRoomDrawer}
+              className="p-2 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition cursor-pointer active:scale-90"
+              title="ปิดแผงตรวจเช็ก"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+
+        {/* Mobile Quick Mark All Normal Bar */}
+        <div className="px-4 py-2 bg-slate-50 dark:bg-slate-900/60 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between sm:hidden text-xs">
+          <span className="text-slate-500 dark:text-slate-400 font-medium">ทางลัดการตรวจ:</span>
           <button
             type="button"
             onClick={handleMarkAllRoomNormal}
-            className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs transition cursor-pointer active:scale-95 flex items-center gap-1.5"
-            title="ทำเครื่องหมายปกติทุกรายการในห้องนี้"
+            className="px-3 py-1.5 rounded-xl bg-emerald-600 text-white font-bold text-xs shadow-xs transition cursor-pointer active:scale-95 flex items-center gap-1"
           >
-            <CheckCheck size={16} />
-            <span>ตรวจผ่านทั้งหมดในห้องนี้</span>
+            <CheckCheck size={14} />
+            <span>ทำเครื่องหมายผ่านทั้งหมด</span>
           </button>
         </div>
 
-        {/* Selected Room Equipment Cards List */}
-        {currentRoomItems.length === 0 ? (
-          <div className="p-8 text-center text-slate-400 text-xs">
-            ไม่พบรายการครุภัณฑ์ในห้องที่เลือก
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {currentRoomItems.map((item, idx) => {
+        {/* Drawer Body - Scrollable Checklist Cards */}
+        <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-3 pb-24">
+          {currentRoomItems.length === 0 ? (
+            <div className="p-8 text-center text-slate-400 text-xs">
+              ไม่พบรายการครุภัณฑ์ในห้องนี้
+            </div>
+          ) : (
+            currentRoomItems.map((item, idx) => {
               const itemKey = item.id || `${activeRoomId}_${idx}`;
               const altKey = `${currentRoomDef?.n || activeRoomId}|${item.name}|${item.code || ''}`;
               const check = currentRoomChecks[itemKey] || currentRoomChecks[altKey];
@@ -767,10 +848,10 @@ export const FloorMap: React.FC<FloorMapProps> = ({
                   key={itemKey}
                   className={`p-3.5 rounded-2xl border transition-all duration-200 flex flex-col justify-between space-y-3 ${
                     isBad
-                      ? 'bg-rose-50/70 border-rose-200 text-slate-900 shadow-xs'
+                      ? 'bg-rose-50/80 dark:bg-rose-950/30 border-rose-300 dark:border-rose-800 text-slate-900 dark:text-white shadow-xs'
                       : isOk
-                      ? 'bg-emerald-50/60 border-emerald-200 text-slate-900 shadow-xs'
-                      : 'bg-white border-slate-200 text-slate-900 shadow-xs hover:border-slate-300'
+                      ? 'bg-emerald-50/70 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-800 text-slate-900 dark:text-white shadow-xs'
+                      : 'bg-white dark:bg-slate-800/80 border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white shadow-xs hover:border-slate-300 dark:hover:border-slate-600'
                   }`}
                 >
                   <div className="space-y-1.5">
@@ -778,28 +859,28 @@ export const FloorMap: React.FC<FloorMapProps> = ({
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-1.5 flex-wrap mb-1">
                           {item.no && (
-                            <span className="text-[10px] px-2 py-0.5 rounded-md bg-blue-100 text-blue-700 border border-blue-200 font-mono font-bold">
+                            <span className="text-[10px] px-2 py-0.5 rounded-md bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 font-mono font-bold">
                               #{item.no}
                             </span>
                           )}
                           {item.code && (
-                            <span className="text-[10px] px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 border border-slate-200 font-mono">
+                            <span className="text-[10px] px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-600 font-mono">
                               {item.code}
                             </span>
                           )}
                         </div>
-                        <h4 className="font-bold text-sm text-slate-900 leading-snug">
+                        <h4 className="font-bold text-sm text-slate-900 dark:text-white leading-snug">
                           {item.name}
                         </h4>
                         {item.spec && (
-                          <p className="text-xs text-slate-500 line-clamp-1">{item.spec}</p>
+                          <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2">{item.spec}</p>
                         )}
                       </div>
 
                       {item.img && (
                         <div
                           onClick={() => onZoomImage && onZoomImage(item.img!)}
-                          className="w-12 h-12 rounded-xl overflow-hidden border border-slate-200 bg-slate-100 shrink-0 cursor-pointer hover:opacity-85 transition relative"
+                          className="w-12 h-12 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 shrink-0 cursor-pointer hover:opacity-85 transition relative"
                         >
                           <img
                             src={item.img}
@@ -816,7 +897,7 @@ export const FloorMap: React.FC<FloorMapProps> = ({
                   </div>
 
                   {/* Inspection Status Buttons */}
-                  <div className="space-y-2 pt-2 border-t border-slate-100">
+                  <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-700/60">
                     <div className="flex items-center gap-2">
                       <button
                         type="button"
@@ -824,10 +905,10 @@ export const FloorMap: React.FC<FloorMapProps> = ({
                           onToggleCheck &&
                           onToggleCheck(activeRoomId, itemKey, 'ปกติ', item.name)
                         }
-                        className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1 transition cursor-pointer active:scale-95 ${
+                        className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer active:scale-95 ${
                           isOk
                             ? 'bg-emerald-600 text-white shadow-xs'
-                            : 'bg-slate-100 text-slate-600 hover:bg-emerald-50 hover:text-emerald-700 border border-slate-200/60'
+                            : 'bg-slate-100 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 hover:text-emerald-700 border border-slate-200/60 dark:border-slate-600'
                         }`}
                       >
                         <Check size={14} strokeWidth={2.5} />
@@ -840,10 +921,10 @@ export const FloorMap: React.FC<FloorMapProps> = ({
                           onToggleCheck &&
                           onToggleCheck(activeRoomId, itemKey, 'ผิดปกติ', item.name)
                         }
-                        className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1 transition cursor-pointer active:scale-95 ${
+                        className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer active:scale-95 ${
                           isBad
                             ? 'bg-rose-600 text-white shadow-xs'
-                            : 'bg-slate-100 text-slate-600 hover:bg-rose-50 hover:text-rose-700 border border-slate-200/60'
+                            : 'bg-slate-100 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 hover:bg-rose-50 dark:hover:bg-rose-900/30 hover:text-rose-700 border border-slate-200/60 dark:border-slate-600'
                         }`}
                       >
                         <X size={14} strokeWidth={2.5} />
@@ -851,7 +932,7 @@ export const FloorMap: React.FC<FloorMapProps> = ({
                       </button>
                     </div>
 
-                    {/* Defect note input */}
+                    {/* Defect Note Input */}
                     {isBad && (
                       <input
                         type="text"
@@ -860,19 +941,19 @@ export const FloorMap: React.FC<FloorMapProps> = ({
                           onUpdateNote && onUpdateNote(activeRoomId, itemKey, e.target.value)
                         }
                         placeholder="ระบุอาการเสีย หรือปัญหาที่พบ..."
-                        className="w-full px-3 py-1.5 text-xs rounded-xl bg-white border border-rose-300 outline-none text-rose-900 placeholder:text-rose-400 focus:ring-1 focus:ring-rose-500 shadow-xs"
+                        className="w-full px-3 py-1.5 text-xs rounded-xl bg-white dark:bg-slate-900 border border-rose-300 dark:border-rose-700 outline-none text-rose-900 dark:text-rose-200 placeholder:text-rose-400 focus:ring-1 focus:ring-rose-500 shadow-xs"
                       />
                     )}
                   </div>
                 </div>
               );
-            })}
-          </div>
-        )}
+            })
+          )}
+        </div>
 
-        {/* 💾 Important Save & Report Button at bottom of Checklist */}
+        {/* Drawer Footer Sticky Save Button */}
         {onOpenReport && (
-          <div className="pt-4 border-t border-slate-100 flex items-center justify-center">
+          <div className="p-4 border-t border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-[#181A20]/95 backdrop-blur-md shrink-0">
             <button
               type="button"
               onClick={async () => {
@@ -884,7 +965,7 @@ export const FloorMap: React.FC<FloorMapProps> = ({
                 }
               }}
               disabled={isSubmitting}
-              className="w-full sm:w-auto px-6 py-3.5 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm shadow-md transition cursor-pointer active:scale-95 flex items-center justify-center gap-2.5 disabled:opacity-60"
+              className="w-full py-3.5 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm shadow-md transition cursor-pointer active:scale-95 flex items-center justify-center gap-2.5 disabled:opacity-60"
             >
               {isSubmitting ? (
                 <>
@@ -894,7 +975,7 @@ export const FloorMap: React.FC<FloorMapProps> = ({
               ) : (
                 <>
                   <FileSpreadsheet size={18} />
-                  <span>💾 บันทึกข้อมูลเข้า Google Sheets & พรีวิวรายงาน</span>
+                  <span>💾 บันทึกเข้า Sheets & พรีวิวรายงาน A4</span>
                 </>
               )}
             </button>

@@ -211,7 +211,7 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
   const [recordToDelete, setRecordToDelete] = useState<InspectionHistoryRecord | null>(null);
   const [isExportingGas, setIsExportingGas] = useState<boolean>(false);
   const [drugSubCategory, setDrugSubCategory] = useState<'all' | 'monthly' | 'quarterly' | 'adhoc'>(initialDrugSubCategory);
-  const [drugHeaderNote, setDrugHeaderNote] = useState<string>('(เพิ่ม Column Exp.)');
+  const [drugHeaderNote, setDrugHeaderNote] = useState<string>('');
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   const [isFitToScreen, setIsFitToScreen] = useState<boolean>(true);
   const [orientation] = useState<'landscape' | 'portrait'>('landscape');
@@ -224,6 +224,10 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
     typeof window !== 'undefined' ? Math.min(window.innerWidth - 32, 1200) : 1120
   );
   const [sheetHeight, setSheetHeight] = useState<number>(850);
+
+  // Mouse Drag-to-Scroll (Pan) states & handlers for desktop A4 paper
+  const [isMouseDragging, setIsMouseDragging] = useState(false);
+  const dragStartRef = useRef({ x: 0, y: 0, scrollLeft: 0, scrollTop: 0 });
 
   useEffect(() => {
     if (isOpen) {
@@ -371,21 +375,22 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
   const cleanClinicName = useMemo(() => {
     const raw = String(displayTitle || 'คลินิกงานบริการผู้ป่วยในวิสัญญี')
       .replace(/\s*\(ภาพรวมทุกห้อง\)/g, '')
+      .replace(/^แบบฟอร์มตรวจสอบ.*$/g, '')
       .trim();
-    if (selectedCategory === 'eq' || raw.includes('คลินิกงานบริการ')) {
+    if (!raw || raw.includes('แบบฟอร์ม') || raw.includes('คลินิกงานบริการ') || selectedCategory === 'eq' || selectedCategory === 'bag' || selectedCategory === 'cart') {
       return 'คลินิกงานบริการผู้ป่วยในวิสัญญี';
     }
-    return raw || 'คลินิกงานบริการผู้ป่วยในวิสัญญี';
+    return raw;
   }, [displayTitle, selectedCategory]);
 
   const mainDocHeading = useMemo(() => {
     const { month, year } = getMonthAndYearThai(displayDate);
     if (selectedCategory === 'eq') return 'ทะเบียนรายการครุภัณฑ์และอุปกรณ์';
     if (selectedCategory === 'bag') return `ตารางตรวจเช็คกระเป๋ายา Emergency ประจำเดือน ${month} / ปี ${year}`;
-    if (selectedCategory === 'cart') return `ตารางตรวจเช็ครถ Emergency ประจำเดือน ${month} / ปี ${year}  หน่วยงาน: ${cleanClinicName}`;
+    if (selectedCategory === 'cart') return `ตารางตรวจเช็ครถ Emergency ประจำเดือน ${month} / ปี ${year}`;
     if (selectedCategory === 'drug') return getDrugCategoryTitle(drugSubCategory, displayDate);
     return 'ทะเบียนรายการครุภัณฑ์และอุปกรณ์';
-  }, [selectedCategory, drugSubCategory, displayDate, cleanClinicName]);
+  }, [selectedCategory, drugSubCategory, displayDate]);
 
   const userSignature = useMemo(() => {
     if (currentUser?.signature) return currentUser.signature;
@@ -548,15 +553,20 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
           })),
         });
       } else {
-        const uniqueSheet = `ครุภัณฑ์_ทุกห้อง_${dateFormatted}`;
+        const roomNameMatch = (mainDocHeading + ' ' + (activeItems[0]?.location || '')).match(/OR\s*\d|PACU|Sterile|MINOR\s*\d/i);
+        const locCode = roomNameMatch ? roomNameMatch[0].replace(/\s+/g, '').toUpperCase() : 'ทุกห้อง';
+        const uniqueSheet = `ครุภัณฑ์_${locCode}_${dateFormatted}`;
         await sendInspectionToGas(apiUrl, {
-          type: 'eq',
+          type: 'equipment',
           sheet: 'ครุภัณฑ์',
           sheetName: uniqueSheet,
           title: mainDocHeading,
+          location: locCode,
           date: displayDate,
           who: displayInspector || currentUser?.name || 'ผู้ดูแลระบบ',
           user: currentUser?.username || 'user',
+          tax: '7',
+          startNo: 1,
           rows: activeItems.map((item, idx) => ({
             no: String(item.no || idx + 1),
             code: item.code || '-',
@@ -568,7 +578,7 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
             qty: String(item.qty || '1'),
             tax: String(item.tax || '7'),
             price: String(item.price || '-'),
-            location: item.location || '-',
+            location: item.location || locCode,
             res: item.res,
             note: item.note || '',
           })),
@@ -586,6 +596,38 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
       });
     } finally {
       setIsExportingGas(false);
+    }
+  };
+
+  // Mouse Drag-to-Scroll (Pan) handlers for desktop A4 paper
+  const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    const target = e.target as HTMLElement | null;
+    if (target && target.closest('input, button, select, textarea, a, [role="button"], label')) {
+      return;
+    }
+    if (!scrollContainerRef.current) return;
+    setIsMouseDragging(true);
+    dragStartRef.current = {
+      x: e.pageX,
+      y: e.pageY,
+      scrollLeft: scrollContainerRef.current.scrollLeft,
+      scrollTop: scrollContainerRef.current.scrollTop,
+    };
+  };
+
+  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!isMouseDragging || !scrollContainerRef.current) return;
+    e.preventDefault();
+    const dx = e.pageX - dragStartRef.current.x;
+    const dy = e.pageY - dragStartRef.current.y;
+    scrollContainerRef.current.scrollLeft = dragStartRef.current.scrollLeft - dx;
+    scrollContainerRef.current.scrollTop = dragStartRef.current.scrollTop - dy;
+  };
+
+  const handleMouseUpOrLeave = () => {
+    if (isMouseDragging) {
+      setIsMouseDragging(false);
     }
   };
 
@@ -769,6 +811,10 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
         {/* Printable Area Content Scrollable Wrapper */}
         <div
           ref={scrollContainerRef}
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUpOrLeave}
+          onMouseLeave={handleMouseUpOrLeave}
           className="paper-viewport-area paper-scroll-viewport report-viewport-area"
           style={{
             flex: 1,
@@ -784,6 +830,8 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
             boxSizing: 'border-box',
             background: '#e2e8f0',
             WebkitOverflowScrolling: 'touch',
+            cursor: isMouseDragging ? 'grabbing' : 'grab',
+            userSelect: isMouseDragging ? 'none' : 'auto',
           }}
         >
           {/* Print Guidance Banner */}

@@ -14,6 +14,7 @@ import {
   InspectionSlideItem,
 } from './components/SwiperInspectionCarousel';
 import { EmergencyChecklistView } from './components/EmergencyChecklistView';
+import { GoogleSheetsSettings } from './components/GoogleSheetsSettings';
 
 import {
   STORAGE_KEYS,
@@ -136,6 +137,35 @@ export default function App() {
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isPasswordOpen, setIsPasswordOpen] = useState(false);
   const [isSheetsAccordionOpen, setIsSheetsAccordionOpen] = useState(false);
+
+  // Auto-hiding Bottom Navigation Bar on Scroll
+  const [isBottomBarVisible, setIsBottomBarVisible] = useState<boolean>(true);
+
+  useEffect(() => {
+    let lastScrollY = window.scrollY;
+    let ticking = false;
+
+    const handleScroll = () => {
+      if (!ticking) {
+        window.requestAnimationFrame(() => {
+          const currentScrollY = window.scrollY;
+          if (currentScrollY <= 30) {
+            setIsBottomBarVisible(true);
+          } else if (currentScrollY > lastScrollY + 6) {
+            setIsBottomBarVisible(false);
+          } else if (currentScrollY < lastScrollY - 6) {
+            setIsBottomBarVisible(true);
+          }
+          lastScrollY = currentScrollY;
+          ticking = false;
+        });
+        ticking = true;
+      }
+    };
+
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
 
   // Selected Room ID for Room Check
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>('or1');
@@ -559,13 +589,16 @@ export default function App() {
     if (apiUrl && apiUrl.trim()) {
       try {
         await sendInspectionToGas(apiUrl, {
-          type: 'eq',
+          type: 'equipment',
           sheet: 'ครุภัณฑ์',
           sheetName: uniqueSheet,
           title: 'ทะเบียนรายการครุภัณฑ์และอุปกรณ์',
+          location: 'ทุกห้อง',
           date: now.toISOString().split('T')[0],
           who: currentUser?.name || 'ผู้ดูแลระบบ (Admin)',
           user: currentUser?.username || 'admin',
+          tax: '7',
+          startNo: 1,
           rows: formattedEqItems.map((item, idx) => ({
             no: String(item.no || idx + 1),
             code: item.code || '-',
@@ -728,7 +761,7 @@ export default function App() {
 
       {/* MAIN VIEW CONTENT CONTAINER (Safe Area + Samsung One UI) */}
       <main 
-        className="relative z-10 max-w-md lg:max-w-[1400px] w-full mx-auto px-3 sm:px-6 lg:px-8 py-4 lg:py-8 pb-28"
+        className="relative z-10 w-full max-w-md sm:max-w-2xl md:max-w-4xl lg:max-w-[1400px] mx-auto px-3 sm:px-6 lg:px-8 py-4 lg:py-8 pb-28"
         style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 16px)' }}
       >
         {/* 1. HOME DASHBOARD */}
@@ -745,6 +778,10 @@ export default function App() {
             onNavigate={(view) => {
               if (view === 'room_check') setSelectedRoomId('or1');
               setCurrentView(view as any);
+            }}
+            onSelectRoom={(roomId) => {
+              setSelectedRoomId(roomId);
+              setCurrentView('room_check');
             }}
             onOpenNotifications={() => setIsNotificationOpen(true)}
             onOpenProfile={() => setIsProfileOpen(true)}
@@ -1003,121 +1040,20 @@ export default function App() {
 
               {/* 3.1 Accordion Collapsible Content */}
               {isSheetsAccordionOpen && (
-                <div className="p-4 rounded-2xl border border-blue-500/30 bg-blue-50/50 dark:bg-blue-950/20 space-y-3.5 animate-in slide-in-from-top-2 duration-200">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold flex items-center gap-1.5 text-blue-600 dark:text-blue-400">
-                      <FileSpreadsheet size={16} />
-                      <span>Google Sheets & GAS V5</span>
-                    </span>
-                    {inputSheetUrl && (
-                      <a
-                        href={inputSheetUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-[11px] text-blue-500 hover:underline flex items-center gap-1 font-semibold"
-                      >
-                        <span>เปิดดูชีตจริง</span>
-                        <ExternalLink size={12} />
-                      </a>
-                    )}
-                  </div>
-
-                  {/* Sheet URL Input */}
-                  <div className="space-y-1">
-                    <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300 block">
-                      URL ลิงก์ Google Sheets:
-                    </label>
-                    <input
-                      type="url"
-                      value={inputSheetUrl}
-                      onChange={(e) => setInputSheetUrl(e.target.value)}
-                      placeholder="https://docs.google.com/spreadsheets/d/..."
-                      className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-blue-500 transition shadow-inner font-mono"
-                    />
-                  </div>
-
-                  {/* Script URL Input & Test Connection */}
-                  <div className="space-y-1">
-                    <div className="flex justify-between items-center">
-                      <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">
-                        Google Apps Script Web App URL:
-                      </label>
-                      <button
-                        type="button"
-                        onClick={handleTestGasConnection}
-                        disabled={isTestingGas || !inputApiUrl.trim()}
-                        className="text-[11px] text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 font-semibold disabled:opacity-40 cursor-pointer"
-                      >
-                        {isTestingGas ? (
-                          <>
-                            <RefreshCw size={11} className="animate-spin" />
-                            <span>กำลังทดสอบ...</span>
-                          </>
-                        ) : (
-                          <>
-                            <Sparkles size={11} />
-                            <span>ทดสอบการเชื่อมต่อ</span>
-                          </>
-                        )}
-                      </button>
-                    </div>
-                    <input
-                      type="url"
-                      value={inputApiUrl}
-                      onChange={(e) => setInputApiUrl(e.target.value)}
-                      placeholder="https://script.google.com/macros/s/.../exec"
-                      className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-blue-500 transition shadow-inner font-mono"
-                    />
-                    {gasTestResult && (
-                      <div
-                        className={`p-2 rounded-xl text-[11px] font-semibold flex items-center gap-1.5 ${
-                          gasTestResult.ok
-                            ? 'bg-emerald-50 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800'
-                            : 'bg-rose-50 text-rose-800 dark:bg-rose-950/40 dark:text-rose-300 border border-rose-300 dark:border-rose-800'
-                        }`}
-                      >
-                        {gasTestResult.ok ? <Check size={13} /> : <X size={13} />}
-                        <span>{gasTestResult.msg}</span>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Action Buttons */}
-                  <div className="grid grid-cols-2 gap-2 pt-0.5">
-                    <button
-                      type="button"
-                      onClick={handleSaveSheetsConfig}
-                      className="py-2.5 px-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-md transition flex items-center justify-center gap-1.5 cursor-pointer active:scale-95"
-                    >
-                      <Check size={15} />
-                      <span>{savedConfigMsg ? '✓ บันทึกแล้ว!' : '💾 บันทึกการตั้งค่าชีต'}</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={handleCopyGasCode}
-                      className="py-2.5 px-3 rounded-xl bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-750 font-bold text-xs shadow-xs transition flex items-center justify-center gap-1.5 cursor-pointer active:scale-95"
-                    >
-                      {copiedGasCode ? <Check size={15} className="text-emerald-500" /> : <Copy size={15} />}
-                      <span>{copiedGasCode ? '✓ คัดลอกแล้ว' : 'คัดลอกโค้ด V5'}</span>
-                    </button>
-                  </div>
-
-                  {/* Script Code Preview Toggle */}
-                  <div>
-                    <button
-                      type="button"
-                      onClick={() => setShowScriptPreview(!showScriptPreview)}
-                      className="text-[10.5px] text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 flex items-center gap-1 cursor-pointer"
-                    >
-                      <span>{showScriptPreview ? 'ซ่อนตัวอย่างโค้ด Google Apps Script' : 'แสดงตัวอย่างโค้ด Google Apps Script V5'}</span>
-                    </button>
-                    {showScriptPreview && (
-                      <div className="mt-2 p-2.5 rounded-xl bg-slate-900 text-emerald-400 text-[10px] font-mono max-h-32 overflow-y-auto border border-slate-800">
-                        <pre className="whitespace-pre-wrap">{GAS_SCRIPT_V5.slice(0, 600)}... (กดปุ่มคัดลอกด้านบนเพื่อนำไปวางฉบับสมบูรณ์)</pre>
-                      </div>
-                    )}
-                  </div>
+                <div className="rounded-2xl overflow-hidden border border-slate-300 dark:border-slate-800 shadow-md">
+                  <GoogleSheetsSettings
+                    sheetUrl={sheetUrl}
+                    apiUrl={apiUrl}
+                    isDark={isDark}
+                    onSave={(newApi: string, newSheet: string) => {
+                      setSheetUrl(newSheet);
+                      setStoredString(STORAGE_KEYS.SHEET_URL, newSheet);
+                      setApiUrl(newApi);
+                      setStoredString(STORAGE_KEYS.API_URL, newApi);
+                      setInputSheetUrl(newSheet);
+                      setInputApiUrl(newApi);
+                    }}
+                  />
                 </div>
               )}
 
@@ -1160,6 +1096,7 @@ export default function App() {
         }}
         onOpenBarcodeScanner={() => setIsBarcodeScannerOpen(true)}
         isDrawerOpen={isDrawerOpen}
+        isVisible={isBottomBarVisible}
       />
 
       {/* ZOOMED IMAGE PREVIEW OVERLAY MODAL */}

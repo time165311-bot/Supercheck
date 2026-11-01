@@ -238,15 +238,13 @@ export const DEFAULT_LISTS: Record<'bag' | 'cart', ListConfig> = {
 };
 
 export const GAS_SCRIPT_V5 = `/* ============================================================
-   ระบบตรวจเช็คอุปกรณ์วิสัญญี — Google Apps Script (Code.gs)
+   ระบบตรวจเช็กอุปกรณ์วิสัญญี — Google Apps Script (V5)
    คุณสมบัติ:
-   1. โหมดฟอร์มพิมพ์ A4 อัตโนมัติ (แยกแท็บชีตตามรอบตรวจ พร้อมพิมพ์ A4 ทันที)
-   2. ชีต "Audit Log": บันทึกประวัติการส่งรายงานและการกระทำ
-   3. ไม่ใช้ DriveApp / UrlFetchApp เพื่อความปลอดภัยและไม่ขอสิทธิ์เกินจำเป็น
+   1. เพิ่ม เมนู Quick Jump บนหน้า Google Sheets สำหรับวาร์ปไปแท็บต่างๆ
+   2. บันทึกข้อมูลแยกแท็บตามรอบวันครบทั้ง 4 หมวด (ครุภัณฑ์, กระเป๋า, รถ, ยา)
+   3. สร้างฟอร์มพิมพ์ A4 ทางการ 14 คอลัมน์ และบันทึก Audit Log อัตโนมัติ
    ============================================================ */
 
-// ตั้งค่าโหมดการจัดชีต:
-// 'SEPARATE_SHEETS' = เพิ่มแท็บชีตใหม่ทุกรอบตรวจโดยใช้โครงสร้างฟอร์มพิมพ์ A4 ทางการ 14 คอลัมน์ทันที
 var WORKBOOK_MODE = 'SEPARATE_SHEETS';
 
 var CFG = {
@@ -258,23 +256,82 @@ var CFG = {
 };
 var NCOL = 14;
 var HR = 7;
-
-var SHEET_PRINT = '📋 ฟอร์มพิมพ์_A4';
-var SHEET_USERS = 'Users';
 var SHEET_AUDIT = 'Audit Log';
-var USER_HEAD = ['Username', 'Name', 'Role', 'Active', 'Salt', 'Hash', 'MustChange', 'Created', 'LastLogin'];
 var AUDIT_HEAD = ['เวลาบันทึก (Timestamp)', 'บัญชีผู้ใช้ (Username)', 'ชื่อ-นามสกุล', 'การกระทำ (Action)', 'รายละเอียด / ไอเทมที่แก้ไข', 'สถานที่ / ห้อง'];
 
+// ----------------- 1. เมนู Quick Jump & เมนูระบบบน Google Sheets -----------------
+function onOpen() {
+  try {
+    var ui = SpreadsheetApp.getUi();
+    
+    // เมนูหลัก
+    var mainMenu = ui.createMenu('🏥 ระบบงานวิสัญญี');
+    mainMenu.addItem('🖨️ ตั้งค่าพิมพ์ฟอร์ม A4 แนวนอน (Page Setup)', 'setupActiveSheetA4Landscape');
+    mainMenu.addSeparator();
+
+    // เมนูย่อย Quick Jump วาร์ปไปยังแท็บต่างๆ ด่วน
+    var jumpMenu = ui.createMenu('🚀 Quick Jump (ไปยังชีตด่วน)');
+    jumpMenu.addItem('🏢 ชีตล่าสุด: ครุภัณฑ์', 'jumpToLatestEquipment');
+    jumpMenu.addItem('🎒 ชีตล่าสุด: กระเป๋า Emergency', 'jumpToLatestBag');
+    jumpMenu.addItem('🛒 ชีตล่าสุด: รถ Emergency', 'jumpToLatestCart');
+    jumpMenu.addItem('💊 ชีตล่าสุด: คลังยา & สารน้ำ', 'jumpToLatestDrug');
+    jumpMenu.addSeparator();
+    jumpMenu.addItem('📋 ชีตประวัติบันทึก (Audit Log)', 'jumpToAuditLog');
+
+    mainMenu.addSubMenu(jumpMenu);
+    mainMenu.addToUi();
+  } catch (e) {}
+}
+
+// ฟังก์ชัน Quick Jump วาร์ปไปยังแท็บล่าสุดของแต่ละหมวด
+function jumpToLatestEquipment() { jumpToCategorySheet_('ครุภัณฑ์'); }
+function jumpToLatestBag() { jumpToCategorySheet_('กระเป๋า'); }
+function jumpToLatestCart() { jumpToCategorySheet_('รถ'); }
+function jumpToLatestDrug() { jumpToCategorySheet_('คลังยา'); }
+function jumpToAuditLog() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sh = ss.getSheetByName(SHEET_AUDIT);
+  if (sh) ss.setActiveSheet(sh);
+  else ss.toast('ยังไม่มีชีต Audit Log', 'แจ้งเตือน', 3);
+}
+
+function jumpToCategorySheet_(keyword) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheets = ss.getSheets();
+  var targetSheet = null;
+  
+  // ค้นหาชีตที่ชื่อขึ้นต้นด้วย keyword ล่าสุด
+  for (var i = sheets.length - 1; i >= 0; i--) {
+    if (sheets[i].getName().indexOf(keyword) === 0) {
+      targetSheet = sheets[i];
+      break;
+    }
+  }
+  
+  if (targetSheet) {
+    ss.setActiveSheet(targetSheet);
+    ss.toast('วาร์ปไปยัง: ' + targetSheet.getName(), 'Quick Jump', 2);
+  } else {
+    ss.toast('ยังไม่มีการบันทึกข้อมูลในหมวด ' + keyword, 'ไม่พบชีต', 3);
+  }
+}
+
+function setupActiveSheetA4Landscape() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sh = ss.getActiveSheet();
+  if (!sh) return;
+  try {
+    sh.setPageSetUp(SpreadsheetApp.PageSize.A4, SpreadsheetApp.Orientation.LANDSCAPE);
+    try { sh.setHideGridlines(false); } catch(ge) {}
+    ss.toast('ตั้งค่าชีตเป็นฟอร์มพิมพ์ A4 แนวนอนเรียบร้อยแล้ว (กด Ctrl + P ได้ทันที)', 'สำเร็จ', 3);
+  } catch(e) {
+    SpreadsheetApp.getUi().alert('การตั้งค่าหน้ากระดาษ: ' + e.message);
+  }
+}
+
+// ----------------- 2. Webhook Handlers (doGet / doPost) -----------------
 function doGet(e) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var act = (e && e.parameter && (e.parameter.a || e.parameter.action)) || '';
-  if (act === 'pull' && ss) {
-    return json_({
-      status: 'ok',
-      message: 'ดึงข้อมูลจาก Google Sheets สำเร็จ',
-      data: {}
-    });
-  }
   return json_({ 
     status: 'ok', 
     message: ss ? ('เชื่อมต่อสำเร็จ - ไฟล์: ' + ss.getName()) : 'สคริปต์ยังไม่ได้ผูกกับ Google Sheet',
@@ -293,33 +350,19 @@ function doPost(e) {
     if (!ss) return fail_('สคริปต์ไม่ได้ผูกกับ Google Sheet', 'setup');
 
     var act = String(data.a || data.action || '');
-
-    if (act === 'login') return doLogin_(ss, data);
     if (act === 'audit') return doAuditLog_(ss, data);
 
-    // รับค่าข้อมูลส่งกลับไปให้ฝั่ง React นำไปเรนเดอร์พิมพ์ผ่าน Window Print Engine (A4 แนวนอน)
-    if (act === 'export_pdf') {
-      return ContentService.createTextOutput(JSON.stringify({
-        success: true,
-        items: data.items || [],
-        surveyDate: data.surveyDate || '',
-        locationName: data.locationName || ''
-      })).setMimeType(ContentService.MimeType.JSON);
-    }
+    // รับบันทึกข้อมูลจากหน้าเว็บ
+    var res = doLog_(ss, data);
+    doAuditLog_(ss, {
+      user: data.user || 'system',
+      name: data.who || data.user || 'เจ้าหน้าที่วิสัญญี',
+      action: 'บันทึกผลการตรวจสอบ',
+      details: 'ส่งรายงานตรวจเช็ค ' + (data.title || data.sheet || data.type) + ' (' + (data.rows ? data.rows.length : 0) + ' รายการ)',
+      location: data.title || data.location || '-'
+    });
+    return res;
 
-    if (act === 'log') {
-      var res = doLog_(ss, data);
-      doAuditLog_(ss, {
-        user: data.user || 'system',
-        name: data.who || data.user || 'เจ้าหน้าที่',
-        action: 'บันทึกผลการตรวจสอบ',
-        details: 'ส่งรายงานตรวจเช็ค ' + (data.title || data.sheet) + ' (' + (data.rows ? data.rows.length : 0) + ' รายการ)',
-        location: data.title || '-'
-      });
-      return res;
-    }
-
-    return doLog_(ss, data);
   } catch (err) {
     return fail_(String(err));
   } finally {
@@ -327,7 +370,6 @@ function doPost(e) {
   }
 }
 
-// ----------------- จัดการ Audit Log -----------------
 function doAuditLog_(ss, d) {
   var sh = ss.getSheetByName(SHEET_AUDIT);
   if (!sh) {
@@ -353,48 +395,26 @@ function doAuditLog_(ss, d) {
   return ok_({ logged: true });
 }
 
-// ----------------- ประมวลผลและบันทึกรายงาน -----------------
 function doLog_(ss, d) {
   var rows = d.rows || [];
-  if (d.type === 'drug') {
+  var typeKey = String(d.type || '').toLowerCase();
+  
+  if (typeKey === 'drug' || typeKey === 'ยา' || typeKey === 'คลังยา') {
     writeDrugReport_(ss, d);
-  } else if (d.type === 'bag' || d.type === 'cart') {
+  } else if (typeKey === 'bag' || typeKey === 'กระเป๋า' || typeKey === 'cart' || typeKey === 'รถ' || typeKey === 'รถฉุกเฉิน') {
     writeEmergencyReport_(ss, d);
   } else {
+    // บันทึก ครุภัณฑ์ (equipment), eq, หรือหมวดอื่นใด
     writeReport_(ss, d);
   }
-  return ok_({ count: rows.length });
-}
-
-// ฟังก์ชันเมนูและตั้งค่าหน้ากระดาษ A4 ใน Google Sheets
-function onOpen() {
-  try {
-    SpreadsheetApp.getUi()
-      .createMenu('🏥 ระบบงานวิสัญญี')
-      .addItem('🖨️ ตั้งค่าพิมพ์ฟอร์ม A4 แนวนอน (Page Setup)', 'setupActiveSheetA4Landscape')
-      .addToUi();
-  } catch (e) {}
-}
-
-// ฟังก์ชันตั้งค่าหน้ากระดาษ A4 แนวนอน พร้อมพิมพ์ Ctrl+P ได้ทันที
-function setupActiveSheetA4Landscape() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sh = ss.getActiveSheet();
-  if (!sh) return;
-  try {
-    sh.setPageSetUp(SpreadsheetApp.PageSize.A4, SpreadsheetApp.Orientation.LANDSCAPE);
-    try { sh.setHideGridlines(false); } catch(ge) {}
-    ss.toast('ตั้งค่าชีตเป็นฟอร์มพิมพ์ A4 แนวนอนเรียบร้อยแล้ว (กด Ctrl + P ได้ทันที)', 'สำเร็จ', 3);
-  } catch(e) {
-    SpreadsheetApp.getUi().alert('การตั้งค่าหน้ากระดาษ: ' + e.message);
-  }
+  return ok_({ count: rows.length, type: typeKey });
 }
 
 function computeSheetName_(d) {
   if (d.sheetName && String(d.sheetName).trim()) {
     return String(d.sheetName).trim();
   }
-  var typeKey = String(d.type || 'eq');
+  var typeKey = String(d.type || 'eq').toLowerCase();
   var dateStr = String(d.date || now_());
   var m = dateStr.match(/^(\\d{4})(?:-(\\d{2}))?(?:-(\\d{2}))?/);
   var yearVal = m && m[1] ? m[1] : new Date().getFullYear().toString();
@@ -414,11 +434,11 @@ function computeSheetName_(d) {
   else if (rawTitle.indexOf('MINOR 2') > -1 || rawTitle.indexOf('MINOR2') > -1) locCode = 'MINOR2';
   else if (rawTitle.indexOf('MINOR 3') > -1 || rawTitle.indexOf('MINOR3') > -1) locCode = 'MINOR3';
 
-  if (typeKey === 'bag') {
+  if (typeKey === 'bag' || typeKey === 'กระเป๋า') {
     return 'กระเป๋า_EMER_' + dateCode;
-  } else if (typeKey === 'cart') {
+  } else if (typeKey === 'cart' || typeKey === 'รถ' || typeKey === 'รถฉุกเฉิน') {
     return 'รถ_EMER_' + dateCode;
-  } else if (typeKey === 'drug') {
+  } else if (typeKey === 'drug' || typeKey === 'ยา' || typeKey === 'คลังยา') {
     var catSub = d.category === 'quarterly' ? '3เดือน' : d.category === 'adhoc' ? 'ครั้งคราว' : 'เดือน';
     return 'คลังยา_' + catSub + '_' + dateCode;
   } else {
@@ -436,19 +456,10 @@ function getUniqueSheet_(ss, baseName) {
   return ss.insertSheet(targetName);
 }
 
+// ----------------- 3. เขียนชีตรายงานตาราง A4 -----------------
 function writeReport_(ss, data) {
-  var sheet;
-  if (WORKBOOK_MODE === 'SEPARATE_SHEETS') {
-    var baseSheetName = computeSheetName_(data);
-    sheet = getUniqueSheet_(ss, baseSheetName);
-  } else {
-    sheet = ss.getSheetByName(SHEET_PRINT);
-    if (!sheet) {
-      sheet = ss.insertSheet(SHEET_PRINT, 0);
-    } else {
-      sheet.clear();
-    }
-  }
+  var baseSheetName = computeSheetName_(data);
+  var sheet = getUniqueSheet_(ss, baseSheetName);
 
   if (sheet.getMaxColumns() < NCOL) {
     sheet.insertColumnsAfter(sheet.getMaxColumns(), NCOL - sheet.getMaxColumns());
@@ -459,23 +470,23 @@ function writeReport_(ss, data) {
   } catch (pe) {}
 
   var maxRows = sheet.getMaxRows();
-  try { sheet.setHideGridlines(false); } catch(ge) {}
   sheet.setRowHeights(1, maxRows, 22);
   sheet.getRange(1, 1, maxRows, sheet.getMaxColumns())
        .setFontFamily(CFG.font).setFontSize(CFG.bodySize).setVerticalAlignment('middle');
 
   for (var c = 0; c < NCOL; c++) sheet.setColumnWidth(c + 1, CFG.colWidths[c]);
 
-  var clinic  = data.title || 'คลินิกงานบริการผู้ป่วยในวิสัญญี';
-  var dateTh  = thaiDate_(data.date);
-  var who     = data.who || '';
-  var dots    = new Array(45).join('.');
+  var clinic = data.title || 'คลินิกงานบริการผู้ป่วยในวิสัญญี';
+  var dateTh = thaiDate_(data.date);
+  var who = data.who || '';
+  var dots = new Array(35).join('.');
 
   var reportTitle = 'ทะเบียนรายการครุภัณฑ์และอุปกรณ์';
-  if (data.type && String(data.type).indexOf('กระเป๋า') > -1) {
-    reportTitle = 'แบบฟอร์มตรวจสอบความพร้อม กระเป๋า Emergency';
-  } else if (data.type && String(data.type).indexOf('รถ') > -1) {
-    reportTitle = 'แบบฟอร์มตรวจสอบความพร้อม รถ Emergency';
+  var typeStr = String(data.type || '').toLowerCase();
+  if (typeStr.indexOf('bag') > -1 || typeStr.indexOf('กระเป๋า') > -1) {
+    reportTitle = 'ตรวจสอบความพร้อม กระเป๋า Emergency';
+  } else if (typeStr.indexOf('cart') > -1 || typeStr.indexOf('รถ') > -1) {
+    reportTitle = 'ตรวจสอบความพร้อม รถ Emergency';
   }
 
   cell_(sheet, 'E1:J1', reportTitle, 15, true, 'center');
@@ -484,12 +495,8 @@ function writeReport_(ss, data) {
   sheet.setRowHeight(2, 22);
 
   cell_(sheet, 'A3:E3', clinic, 11, false, 'left');
-  cell_(sheet, 'A4:F4', 'หัวหน้าภาควิชา/หน่วยงาน ' + dots, 11, false, 'left');
   cell_(sheet, 'I3:N3', 'วัน, เดือน, ปี ที่สำรวจ ' + (dateTh || dots), 11, false, 'right');
   cell_(sheet, 'I4:N4', 'กรรมการผู้ตรวจ ' + (who || dots), 11, false, 'right');
-
-  sheet.setRowHeight(3, 22);
-  sheet.setRowHeight(4, 22);
 
   var heads = [
     'ลำดับที่', 'หมายเลขพัสดุ', 'รหัสสินทรัพย์\\nSAP', 'รายการ',
@@ -511,10 +518,6 @@ function writeReport_(ss, data) {
   sheet.getRange(HR, 1, 3, NCOL)
        .setHorizontalAlignment('center').setVerticalAlignment('middle')
        .setWrap(true).setFontWeight('bold').setFontSize(11).setBackground('#f1f5f9');
-  sheet.getRange(HR + 1, 12, 2, 3).setFontSize(10);
-  sheet.setRowHeight(HR, 26);
-  sheet.setRowHeight(HR + 1, 26);
-  sheet.setRowHeight(HR + 2, 38);
 
   var rows = data.rows || [];
   var total = Math.max(rows.length, CFG.minRows);
@@ -528,11 +531,11 @@ function writeReport_(ss, data) {
       out.push(['', '', '', '', '', '', '', '', '', '', '', '', '', '']);
       continue;
     }
-    var res = String(r.res || '');
+    var res = String(r.res || r.status || '');
     var ok = '', bad = '', miss = '';
     if (res.indexOf('ไม่พบ') > -1) miss = '✓';
-    else if (res.indexOf('ไม่ได้') > -1) bad = '✓';
-    else if (res.indexOf('ใช้งานได้') > -1) ok = '✓';
+    else if (res.indexOf('ไม่ได้') > -1 || res.indexOf('ชำรุด') > -1) bad = '✓';
+    else ok = '✓';
 
     var loc = r.location || '';
     if (r.note) loc += (loc ? '\\n' : '') + '(' + r.note + ')';
@@ -557,18 +560,12 @@ function writeReport_(ss, data) {
   var body = sheet.getRange(ds, 1, total, NCOL);
   body.setNumberFormat('@');
   body.setValues(out);
-  body.setWrap(true).setVerticalAlignment('top').setFontSize(CFG.bodySize);
-
-  // จัดตำแหน่งทุกคอลัมน์ให้อยู่กึ่งกลางตามที่ผู้ใช้กำหนด (รายการ, ราคา, สถานที่ตั้ง, ว/ด/ป, แหล่งเงิน, ฯลฯ)
-  sheet.getRange(ds, 1, total, NCOL).setHorizontalAlignment('center');
+  body.setWrap(true).setVerticalAlignment('top').setFontSize(CFG.bodySize).setHorizontalAlignment('center');
   sheet.getRange(ds, 12, total, 3).setVerticalAlignment('middle').setFontSize(13);
 
   sheet.getRange(HR, 1, 3 + total, NCOL)
        .setBorder(true, true, true, true, true, true, '#000000', SpreadsheetApp.BorderStyle.SOLID);
 
-  sheet.setRowHeights(ds, total, 42);
-
-  // ส่วนลงชื่อท้ายเอกสาร - ขยายความกว้างเต็ม 14 คอลัมน์ ไม่ให้ข้อความตกหล่นหรือขึ้น "อ......หัวหน้า"
   var signRow = ds + total + 2;
   if (sheet.getMaxRows() < signRow + 3) {
     sheet.insertRowsAfter(sheet.getMaxRows(), 4);
@@ -584,7 +581,7 @@ function writeReport_(ss, data) {
 }
 
 function writeEmergencyReport_(ss, data) {
-  var isCart = data.type === 'cart';
+  var isCart = String(data.type || '').toLowerCase().indexOf('cart') > -1 || String(data.type || '').indexOf('รถ') > -1;
   var baseName = computeSheetName_(data);
   var sheet = getUniqueSheet_(ss, baseName);
   var nCols = 8;
@@ -669,119 +666,45 @@ function writeEmergencyReport_(ss, data) {
   sheet.getRange(4, 1, 2 + total, nCols)
        .setBorder(true, true, true, true, true, true, '#000000', SpreadsheetApp.BorderStyle.SOLID);
 
-  var signRow = startRow + total + 2;
-  if (sheet.getMaxRows() < signRow + 3) {
-    sheet.insertRowsAfter(sheet.getMaxRows(), 4);
-  }
-  sheet.getRange(signRow, 1, 1, 4).merge().setValue('ลงชื่อ .................................................... ผู้ตรวจสอบ');
-  sheet.getRange(signRow + 1, 1, 1, 4).merge().setValue('(' + (who || '....................................................') + ')');
-  sheet.getRange(signRow, 5, 1, 4).merge().setValue('ลงชื่อ .................................................... หัวหน้างาน');
-  sheet.getRange(signRow + 1, 5, 1, 4).merge().setValue('(....................................................)');
-  sheet.getRange(signRow, 1, 2, nCols)
-       .setFontFamily(CFG.font).setFontSize(10.5)
-       .setHorizontalAlignment('center').setVerticalAlignment('middle').setWrap(false);
   return sheet;
 }
 
 function writeDrugReport_(ss, data) {
-  var cat = String(data.category || 'monthly');
-  var catCode = cat === 'quarterly' ? '3เดือน' : cat === 'adhoc' ? 'ครั้งคราว' : 'เดือน';
-  var dateStr = String(data.date || now_());
-  var m = dateStr.match(/^(\\d{4})(?:-(\\d{2}))?(?:-(\\d{2}))?/);
-  var yearVal = m && m[1] ? m[1] : new Date().getFullYear().toString();
-  var monthVal = m && m[2] ? m[2] : ('0' + (new Date().getMonth() + 1)).slice(-2);
-  var dayVal = m && m[3] ? m[3] : ('0' + new Date().getDate()).slice(-2);
-  var thaiYear = String(parseInt(yearVal, 10) + 543);
-  var dateCode = dayVal + monthVal + thaiYear;
-  var baseName = data.sheetName || ('คลังยา_' + catCode + '_' + dateCode);
+  var baseName = computeSheetName_(data);
   var sheet = getUniqueSheet_(ss, baseName);
-
   var drugCols = 10;
+
   if (sheet.getMaxColumns() < drugCols) {
     sheet.insertColumnsAfter(sheet.getMaxColumns(), drugCols - sheet.getMaxColumns());
   }
 
-  try {
-    sheet.setPageSetUp(SpreadsheetApp.PageSize.A4, SpreadsheetApp.Orientation.LANDSCAPE);
-  } catch (e) {}
-
-  try { sheet.setHideGridlines(false); } catch (ge) {}
   var widths = [45, 195, 65, 85, 75, 60, 75, 80, 95, 150];
   for (var c = 0; c < drugCols; c++) sheet.setColumnWidth(c + 1, widths[c]);
 
-  var titleTh = cat === 'quarterly'
-    ? 'แบบฟอร์มเบิกจ่าย ยาเบิกทุก 3 เดือน'
-    : cat === 'adhoc'
-    ? 'แบบฟอร์มเบิกจ่าย ยาเบิกเป็นครั้งๆ (งบประมาณ / เบิกทุกเดือน)'
-    : 'แบบฟอร์มเบิกจ่าย ยาในคลังเดือน';
-
-  cell_(sheet, 'A1:J1', titleTh, 14, true, 'center');
-  sheet.setRowHeight(1, 30);
-
-  var subMeta = 'คลินิกงานบริการผู้ป่วยในวิสัญญี  |  ประจำเดือน/ปี (ณ วันที่ ' + thaiDate_(data.date) + ')  |  ผู้ตรวจสอบ: ' + (data.who || 'ผู้ดูแลระบบ');
+  cell_(sheet, 'A1:J1', 'แบบฟอร์มเบิกจ่าย ยาและสารน้ำ', 14, true, 'center');
+  var subMeta = 'คลินิกงานบริการผู้ป่วยในวิสัญญี  |  ณ วันที่ ' + thaiDate_(data.date) + '  |  ผู้ตรวจสอบ: ' + (data.who || 'ผู้ดูแลระบบ');
   cell_(sheet, 'A2:J2', subMeta, 10, false, 'center');
-  sheet.setRowHeight(2, 22);
 
-  var drugHeads = [
-    'ลำดับ', 'ชนิดยา / สารน้ำ', 'คงเหลือ', 'วันที่รับ', 'จำนวนที่รับ', 'รวม', 'ยอดต่ำสุด', 'เบิกครั้งละ', 'วันหมดอายุ (Exp)', 'หมายเหตุ'
-  ];
-  for (var i = 0; i < drugHeads.length; i++) {
-    sheet.getRange(4, i + 1).setValue(drugHeads[i]);
-  }
-  sheet.getRange(4, 1, 1, drugCols)
-       .setHorizontalAlignment('center').setVerticalAlignment('middle')
-       .setFontWeight('bold').setFontSize(11).setBackground('#f1f5f9');
-  sheet.setRowHeight(4, 28);
+  var drugHeads = ['ลำดับ', 'ชนิดยา / สารน้ำ', 'คงเหลือ', 'วันที่รับ', 'จำนวนที่รับ', 'รวม', 'ยอดต่ำสุด', 'เบิกครั้งละ', 'วันหมดอายุ (Exp)', 'หมายเหตุ'];
+  for (var i = 0; i < drugHeads.length; i++) sheet.getRange(4, i + 1).setValue(drugHeads[i]);
+  sheet.getRange(4, 1, 1, drugCols).setHorizontalAlignment('center').setFontWeight('bold').setBackground('#f1f5f9');
 
   var rows = data.rows || [];
-  var total = Math.max(rows.length, 12);
+  var total = Math.max(rows.length, 10);
   var out = [];
   for (var n = 0; n < total; n++) {
     var r = rows[n];
-    if (!r) {
-      out.push(['', '', '', '', '', '', '', '', '', '']);
-      continue;
-    }
-    var totalQty = (Number(r.remaining) || 0) + (Number(r.receivedQty) || 0);
+    if (!r) { out.push(['', '', '', '', '', '', '', '', '', '']); continue; }
     out.push([
-      n + 1,
-      r.name || '',
-      r.remaining !== undefined ? r.remaining : '',
-      r.receivedDate || '',
-      r.receivedQty !== undefined ? r.receivedQty : '',
-      totalQty || '',
-      r.minStock !== undefined ? r.minStock : '',
-      r.batchRequest || '',
-      r.expDate || '',
-      r.note || ''
+      n + 1, r.name || '', r.remaining || '0', r.receivedDate || '-', r.receivedQty || '0',
+      (Number(r.remaining || 0) + Number(r.receivedQty || 0)), r.minStock || '0', r.batchRequest || '-', r.expDate || '-', r.note || '-'
     ]);
   }
 
   var bodyRange = sheet.getRange(5, 1, total, drugCols);
   bodyRange.setValues(out).setFontFamily(CFG.font).setFontSize(10.5).setVerticalAlignment('middle');
-  sheet.setRowHeights(5, total, 28);
 
-  // Column alignments
-  sheet.getRange(5, 1, total, 1).setHorizontalAlignment('center');
-  sheet.getRange(5, 2, total, 1).setHorizontalAlignment('left');
-  sheet.getRange(5, 3, total, 7).setHorizontalAlignment('center');
-  sheet.getRange(5, 10, total, 1).setHorizontalAlignment('left');
-
-  sheet.getRange(4, 1, total + 1, drugCols)
-       .setBorder(true, true, true, true, true, true, '#000000', SpreadsheetApp.BorderStyle.SOLID);
-
-  var signRow = 5 + total + 2;
-  if (sheet.getMaxRows() < signRow + 3) {
-    sheet.insertRowsAfter(sheet.getMaxRows(), 4);
-  }
-  sheet.getRange(signRow, 2, 1, 4).merge().setValue('ลงชื่อ .................................................... ผู้ตรวจสอบ');
-  sheet.getRange(signRow + 1, 2, 1, 4).merge().setValue('(' + (data.who || '....................................................') + ')');
-  sheet.getRange(signRow, 7, 1, 4).merge().setValue('ลงชื่อ .................................................... หัวหน้างาน');
-  sheet.getRange(signRow + 1, 7, 1, 4).merge().setValue('(....................................................)');
-  sheet.getRange(signRow, 1, 2, drugCols)
-       .setFontFamily(CFG.font).setFontSize(10.5)
-       .setHorizontalAlignment('center').setVerticalAlignment('middle').setWrap(false);
-
+  sheet.getRange(4, 1, total + 1, drugCols).setBorder(true, true, true, true, true, true, '#000000', SpreadsheetApp.BorderStyle.SOLID);
   return sheet;
 }
 

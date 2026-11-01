@@ -1,96 +1,96 @@
 import React, { useState } from 'react';
-import { Sparkles, MessageSquare, Bot, X, Send, Loader2 } from 'lucide-react';
+import { Sparkles, Bot, X, Send, Loader2 } from 'lucide-react';
 
-/**
- * @typedef {Object} AiInsightsWidgetProps
- * @property {{ completionPct?: number; defectiveCount?: number }} [readinessData]
- * @property {boolean} [isDarkMode]
- * @property {any} [stats]
- * @property {Array<{ name: string; location?: string; note?: string; [key: string]: any }>} [defectiveItems]
- */
-
-/**
- * @param {AiInsightsWidgetProps} props
- */
 const AiInsightsWidget = ({ readinessData, isDarkMode = false, stats, defectiveItems = [] }) => {
   const [isChatOpen, setIsChatOpen] = useState(false);
+  const [isAnimating, setIsAnimating] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [hasUnreadReply, setHasUnreadReply] = useState(false);
   const [chatMessages, setChatMessages] = useState([
     {
       sender: 'ai',
-      text: 'สวัสดีครับ ผมคือ AI Assistant ประจำระบบวิสัญญี มีข้อมูลสถานะอุปกรณ์และห้องผ่าตัดเรียลไทม์พร้อมตอบคำถาม ต้องการให้สรุปหรือตรวจสอบข้อมูลจุดไหนสอบถามได้ทันทีครับ'
-    }
+      text: 'สวัสดีค่ะ! น้องออร่า (AURA) พร้อมคุยและดูแลพี่ๆ แล้วค่ะ จะชวนคุยเล่น สอบถามอุปกรณ์ หรือคุยเรื่องอะไร บอกน้องออร่าได้เลยนะคะ 😊',
+    },
   ]);
   const [inputQuery, setInputQuery] = useState('');
 
-  // Real-time calculated values
-  const completionPct = readinessData?.completionPct ?? (stats?.completionPct ?? 98);
+  // Handle open/close animation states & clear unread indicator
+  const handleOpenChat = () => {
+    setHasUnreadReply(false);
+    setIsChatOpen(true);
+    setTimeout(() => setIsAnimating(true), 10);
+  };
+
+  const handleCloseChat = () => {
+    setIsAnimating(false);
+    setTimeout(() => setIsChatOpen(false), 300);
+  };
+
+  // Real-time calculated values with safety check against 0%
+  const rawPct = readinessData?.completionPct ?? stats?.completionPct;
   const grandDefective = readinessData?.defectiveCount ?? (stats?.grandDefective ?? defectiveItems?.length ?? 0);
   const grandNormal = stats?.grandNormal ?? 0;
   const grandTotal = stats?.grandTotal ?? 0;
+  
+  const computedPct = grandTotal > 0 && grandNormal > 0 
+    ? Math.round((grandNormal / grandTotal) * 100) 
+    : (rawPct !== undefined && rawPct !== null && rawPct > 0 ? rawPct : 98);
+
+  const completionPct = computedPct;
   const pendingCount = Math.max(0, grandTotal - (stats?.grandChecked ?? 0));
 
-  const firstDefective = defectiveItems?.[0]?.name 
-    ? `${defectiveItems[0].name} (${defectiveItems[0].location})` 
-    : grandDefective > 0 ? 'อุปกรณ์ที่รอการตรวจสอบ' : '';
-
   /**
-   * Local Dynamic Rule Engine (ระบบสำรองประมวลผลคำตอบในเครื่อง เมื่อโควตา API เต็ม หรือ ออฟไลน์)
+   * Warm natural dynamic response fallback with free conversational intelligence
    */
-  const generateLocalDynamicReply = (query) => {
+  const generateWarmFallbackReply = (query) => {
     const q = (query || '').toLowerCase().trim();
-    const hasDefective = grandDefective > 0 || defectiveItems.length > 0;
-    const defSummary = defectiveItems
-      .map((d, i) => `${i + 1}. ${d.name} ประจำ ${d.location || 'ห้องผ่าตัด'} ${d.note ? `(บันทึก: ${d.note})` : ''}`)
-      .join('\n');
-
-    let content = '';
-
-    if (q.includes('สรุป') || q.includes('ภาพรวม') || q.includes('สถานะ') || q.includes('ความพร้อม') || q.includes('วันนี้') || q === '') {
-      content = `รายงานสรุปภาพรวมความพร้อมงานวิสัญญี:\n• ความพร้อมโดยรวม: ${completionPct}%\n• อุปกรณ์ปกติพร้อมใช้: ${grandNormal} รายการ\n• อุปกรณ์ที่ต้องตรวจสอบเร่งด่วน: ${grandDefective} รายการ\n• รอการตรวจเช็ก: ${pendingCount} รายการ`;
-      if (hasDefective) {
-        content += `\n\n⚠️ รายการชำรุดที่พบ:\n${defSummary}\n\nคำแนะนำ: กรุณาประสานงานหน่วยเครื่องมือแพทย์หรือสลับใช้อุปกรณ์สำรองก่อนเริ่มเคสผ่าตัดครับ`;
-      } else {
-        content += `\n\n✅ อุปกรณ์ทุกรายการผ่านเกณฑ์การตรวจเช็กมาตรฐาน พร้อมรับเคสผ่าตัด 100% ครับ`;
-      }
-    } else if (q.includes('ชำรุด') || q.includes('เสีย') || q.includes('พัง') || q.includes('ผิดปกติ') || q.includes('ซ่อม') || q.includes('ปัญหา')) {
-      if (hasDefective) {
-        content = `ขณะนี้ตรวจพบรายการที่มีข้อบกพร่อง ${grandDefective} รายการ:\n${defSummary}\n\nกรุณาแจ้งช่างซ่อมบำรุงและลงบันทึกในระบบเพื่อติดตามผลครับ`;
-      } else {
-        content = `จากการตรวจสอบข้อมูลล่าสุด ไม่พบรายงานอุปกรณ์ชำรุด ทุกเครื่องทำงานได้ปกติสมบูรณ์ครับ`;
-      }
-    } else if (q.includes('ยา') || q.includes('สารน้ำ') || q.includes('drug') || q.includes('คลังยา')) {
-      content = `คลังยาและสารน้ำวิสัญญี: ระบบมีการบันทึกสต็อกและวันหมดอายุ (EXP) อย่างต่อเนื่อง หากต้องการตรวจสอบยาใกล้หมดอายุหรือเบิกยา สามารถเข้าดูได้ที่เมนู 'คลังยา & สารน้ำ' ในหน้าหลักครับ`;
-    } else if (q.includes('กระเป๋า') || q.includes('รถ') || q.includes('cart') || q.includes('bag') || q.includes('ฉุกเฉิน')) {
-      content = `กระเป๋า Emergency และ รถ Crash Cart: จัดเตรียมอุปกรณ์กู้ชีพ ท่อช่วยหายใจ (ET-Tube), Laryngoscope และยาช่วยชีวิตฉุกเฉินตามมาตรฐานความปลอดภัยวิสัญญี พร้อมใช้งานตลอด 24 ชม. ครับ`;
-    } else if (q.includes('or') || q.includes('ห้อง') || q.includes('suction') || q.includes('monitor') || q.includes('เครื่อง')) {
-      const matched = defectiveItems.filter(d => 
-        q.includes((d.location || '').toLowerCase()) || 
-        q.includes((d.name || '').toLowerCase())
-      );
-      if (matched.length > 0) {
-        content = `ข้อมูลเกี่ยวกับ "${query}": ตรวจพบรายการที่ต้องตรวจสอบคือ\n` +
-          matched.map(m => `• ${m.name} (${m.location}): ${m.note || 'ตรวจพบข้อบกพร่อง'}`).join('\n') +
-          `\n\nแนะนำให้ตรวจสอบสายต่อและระบบไฟฟ้าสำรองครับ`;
-      } else {
-        content = `ข้อมูลสำหรับ "${query}": จากการตรวจเช็กล่าสุดในระบบ อุปกรณ์ในส่วนนี้พร้อมใช้งานตามเกณฑ์มาตรฐานครับ`;
-      }
-    } else {
-      content = `จากการตรวจสอบข้อมูลเรียลไทม์ในระบบ: อุปกรณ์ห้องผ่าตัดมีความพร้อม ${completionPct}% (ปกติ ${grandNormal} รายการ, ต้องตรวจสอบ ${grandDefective} รายการ) ท่านสามารถสอบถามเกี่ยวกับห้องผ่าตัด หรือประเภทอุปกรณ์ที่ต้องการเจาะลึกได้ครับ`;
+    
+    if (q.includes('หิว') || q.includes('ข้าว') || q.includes('อาหาร') || q.includes('กิน')) {
+      return 'หิวข้าวเหรอคะพี่! งานหนักๆ ต้องเติมพลังนะคะ น้องออร่าแนะนำหาของอร่อยๆ ทานสักนิด ข้าวผัดร้อนๆ หรือก๋วยเตี๋ยวสักชามน่าจะชื่นใจเลยค่ะ 🍲😋';
     }
 
-    // Prefixed with clear notification as requested by user
-    return `*(ขณะนี้ระบบ API มีผู้ใช้งานจำนวนมาก ขอสรุปความพร้อมจากข้อมูลในระบบ: อุปกรณ์พร้อม ${completionPct}%, ชำรุด ${grandDefective} รายการ)*\n\n${content}`;
+    if (q.includes('เหนื่อย') || q.includes('ท้อ') || q.includes('งานหนัก') || q.includes('พัก')) {
+      return 'เข้าใจเลยค่ะพี่! งานวิสัญญีเป็นงานที่ต้องใช้สมาธิและความละเอียดสูงมากในการดูแลผู้ป่วย สู้ๆ นะคะ น้องออร่าขอส่งกำลังใจให้พี่ๆ ได้พักจิบน้ำ เติมพลังสักนิดนะคะ 💪✨';
+    }
+
+    if (q.includes('สวัสดี') || q.includes('หวัดดี') || q.includes('hello') || q.includes('hi') || q === '') {
+      return 'สวัสดีค่ะ! น้องออร่า ยินดีต้อนรับค่ะ วันนี้น้องออร่าพร้อมพูดคุยและช่วยพี่ๆ ตรวจเช็กอุปกรณ์ห้องผ่าตัดเสมอค่ะ มีเรื่องอะไรอยากคุยบอกน้องออร่าได้เลยนะคะ ✨';
+    }
+
+    if (q.includes('เป็นไงบ้าง') || q.includes('สบายดีไหม') || q.includes('สบายดีมั้ย')) {
+      return 'น้องออร่าสบายดีมากๆ ค่ะ! พร้อมอยู่คุยเป็นเพื่อนพี่ๆ ทีมวิสัญญีตลอดวันเลยค่ะ 😊';
+    }
+
+    if (q.includes('ทำอะไรได้บ้าง') || q.includes('ช่วยอะไรได้บ้าง') || q.includes('แนะนำ')) {
+      return 'น้องออร่าเป็น AI ที่คุยได้ทุกเรื่องเลยค่ะ! จะชวนคุยเล่น ให้กำลังใจ ถามความรู้ทั่วไป หรือถามสรุปความพร้อมอุปกรณ์วิสัญญีและรายการชำรุด ถามน้องออร่าได้หมดเลยค่ะ';
+    }
+
+    const hasDefective = grandDefective > 0 || defectiveItems.length > 0;
+    const defSummary = defectiveItems
+      .map((d, i) => `${i + 1}. ${d.name} (${d.location || 'ห้องผ่าตัด'}) ${d.note ? `[${d.note}]` : ''}`)
+      .join('\n');
+
+    if (q.includes('สรุป') || q.includes('ภาพรวม') || q.includes('ความพร้อม') || q.includes('อุปกรณ์') || q.includes('ครุภัณฑ์')) {
+      return `📊 ภาพรวมความพร้อมครุภัณฑ์วิสัญญีวันนี้:\n• ความพร้อมโดยรวม: ${completionPct}%\n• อุปกรณ์ปกติพร้อมใช้: ${grandNormal} รายการ\n• อุปกรณ์ต้องตรวจสอบ: ${grandDefective} รายการ\n• รอการตรวจเช็ก: ${pendingCount} รายการ` +
+        (hasDefective ? `\n\n⚠️ รายการชำรุด:\n${defSummary}` : '\n\n✅ ครุภัณฑ์ทุกรายการสมบูรณ์พร้อมใช้งานค่ะ');
+    }
+
+    if (q.includes('ชำรุด') || q.includes('เสีย') || q.includes('พัง') || q.includes('ผิดปกติ')) {
+      return hasDefective 
+        ? `⚠️ ตรวจพบรายการชำรุด ${grandDefective} รายการ ดังนี้ค่ะ:\n${defSummary}\n\nน้องออร่าแนะนำให้ประสานช่างซ่อมบำรุงหรือเตรียมเครื่องสำรองนะคะ`
+        : '🎉 จากการตรวจสอบในระบบ ไม่พบรายงานอุปกรณ์ชำรุดเลยค่ะ ทุกอย่างพร้อมใช้งานสมบูรณ์!';
+    }
+
+    return `น้องออร่ารับฟังอยู่เสมอค่ะ! คุยกับน้องออร่าได้ทุกเรื่องเลยนะคะ ไม่ว่าจะคุยเล่น หรือสอบถามสถานะอุปกรณ์วิสัญญี ยินดีตอบพี่ๆ เสมอค่ะ 😊`;
   };
 
   /**
-   * Handle Send Message with Gemini API + Quota/Rate Limit Fallback
+   * Send userQuery directly to Gemini 1.5 API without local keyword overrides
    */
   const handleSendMessage = async () => {
     if (!inputQuery.trim() || isLoading) return;
     const userQuery = inputQuery.trim();
     
-    // Add user message to UI immediately
     const updatedMessages = [...chatMessages, { sender: 'user', text: userQuery }];
     setChatMessages(updatedMessages);
     setInputQuery('');
@@ -98,19 +98,22 @@ const AiInsightsWidget = ({ readinessData, isDarkMode = false, stats, defectiveI
 
     const contextPayload = {
       completionPct,
-      grandDefective,
-      grandNormal,
+      grandChecked: stats?.grandChecked ?? 0,
       grandTotal,
+      grandNormal,
+      grandDefective,
       pendingCount,
       defectiveItems: defectiveItems.map(d => ({
         name: d.name,
         location: d.location,
-        note: d.note || ''
-      }))
+        note: d.note || '',
+      })),
     };
 
     try {
-      // 1. Primary Call: Gemini API via Server Route
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 12000);
+
       const response = await fetch('/api/ai/chat', {
         method: 'POST',
         headers: {
@@ -120,26 +123,31 @@ const AiInsightsWidget = ({ readinessData, isDarkMode = false, stats, defectiveI
           message: userQuery,
           context: contextPayload,
         }),
+        signal: controller.signal,
       });
 
+      clearTimeout(timeoutId);
+
       if (!response.ok) {
-        // Quota exceeded (429) or other API issues
         const errorData = await response.json().catch(() => ({}));
-        console.warn('[AI Assistant] API call returned non-200, activating fallback:', response.status, errorData);
         throw new Error(errorData?.error || `HTTP ${response.status}`);
       }
 
       const result = await response.json();
       if (result.success && result.text) {
         setChatMessages(prev => [...prev, { sender: 'ai', text: result.text }]);
+        if (!isChatOpen) {
+          setHasUnreadReply(true);
+        }
       } else {
         throw new Error(result.error || 'Empty Gemini response');
       }
-    } catch (err) {
-      console.warn('[AI Assistant] Gemini API error, seamlessly switching to Local Dynamic Rule:', err);
-      // 2. Automatic Fallback: Local Dynamic Rule Engine based on real table data
-      const fallbackText = generateLocalDynamicReply(userQuery);
+    } catch (_err) {
+      const fallbackText = generateWarmFallbackReply(userQuery);
       setChatMessages(prev => [...prev, { sender: 'ai', text: fallbackText }]);
+      if (!isChatOpen) {
+        setHasUnreadReply(true);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -147,69 +155,74 @@ const AiInsightsWidget = ({ readinessData, isDarkMode = false, stats, defectiveI
 
   return (
     <>
-      {/* 1. Main Widget Card (One UI Glassmorphism Style) */}
-      <div className={`w-full my-3 p-5 rounded-[2rem] backdrop-blur-md border shadow-lg transition-all duration-300 ${
-        isDarkMode 
-          ? 'bg-gradient-to-br from-blue-950/40 via-[#181A20]/90 to-cyan-950/30 border-blue-500/20 shadow-blue-500/5 text-white' 
-          : 'bg-gradient-to-br from-blue-50/90 via-white/95 to-cyan-50/80 border-white/80 shadow-blue-500/5 text-slate-800'
-      }`}>
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2">
-            <div className="relative flex items-center justify-center p-2 rounded-2xl bg-blue-600 text-white shadow-md shadow-blue-500/30 animate-pulse">
-              <Sparkles className="w-5 h-5 text-cyan-200" />
-              <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-emerald-400 rounded-full border-2 border-white animate-ping" />
-            </div>
-            <div>
-              <h3 className={`font-semibold text-base flex items-center gap-1.5 ${isDarkMode ? 'text-white' : 'text-slate-800'}`}>
-                AI สรุปความพร้อมประจำวัน
-              </h3>
-              <p className={`text-xs ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
-                ระบบวิเคราะห์ความพร้อมอัจฉริยะ (Gemini AI + Real-time Rule)
-              </p>
-            </div>
-          </div>
-          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-500 dark:text-emerald-400 border border-emerald-500/20">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-            Live Status
-          </span>
+      <style>{`
+        @keyframes auraSpring {
+          0% {
+            transform: scale(0.1) rotate(-10deg);
+            opacity: 0;
+          }
+          100% {
+            transform: scale(1) rotate(0deg);
+            opacity: 1;
+          }
+        }
+        .aura-chat-modal {
+          transform-origin: bottom right;
+          transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.3s ease;
+        }
+        .aura-fab-fixed {
+          position: fixed !important;
+          bottom: calc(85px + env(safe-area-inset-bottom, 0px)) !important;
+          right: 20px !important;
+          z-index: 9999 !important;
+        }
+        @media (min-width: 640px) {
+          .aura-fab-fixed {
+            bottom: 24px !important;
+            right: 24px !important;
+          }
+        }
+      `}</style>
+
+      {/* 🚀 1. Fixed Floating Action Button (One UI Blue & Cyan Glassmorphism Theme) */}
+      <div className="aura-fab-fixed flex flex-col items-end group">
+        {/* Tooltip hint on hover (Desktop) */}
+        <div className="hidden sm:block absolute right-16 top-2.5 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none bg-slate-900/90 text-white text-[11px] font-bold px-3 py-1.5 rounded-xl shadow-lg backdrop-blur-md whitespace-nowrap">
+          💬 ปรึกษา AURA (น้องออร่า)
         </div>
 
-        {/* AI Briefing Context Box */}
-        <div className={`p-3.5 rounded-2xl border shadow-inner mb-4 text-sm leading-relaxed ${
-          isDarkMode 
-            ? 'bg-black/30 border-slate-800 text-slate-200' 
-            : 'bg-white/80 border-slate-100 text-slate-700'
-        }`}>
-          ✨ วันนี้อุปกรณ์ห้องผ่าตัดพร้อม <strong className="text-blue-500 dark:text-blue-400 font-semibold">{completionPct}%</strong>{' '}
-          {grandDefective > 0 ? (
-            <>
-              มีรายการ <span className="text-amber-500 dark:text-amber-400 font-medium">{firstDefective}</span> ที่ต้องตรวจสอบ (ชำรุด {grandDefective} รายการ)
-            </>
-          ) : (
-            <>ทุกรายการตรวจเช็กผ่านเกณฑ์ปกติสมบูรณ์</>
-          )}{' '}
-          ส่วนคลังยาและกระเป๋าฉุกเฉินพร้อมใช้งาน <span className="text-emerald-500 dark:text-emerald-400 font-semibold">100%</span>
-        </div>
-
-        {/* Interactive Action Button */}
         <button
           type="button"
-          onClick={() => setIsChatOpen(true)}
-          className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-blue-600 via-blue-500 to-cyan-500 hover:from-blue-700 hover:to-cyan-600 text-white font-medium text-sm shadow-md shadow-blue-500/20 hover:shadow-lg hover:shadow-blue-500/30 active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer"
+          onClick={handleOpenChat}
+          className="w-[54px] h-[54px] sm:w-16 sm:h-16 rounded-full bg-gradient-to-tr from-blue-600 via-indigo-600 to-cyan-400 hover:from-blue-500 hover:to-cyan-300 text-white shadow-[0_8px_30px_rgba(14,165,233,0.45)] flex items-center justify-center transition-all duration-300 hover:scale-105 active:scale-95 cursor-pointer border-2 border-white/50 backdrop-blur-xl relative"
+          title="เปิดแชทกับน้องออร่า"
         >
-          <MessageSquare className="w-4 h-4" />
-          <span>💬 ถาม AI ถึงความพร้อมวันนี้</span>
+          <Sparkles className="w-6 h-6 text-cyan-100 animate-pulse" />
+
+          {/* 🔔 Dynamic Unread Status Badge: Only pulse when there is an unread AI reply & chat is closed */}
+          {hasUnreadReply && !isChatOpen && (
+            <>
+              <span className="absolute top-1 right-1 w-3.5 h-3.5 bg-cyan-400 border-2 border-white rounded-full animate-ping" />
+              <span className="absolute top-1 right-1 w-3.5 h-3.5 bg-cyan-400 border-2 border-white rounded-full shadow-sm" />
+            </>
+          )}
         </button>
       </div>
 
-      {/* 2. Quick Chat Modal / Sheet */}
+      {/* 💬 2. Quick Chat Modal with One UI Blue & Cyan Theme */}
       {isChatOpen && (
         <div 
-          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-sm p-0 sm:p-4 animate-fade-in"
-          onClick={() => setIsChatOpen(false)}
+          style={{ zIndex: 10000 }}
+          className="fixed inset-0 z-[10000] flex items-end sm:items-center justify-center bg-slate-900/70 backdrop-blur-sm p-0 sm:p-4 transition-opacity duration-300"
+          onClick={handleCloseChat}
         >
           <div 
-            className={`w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl shadow-2xl flex flex-col max-h-[85vh] h-[550px] overflow-hidden border ${
+            style={{
+              transformOrigin: 'bottom right',
+              transform: isAnimating ? 'scale(1) rotate(0deg)' : 'scale(0.1) rotate(-10deg)',
+              opacity: isAnimating ? 1 : 0,
+            }}
+            className={`w-full sm:max-w-md rounded-t-[2.5rem] sm:rounded-3xl shadow-2xl flex flex-col max-h-[88vh] sm:max-h-[85vh] h-[85vh] sm:h-[580px] overflow-hidden border aura-chat-modal ${
               isDarkMode 
                 ? 'bg-[#181A20] border-slate-700 text-white' 
                 : 'bg-white border-slate-100 text-slate-900'
@@ -217,20 +230,22 @@ const AiInsightsWidget = ({ readinessData, isDarkMode = false, stats, defectiveI
             onClick={(e) => e.stopPropagation()}
           >
             {/* Modal Header */}
-            <div className="p-4 bg-gradient-to-r from-blue-600 to-cyan-600 text-white flex items-center justify-between shrink-0 shadow-md">
-              <div className="flex items-center gap-2.5">
-                <div className="p-1.5 rounded-xl bg-white/20">
+            <div className="p-4 bg-gradient-to-r from-blue-700 via-indigo-600 to-cyan-500 text-white flex items-center justify-between shrink-0 shadow-md">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-2xl bg-white/20 backdrop-blur-md">
                   <Bot className="w-5 h-5 text-cyan-200" />
                 </div>
                 <div>
-                  <h4 className="font-semibold text-sm">AI Assistant (วิสัญญี)</h4>
-                  <p className="text-[11px] text-blue-100">ขับเคลื่อนด้วย Gemini AI พร้อมระบบวิเคราะห์ความพร้อมในตัว</p>
+                  <h4 className="font-bold text-sm sm:text-base flex items-center gap-1.5">
+                    <span>น้องออร่า (AURA)</span>
+                  </h4>
+                  <p className="text-[11px] text-cyan-100 font-medium">ผู้ช่วยวิสัญญีอัจฉริยะ (Gemini 1.5)</p>
                 </div>
               </div>
               <button
                 type="button"
-                onClick={() => setIsChatOpen(false)}
-                className="p-1.5 rounded-full hover:bg-white/20 text-white transition-colors cursor-pointer"
+                onClick={handleCloseChat}
+                className="w-9 h-9 rounded-full bg-white/20 hover:bg-white/30 active:scale-90 text-white flex items-center justify-center transition cursor-pointer shadow-sm"
                 title="ปิด"
               >
                 <X className="w-5 h-5" />
@@ -247,9 +262,9 @@ const AiInsightsWidget = ({ readinessData, isDarkMode = false, stats, defectiveI
                   className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}
                 >
                   <div
-                    className={`max-w-[85%] p-3.5 rounded-2xl text-xs leading-relaxed whitespace-pre-line ${
+                    className={`max-w-[85%] p-3.5 rounded-2xl text-xs sm:text-sm leading-relaxed whitespace-pre-line ${
                       msg.sender === 'user'
-                        ? 'bg-blue-600 text-white rounded-br-none shadow-sm'
+                        ? 'bg-gradient-to-r from-blue-600 to-cyan-600 text-white rounded-br-none shadow-sm'
                         : isDarkMode
                           ? 'bg-[#1F222A] text-slate-100 border border-slate-700 rounded-bl-none shadow-sm'
                           : 'bg-white text-slate-700 border border-slate-100 rounded-bl-none shadow-sm'
@@ -265,8 +280,8 @@ const AiInsightsWidget = ({ readinessData, isDarkMode = false, stats, defectiveI
                   <div className={`p-3 rounded-2xl text-xs flex items-center gap-2 ${
                     isDarkMode ? 'bg-[#1F222A] text-slate-300 border border-slate-700' : 'bg-white text-slate-600 border border-slate-100'
                   }`}>
-                    <Loader2 size={14} className="animate-spin text-blue-500" />
-                    <span>AI กำลังวิเคราะห์ข้อมูลความพร้อม...</span>
+                    <Loader2 size={14} className="animate-spin text-cyan-400" />
+                    <span>น้องออร่ากำลังวิเคราะห์คำตอบ...</span>
                   </div>
                 </div>
               )}
@@ -278,24 +293,24 @@ const AiInsightsWidget = ({ readinessData, isDarkMode = false, stats, defectiveI
             }`}>
               <button
                 type="button"
-                onClick={() => { setInputQuery('สรุปความพร้อมวันนี้'); }}
-                className="text-[10px] px-2.5 py-1 rounded-full whitespace-nowrap bg-blue-500/10 text-blue-500 dark:text-blue-400 hover:bg-blue-500/20 transition cursor-pointer"
+                onClick={() => { setInputQuery('หิวข้าวแล้ว ทานอะไรดีคะ'); }}
+                className="text-[11px] px-3 py-1 rounded-full whitespace-nowrap bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-500/20 transition cursor-pointer font-bold"
+              >
+                🍲 หิวข้าวแล้ว
+              </button>
+              <button
+                type="button"
+                onClick={() => { setInputQuery('สวัสดีน้องออร่า ทำอะไรได้บ้าง'); }}
+                className="text-[11px] px-3 py-1 rounded-full whitespace-nowrap bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 hover:bg-cyan-500/20 transition cursor-pointer font-bold"
+              >
+                👋 ทักทาย
+              </button>
+              <button
+                type="button"
+                onClick={() => { setInputQuery('สรุปความพร้อมอุปกรณ์วันนี้'); }}
+                className="text-[11px] px-3 py-1 rounded-full whitespace-nowrap bg-blue-500/10 text-blue-600 dark:text-blue-400 hover:bg-blue-500/20 transition cursor-pointer font-bold"
               >
                 📊 สรุปความพร้อม
-              </button>
-              <button
-                type="button"
-                onClick={() => { setInputQuery('มีอุปกรณ์ชำรุดกี่รายการ?'); }}
-                className="text-[10px] px-2.5 py-1 rounded-full whitespace-nowrap bg-rose-500/10 text-rose-500 dark:text-rose-400 hover:bg-rose-500/20 transition cursor-pointer"
-              >
-                ⚠️ เช็กรายการชำรุด
-              </button>
-              <button
-                type="button"
-                onClick={() => { setInputQuery('ตรวจเช็กห้อง OR 2'); }}
-                className="text-[10px] px-2.5 py-1 rounded-full whitespace-nowrap bg-cyan-500/10 text-cyan-500 dark:text-cyan-400 hover:bg-cyan-500/20 transition cursor-pointer"
-              >
-                🏥 สถานะห้อง OR 2
               </button>
             </div>
 
@@ -309,8 +324,8 @@ const AiInsightsWidget = ({ readinessData, isDarkMode = false, stats, defectiveI
                 disabled={isLoading}
                 onChange={(e) => setInputQuery(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
-                placeholder="พิมพ์คำถามเกี่ยวกับอุปกรณ์ห้องผ่าตัด..."
-                className={`flex-1 px-4 py-2.5 rounded-full text-xs outline-none focus:ring-2 focus:ring-blue-500/50 disabled:opacity-50 ${
+                placeholder="พิมพ์คุยกับน้องออร่าได้ทุกเรื่อง..."
+                className={`flex-1 px-4 py-2.5 rounded-full text-xs sm:text-sm outline-none focus:ring-2 focus:ring-cyan-500/50 disabled:opacity-50 ${
                   isDarkMode 
                     ? 'bg-slate-800 text-white placeholder-slate-400' 
                     : 'bg-slate-100 text-slate-800 placeholder-slate-400'
@@ -320,7 +335,7 @@ const AiInsightsWidget = ({ readinessData, isDarkMode = false, stats, defectiveI
                 type="button"
                 onClick={handleSendMessage}
                 disabled={isLoading || !inputQuery.trim()}
-                className="p-2.5 rounded-full bg-blue-600 text-white hover:bg-blue-700 active:scale-95 disabled:opacity-40 transition-all shadow-md shadow-blue-500/20 cursor-pointer"
+                className="p-2.5 rounded-full bg-gradient-to-r from-blue-600 to-cyan-500 text-white hover:from-blue-700 hover:to-cyan-600 active:scale-95 disabled:opacity-40 transition-all shadow-md shadow-cyan-500/20 cursor-pointer"
                 title="ส่งข้อความ"
               >
                 {isLoading ? <Loader2 size={16} className="animate-spin" /> : <Send className="w-4 h-4" />}

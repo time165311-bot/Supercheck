@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useMemo } from 'react';
 import {
   AlertTriangle,
   ChevronRight,
+  ChevronLeft,
   Bell,
   CheckCircle2,
   Clock,
@@ -35,6 +36,7 @@ interface ModernDashboardProps {
   theme?: 'light' | 'dark';
   onToggleTheme?: () => void;
   onNavigate: (view: 'home' | 'eq_overview' | 'room_check' | 'bag_check' | 'cart_check' | 'users' | 'drug_check') => void;
+  onSelectRoom?: (roomId: string) => void;
   onLogout?: () => void;
   onOpenNotifications?: () => void;
   onOpenProfile?: () => void;
@@ -65,6 +67,7 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
   theme,
   onToggleTheme,
   onNavigate,
+  onSelectRoom,
   onOpenNotifications,
   onOpenProfile,
   onOpenDrawer,
@@ -74,6 +77,40 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
   overallStats,
 }) => {
   const isDarkMode = theme ? theme === 'dark' : true;
+  const swiperRef = React.useRef<any>(null);
+
+  // Window Resize & Viewport Breakpoint Listener to re-calculate Swiper dimensions & reset layout
+  useLayoutEffect(() => {
+    const handleResize = () => {
+      if (swiperRef.current) {
+        try {
+          swiperRef.current.update();
+          swiperRef.current.updateSize();
+          swiperRef.current.updateSlides();
+          swiperRef.current.updateProgress();
+        } catch (e) {
+          // ignore
+        }
+      }
+    };
+
+    window.addEventListener('resize', handleResize, { passive: true });
+    window.addEventListener('orientationchange', handleResize, { passive: true });
+
+    const timer = setTimeout(handleResize, 120);
+
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener('resize', handleResize);
+      window.removeEventListener('orientationchange', handleResize);
+    };
+  }, []);
+
+  const handleCategorySelect = (
+    targetView: 'home' | 'eq_overview' | 'room_check' | 'bag_check' | 'cart_check' | 'users' | 'drug_check'
+  ) => {
+    onNavigate(targetView);
+  };
 
   // Weather State
   const [weatherData, setWeatherData] = useState<{
@@ -139,7 +176,13 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
   const defectiveStroke = stats.grandTotal > 0 ? (stats.grandDefective / stats.grandTotal) * 100 : 0;
 
   // Defective items list
-  const defectiveItems = useMemo(() => {
+  const defectiveItems = useMemo<Array<{
+    category: string;
+    name: string;
+    location: string;
+    note?: string;
+    targetView: 'eq_overview' | 'bag_check' | 'cart_check' | 'drug_check';
+  }>>(() => {
     const list: Array<{
       category: string;
       name: string;
@@ -283,8 +326,8 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
         />
       </div>
 
-      {/* Main Container */}
-      <div className="p-4 pt-3 space-y-4 relative z-10 max-w-md lg:max-w-[1400px] mx-auto lg:grid lg:grid-cols-2 lg:gap-6">
+      {/* Main Container (Expanded 50% Wider Container Stretch) */}
+      <div className="p-3 sm:p-6 pt-3 space-y-5 relative z-10 w-full max-w-full sm:max-w-2xl md:max-w-4xl lg:max-w-[1680px] xl:max-w-[1760px] mx-auto lg:grid lg:grid-cols-2 lg:gap-6">
         
         {/* 📱 1. Samsung One UI Header Card & Weather Widget with Vibrant Royal Blue Gradient */}
         <div
@@ -404,6 +447,8 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
           </div>
         </div>
 
+
+
         {/* 🤖 1.5 วิดเจ็ต AI สรุปความพร้อมประจำวัน (AiInsightsWidget) */}
         <div className="lg:col-span-2">
           <AiInsightsWidget
@@ -417,165 +462,268 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
           />
         </div>
 
-        {/* 🗂️ 2. หมวดหมู่ตรวจเช็ก (Original One UI Category Cards Block with Swiper Coverflow) */}
-        <div className="space-y-3 lg:col-span-1">
+        {/* 🗂️ 2. หมวดหมู่ตรวจเช็ก (Large Responsive Category Cards with Inset Arrow Navigation) */}
+        <div className="space-y-3 lg:col-span-2 relative">
           <div className="flex justify-between items-center px-2">
-            <h2 className={`text-base font-bold ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>
-              หมวดหมู่ตรวจเช็ก
+            <h2 className={`text-lg sm:text-xl font-bold flex items-center gap-2 ${isDarkMode ? 'text-slate-100' : 'text-slate-900'}`}>
+              <span>หมวดหมู่ตรวจเช็ก</span>
             </h2>
             <span
-              className={`text-xs font-bold px-3 py-1 rounded-full border ${
+              className={`text-xs sm:text-sm font-bold px-3.5 py-1 rounded-full border ${
                 isDarkMode
-                  ? 'bg-slate-800/80 border-slate-700 text-slate-400'
-                  : 'bg-white border-slate-200 text-slate-600'
+                  ? 'bg-slate-800/80 border-slate-700 text-slate-300'
+                  : 'bg-white border-slate-200 text-slate-700'
               }`}
             >
               4 หมวดหลัก
             </span>
           </div>
 
-          <Swiper
-            modules={[EffectCoverflow, Pagination]}
-            effect={'coverflow'}
-            grabCursor={true}
-            centeredSlides={true}
-            slidesPerView={1.15}
-            loop={true}
-            speed={400}
-            observer={true}
-            observeParents={true}
-            resizeObserver={true}
-            coverflowEffect={{
-              rotate: 0,
-              stretch: -10,
-              depth: 100,
-              modifier: 1,
-              slideShadows: false,
-            }}
-            pagination={{ clickable: true, dynamicBullets: true }}
-            className="w-full pb-8 cursor-grab active:cursor-grabbing"
-          >
-            {categories.map((item) => (
-              <SwiperSlide key={item.id}>
-                {({ isActive }) => (
-                  <div
-                    className={`relative h-64 rounded-[2rem] overflow-hidden transition-all duration-300 ${
-                      isActive
-                        ? 'scale-100 opacity-100 shadow-2xl z-20 ring-1 ring-white/20'
-                        : 'scale-90 opacity-50 blur-[0.3px] z-10'
-                    }`}
-                  >
-                    <img src={item.bg} alt={item.title} className="absolute inset-0 w-full h-full object-cover" />
-                    <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/40 to-transparent" />
+          {/* Carousel Wrapper with White Glassmorphic Side-by-Side Arrows (pointer-events-none on wrapper so overlay won't block clicks) */}
+          <div className="relative pointer-events-none">
+            {/* Left Arrow Button [<] */}
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                swiperRef.current?.slidePrev();
+              }}
+              style={{
+                background: 'rgba(255, 255, 255, 0.88)',
+                backdropFilter: 'blur(8px)',
+                border: '1px solid rgba(255, 255, 255, 0.7)',
+                boxShadow: '0 4px 14px rgba(0, 0, 0, 0.12)',
+                pointerEvents: 'auto',
+              }}
+              className="absolute left-1 sm:left-3 top-1/2 -translate-y-1/2 z-40 w-11 h-11 sm:w-13 sm:h-13 rounded-full text-slate-800 hover:text-blue-600 hover:bg-white flex items-center justify-center transition active:scale-90 cursor-pointer hover:scale-110 pointer-events-auto"
+              title="เลื่อนซ้าย"
+            >
+              <ChevronLeft size={24} className="stroke-[2.5]" />
+            </button>
 
-                    <div className="absolute inset-0 p-5 flex flex-col justify-between z-10">
-                      <span className="self-start bg-black/60 backdrop-blur-md text-white text-xs px-3 py-1 rounded-full font-semibold border border-white/20">
-                        {item.icon} {item.count}
-                      </span>
+            {/* Right Arrow Button [>] */}
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                swiperRef.current?.slideNext();
+              }}
+              style={{
+                background: 'rgba(255, 255, 255, 0.88)',
+                backdropFilter: 'blur(8px)',
+                border: '1px solid rgba(255, 255, 255, 0.7)',
+                boxShadow: '0 4px 14px rgba(0, 0, 0, 0.12)',
+                pointerEvents: 'auto',
+              }}
+              className="absolute right-1 sm:right-3 top-1/2 -translate-y-1/2 z-40 w-11 h-11 sm:w-13 sm:h-13 rounded-full text-slate-800 hover:text-blue-600 hover:bg-white flex items-center justify-center transition active:scale-90 cursor-pointer hover:scale-110 pointer-events-auto"
+              title="เลื่อนขวา"
+            >
+              <ChevronRight size={24} className="stroke-[2.5]" />
+            </button>
 
-                      <div className="space-y-3">
-                        <h3 className="text-xl font-bold text-white leading-tight drop-shadow">{item.title}</h3>
-                        <button
-                          type="button"
-                          onClick={() => onNavigate(item.targetView)}
-                          className="w-full bg-[#3B82F6] hover:bg-blue-600 text-white font-bold text-xs py-3 rounded-2xl shadow-lg transition active:scale-95 cursor-pointer flex items-center justify-center gap-1.5"
-                        >
-                          <span>เข้าตรวจเช็ก &rarr;</span>
-                        </button>
+            <Swiper
+              onSwiper={(swiper) => (swiperRef.current = swiper)}
+              modules={[EffectCoverflow, Pagination]}
+              effect={'coverflow'}
+              grabCursor={false}
+              simulateTouch={false}
+              allowTouchMove={true}
+              slideToClickedSlide={true}
+              touchEventsTarget="container"
+              loop={true}
+              speed={400}
+              observer={true}
+              observeParents={true}
+              resizeObserver={true}
+              preventClicks={false}
+              preventClicksPropagation={false}
+              touchStartPreventDefault={false}
+              threshold={10}
+              breakpoints={{
+                320: { slidesPerView: 1.05, spaceBetween: 12, centeredSlides: true },
+                640: { slidesPerView: 1.8, spaceBetween: 16, centeredSlides: false },
+                1024: { slidesPerView: 2.8, spaceBetween: 20, centeredSlides: false },
+                1280: { slidesPerView: 3.6, spaceBetween: 24, centeredSlides: false },
+                1600: { slidesPerView: 4, spaceBetween: 24, centeredSlides: false },
+              }}
+              coverflowEffect={{
+                rotate: 0,
+                stretch: -10,
+                depth: 80,
+                modifier: 1,
+                slideShadows: false,
+              }}
+              pagination={{ clickable: true, dynamicBullets: true }}
+              className="w-full pb-8 px-6 sm:px-12 pointer-events-auto"
+            >
+              {categories.map((item) => (
+                <SwiperSlide key={item.id} className="pointer-events-auto">
+                  {({ isActive }) => (
+                    <div
+                      onClick={() => handleCategorySelect(item.targetView)}
+                      style={{ pointerEvents: 'auto', cursor: 'pointer', position: 'relative', zIndex: isActive ? 25 : 20 }}
+                      className={`relative h-72 sm:h-80 lg:h-84 rounded-[2.2rem] overflow-hidden transition-all duration-300 cursor-pointer group active:scale-98 pointer-events-auto hover:scale-105 ${
+                        isActive
+                          ? 'scale-100 opacity-100 shadow-2xl z-20 ring-2 ring-white/30'
+                          : 'scale-95 opacity-85 blur-[0.2px] z-10'
+                      }`}
+                    >
+                      <img src={item.bg} alt={item.title} className="absolute inset-0 w-full h-full object-cover pointer-events-none select-none" />
+                      <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/40 to-transparent pointer-events-none" />
+
+                      <div className="absolute inset-0 p-6 sm:p-8 flex flex-col justify-between z-10 pointer-events-auto">
+                        <span className="self-start bg-black/60 backdrop-blur-md text-white text-xs sm:text-sm px-4 py-1.5 rounded-full font-bold border border-white/20 shadow-md pointer-events-none">
+                          {item.icon} {item.count}
+                        </span>
+
+                        <div className="space-y-4 pointer-events-auto">
+                          <h3 className="text-2xl sm:text-3xl font-extrabold text-white leading-tight drop-shadow-md pointer-events-none">{item.title}</h3>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleCategorySelect(item.targetView);
+                            }}
+                            style={{ pointerEvents: 'auto', cursor: 'pointer', position: 'relative', zIndex: 30 }}
+                            className="w-full bg-[#3B82F6] hover:bg-blue-600 text-white font-bold text-sm sm:text-base py-3.5 px-6 rounded-2xl shadow-xl transition active:scale-95 cursor-pointer flex items-center justify-center gap-2 group-hover:bg-blue-600 relative z-30 pointer-events-auto"
+                          >
+                            <span>เข้าตรวจเช็ก &rarr;</span>
+                          </button>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                )}
-              </SwiperSlide>
-            ))}
-          </Swiper>
+                  )}
+                </SwiperSlide>
+              ))}
+            </Swiper>
+          </div>
         </div>
 
-        {/* 📊 3. สถิติความพร้อมประจำวัน (One UI Widget Style - Placed on the Right Side in Desktop) */}
+        {/* 📊 3. สถิติความพร้อมประจำวัน (Full-Width Expanded Container Layout) */}
         <div
-          className={`w-full rounded-[2rem] p-5 lg:p-6 border shadow-xl space-y-4 transition-colors duration-500 lg:col-span-1 flex flex-col justify-between ${
+          style={{ width: '100%' }}
+          className={`w-full max-w-full rounded-[2.2rem] p-6 sm:p-8 border shadow-2xl space-y-5 transition-colors duration-500 lg:col-span-2 ${
             isDarkMode
-              ? 'bg-[#181A20]/90 backdrop-blur-2xl border-white/10 text-white'
-              : 'bg-white/90 backdrop-blur-2xl border-white/80 text-slate-800'
+              ? 'bg-[#181A20]/95 backdrop-blur-2xl border-white/10 text-white'
+              : 'bg-white/95 backdrop-blur-2xl border-white/80 text-slate-800'
           }`}
         >
-          <div className="flex justify-between items-center border-b pb-3 border-slate-700/30">
-            <span className="text-sm font-bold">สถิติความพร้อมวันนี้</span>
-            <span className="text-xs bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-3 py-0.5 rounded-full font-bold">
-              Real-time
+          <div className="flex justify-between items-center border-b pb-4 border-slate-700/30">
+            <h3 className="text-base sm:text-xl font-bold flex items-center gap-2">
+              <span>สถิติความพร้อมประจำวัน</span>
+            </h3>
+            <span className="text-xs sm:text-sm bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-3.5 py-1 rounded-full font-bold">
+              ● Real-time
             </span>
           </div>
 
-          <div className="flex items-center justify-between my-auto py-2">
-            <div className="relative w-20 h-20 sm:w-24 sm:h-24 flex items-center justify-center shrink-0">
-              <svg className="w-full h-full transform -rotate-90" viewBox="0 0 36 36">
-                <path
-                  className={isDarkMode ? 'text-slate-800' : 'text-slate-200'}
-                  strokeWidth="4"
-                  stroke="currentColor"
-                  fill="none"
-                  d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                />
-                <path
-                  className="text-emerald-400"
-                  strokeDasharray={`${normalStroke}, 100`}
-                  strokeWidth="4"
-                  strokeLinecap="round"
-                  stroke="currentColor"
-                  fill="none"
-                  d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                />
-                {defectiveStroke > 0 && (
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center py-2">
+            {/* Donut Progress Chart & Total (Spans 4 columns on large screens) */}
+            <div
+              onClick={() => onNavigate('room_check')}
+              className="lg:col-span-4 flex items-center justify-center sm:justify-start gap-5 p-5 sm:p-6 rounded-[1.8rem] bg-black/15 border border-white/10 shadow-inner cursor-pointer hover:border-emerald-400/50 transition active:scale-98"
+              title="คลิกเพื่อดูรายละเอียดผังห้องผ่าตัด"
+            >
+              <div className="relative w-28 h-28 sm:w-32 sm:h-32 flex items-center justify-center shrink-0">
+                <svg className="w-full h-full transform -rotate-90" viewBox="0 0 36 36">
                   <path
-                    className="text-rose-500"
-                    strokeDasharray={`${defectiveStroke}, 100`}
-                    strokeDashoffset={`-${normalStroke}`}
-                    strokeWidth="4"
+                    className={isDarkMode ? 'text-slate-800' : 'text-slate-200'}
+                    strokeWidth="3.8"
+                    stroke="currentColor"
+                    fill="none"
+                    d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                  />
+                  <path
+                    className="text-emerald-400"
+                    strokeDasharray={`${normalStroke}, 100`}
+                    strokeWidth="3.8"
                     strokeLinecap="round"
                     stroke="currentColor"
                     fill="none"
                     d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
                   />
-                )}
-              </svg>
-              <span className="absolute text-lg sm:text-xl font-black nowrap-unit">
-                {stats.completionPct}%
-              </span>
+                  {defectiveStroke > 0 && (
+                    <path
+                      className="text-rose-500"
+                      strokeDasharray={`${defectiveStroke}, 100`}
+                      strokeDashoffset={`-${normalStroke}`}
+                      strokeWidth="3.8"
+                      strokeLinecap="round"
+                      stroke="currentColor"
+                      fill="none"
+                      d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                    />
+                  )}
+                </svg>
+                <span className="absolute text-2xl sm:text-3xl font-black tabular-nums">
+                  {stats.completionPct}%
+                </span>
+              </div>
+              <div className="space-y-1.5 text-left">
+                <p className="text-xs sm:text-sm font-bold text-slate-400">ระดับความพร้อมรวม</p>
+                <p className="text-base sm:text-lg font-black text-emerald-400 tabular-nums">
+                  {stats.grandNormal} / {stats.grandTotal} รายการ
+                </p>
+                <p className="text-xs text-slate-400">
+                  {stats.grandDefective > 0 ? `พบข้อบกพร่อง ${stats.grandDefective} รายการ` : 'อุปกรณ์พร้อมใช้งานสมบูรณ์ 100%'}
+                </p>
+              </div>
             </div>
 
-            <div className="space-y-2 flex-1 ml-4">
+            {/* Detailed Breakdown Horizontal Cards Grid (Spans 8 columns on large screens) */}
+            <div className="lg:col-span-8 grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+              {/* Card 1: Normal */}
               <div
-                className={`flex justify-between items-center px-3 py-2 rounded-xl text-xs border ${
-                  isDarkMode ? 'bg-[#101216] border-slate-800' : 'bg-slate-50 border-slate-200'
+                onClick={() => onNavigate('room_check')}
+                className={`p-4 sm:p-5 rounded-[1.5rem] border flex flex-col justify-between gap-3 cursor-pointer hover:border-emerald-400/50 transition active:scale-98 ${
+                  isDarkMode ? 'bg-[#101216] border-slate-800/80' : 'bg-slate-50/80 border-slate-200'
                 }`}
+                title="ดูรายการครุภัณฑ์ปกติ"
               >
-                <span className="font-bold flex items-center gap-1">
-                  <CheckCircle2 size={14} className="text-emerald-400" />
+                <span className="font-bold text-xs sm:text-sm text-slate-400 flex items-center gap-2">
+                  <CheckCircle2 size={18} className="text-emerald-400" />
                   <span>ปกติพร้อมใช้</span>
                 </span>
-                <span className="font-black text-emerald-400 text-sm">{stats.grandNormal}</span>
+                <div className="flex items-baseline justify-between">
+                  <span className="font-black text-emerald-400 text-2xl sm:text-3xl tabular-nums">{stats.grandNormal}</span>
+                  <span className="text-xs text-slate-400 font-medium">รายการ</span>
+                </div>
               </div>
+
+              {/* Card 2: Defective */}
               <div
-                className={`flex justify-between items-center px-3 py-2 rounded-xl text-xs border ${
-                  isDarkMode ? 'bg-[#101216] border-slate-800' : 'bg-slate-50 border-slate-200'
+                onClick={() => onNavigate('eq_overview')}
+                className={`p-4 sm:p-5 rounded-[1.5rem] border flex flex-col justify-between gap-3 cursor-pointer hover:border-rose-400/50 transition active:scale-98 ${
+                  isDarkMode ? 'bg-[#101216] border-slate-800/80' : 'bg-slate-50/80 border-slate-200'
                 }`}
+                title="ดูรายการข้อบกพร่อง/ชำรุด"
               >
-                <span className="font-bold flex items-center gap-1">
-                  <XCircle size={14} className="text-rose-500" />
+                <span className="font-bold text-xs sm:text-sm text-slate-400 flex items-center gap-2">
+                  <XCircle size={18} className="text-rose-500" />
                   <span>ต้องตรวจสอบ</span>
                 </span>
-                <span className="font-black text-rose-500 text-sm">{stats.grandDefective}</span>
+                <div className="flex items-baseline justify-between">
+                  <span className="font-black text-rose-500 text-2xl sm:text-3xl tabular-nums">{stats.grandDefective}</span>
+                  <span className="text-xs text-slate-400 font-medium">รายการ</span>
+                </div>
               </div>
+
+              {/* Card 3: Pending */}
               <div
-                className={`flex justify-between items-center px-3 py-2 rounded-xl text-xs border ${
-                  isDarkMode ? 'bg-[#101216] border-slate-800' : 'bg-slate-50 border-slate-200'
+                onClick={() => onNavigate('room_check')}
+                className={`p-4 sm:p-5 rounded-[1.5rem] border flex flex-col justify-between gap-3 cursor-pointer hover:border-amber-400/50 transition active:scale-98 ${
+                  isDarkMode ? 'bg-[#101216] border-slate-800/80' : 'bg-slate-50/80 border-slate-200'
                 }`}
+                title="ดูรายการห้องค้างตรวจเช็ก"
               >
-                <span className="font-bold flex items-center gap-1 opacity-80">
-                  <Clock size={14} />
+                <span className="font-bold text-xs sm:text-sm text-slate-400 flex items-center gap-2">
+                  <Clock size={18} className="text-amber-400" />
                   <span>รอตรวจเช็ก</span>
                 </span>
-                <span className="font-black opacity-80 text-sm">{pendingCount}</span>
+                <div className="flex items-baseline justify-between">
+                  <span className="font-black text-amber-400 text-2xl sm:text-3xl tabular-nums">{pendingCount}</span>
+                  <span className="text-xs text-slate-400 font-medium">รายการ</span>
+                </div>
               </div>
             </div>
           </div>

@@ -187,46 +187,58 @@ async function startServer() {
         },
       });
 
-      const systemInstruction = `คุณคือ "AI Assistant (วิสัญญี)" ผู้ช่วยอัจฉริยะประจำห้องผ่าตัดและงานวิสัญญี
-หน้าที่ของคุณคือสรุป วิเคราะห์ และตอบคำถามเกี่ยวกับความพร้อมของอุปกรณ์และงานวิสัญญีอย่างมืออาชีพ
-ข้อมูลสถานะระบบแบบเรียลไทม์ปัจจุบัน:
-- ความพร้อมโดยรวม: ${context?.completionPct ?? 98}%
-- ตรวจเช็กแล้ว: ${context?.grandChecked ?? 0} จากทั้งหมด ${context?.grandTotal ?? 0} รายการ
-- อุปกรณ์ปกติพร้อมใช้: ${context?.grandNormal ?? 0} รายการ
-- อุปกรณ์ที่พบข้อบกพร่อง/ต้องตรวจสอบ: ${context?.grandDefective ?? 0} รายการ
-- รายการชำรุด/ข้อบกพร่อง: ${JSON.stringify(context?.defectiveItems ?? [])}
-- รายการรอตรวจเช็ก: ${context?.pendingCount ?? 0} รายการ
+      const systemInstruction = `คุณคือ 'น้องออร่า (AURA)' ผู้ช่วยวิสัญญีอัจฉริยะที่ขับเคลื่อนด้วย Gemini 1.5
+- มีความฉลาด ตอบคำถามได้หลากหลาย ครอบคลุม เป็นธรรมชาติ สุภาพ และมีมิตรไมตรีสไตล์ผู้ช่วยวิสัญญีแพทย์/วิสัญญีพยาบาล
+- เมื่อผู้ใช้พูดคุยเรื่องทั่วไป คุยเล่น ทักทาย มุกตลก บ่นหิว/เหนื่อย ให้โต้ตอบอย่างเป็นธรรมชาติ ไม่สวมบทบาทแข็งกระด้าง (เช่น พิมพ์ว่า 'หิวข้าว' -> ให้ชวนคุยเรื่องหาอะไรทาน แนะนำอาหาร หรือคุยเล่นอย่างเป็นกันเอง ห้ามวกกลับมาพูดเรื่องรายงานความพร้อมอุปกรณ์เด็ดขาด)
+- รอบรู้ลึกซึ้งทางด้านวิสัญญีวิทยา: ยาวิสัญญี (Propofol, Rocuronium, Succinylcholine, Fentanyl, Morphine, Sugammadex, Adrenaline, Atropine, Ephedrine, Norepinephrine, Ketamine, Midazolam ฯลฯ), ขนาดยาตามน้ำหนัก (Dosage calculations ทั้งเด็กและผู้ใหญ่), ข้อห้ามใช้ (Contraindications), แนวทางการกู้ชีพฉุกเฉิน (CPR / ACLS / PALS), การจัดการทางเดินหายใจ (Airway management & Difficult airway DAS algorithm), และภาวะแทรกซ้อนทางวิสัญญี (Malignant Hyperthermia, LAST ฯลฯ)
+- ข้อมูลความพร้อมครุภัณฑ์ (readinessData): ให้ถือเป็น 'คลังความรู้ส่วนตัว' ที่คุณรับรู้ไว้ และจะดึงมาตอบ 'เฉพาะเมื่อผู้ใช้เอ่ยถามเกี่ยวกับอุปกรณ์, ห้องผ่าตัด, หรือความพร้อมของงานวิสัญญี' เท่านั้น
 
-ข้อกำหนดการตอบ:
-1. ตอบเป็นภาษาไทยที่สุภาพ กระชับ ชัดเจน มีความรู้ทางการแพทย์และงานวิสัญญี
-2. ตอบคำถามตรงประเด็น โดยอ้างอิงข้อมูลสถานะจริงข้างต้นเสมอ
-3. หากมีข้อสงสัยเกี่ยวกับอุปกรณ์ชำรุด ให้ระบุตำแหน่งห้อง และแนะนำการตรวจเช็กหรือสลับใช้อุปกรณ์สำรอง`;
+โครงสร้างข้อมูล readinessData (ข้อมูลสถานะครุภัณฑ์วิสัญญีเรียลไทม์ปัจจุบัน):
+- ความพร้อมโดยรวม (completionPct): ${context?.completionPct ?? 98}%
+- ตรวจเช็กแล้ว (grandChecked): ${context?.grandChecked ?? 0} จากทั้งหมด (grandTotal): ${context?.grandTotal ?? 0} รายการ
+- อุปกรณ์ปกติพร้อมใช้ (grandNormal): ${context?.grandNormal ?? 0} รายการ
+- อุปกรณ์ที่พบข้อบกพร่อง/ชำรุด (grandDefective): ${context?.grandDefective ?? 0} รายการ
+- รายการชำรุดสะสม (defectiveItems): ${JSON.stringify(context?.defectiveItems ?? [])}
+- รายการรอตรวจเช็ก (pendingCount): ${context?.pendingCount ?? 0} รายการ`;
 
-      const response = await aiClient.models.generateContent({
-        model: 'gemini-3.8-flash',
-        contents: [
-          { role: 'user', parts: [{ text: message || 'สรุปความพร้อมวันนี้' }] }
-        ],
-        config: {
-          systemInstruction: systemInstruction,
-          temperature: 0.7,
-        },
-      });
+      let response;
+      try {
+        response = await aiClient.models.generateContent({
+          model: 'gemini-3.8-flash',
+          contents: message || 'สวัสดีครับ',
+          config: {
+            systemInstruction: systemInstruction,
+          },
+        });
+      } catch (e1: any) {
+        try {
+          response = await aiClient.models.generateContent({
+            model: 'gemini-3.1-flash-lite',
+            contents: message || 'สวัสดีครับ',
+            config: {
+              systemInstruction: systemInstruction,
+            },
+          });
+        } catch (e2: any) {
+          console.warn('[Gemini API] Free tier quota or rate limit reached. Returning fallback response.');
+          return res.json({
+            success: false,
+            isQuotaExceeded: true,
+            error: 'QUOTA_EXCEEDED',
+            message: 'Quota limit exceeded on Gemini API',
+          });
+        }
+      }
 
       const replyText = response.text || '';
       return res.json({ success: true, text: replyText });
     } catch (error: any) {
-      console.warn('[Gemini API Call]:', error?.message || error);
-      const isQuota = error?.status === 429 || 
-        error?.message?.includes('429') || 
-        error?.message?.includes('quota') || 
-        error?.message?.includes('RESOURCE_EXHAUSTED');
-
-      return res.status(isQuota ? 429 : 500).json({
+      console.warn('[Gemini API] Unexpected request error:', error?.message || 'Error communicating with API');
+      return res.json({
         success: false,
-        isQuotaExceeded: isQuota,
-        error: isQuota ? 'QUOTA_EXCEEDED' : 'API_ERROR',
-        message: error?.message || 'Error communicating with Gemini API',
+        isQuotaExceeded: true,
+        error: 'API_ERROR',
+        message: 'Error communicating with Gemini API',
       });
     }
   });
