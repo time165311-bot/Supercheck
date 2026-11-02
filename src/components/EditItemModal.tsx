@@ -1,7 +1,12 @@
-import React, { useState, useRef, useMemo } from 'react';
-import { X, Save, Trash2, Upload, Image as ImageIcon } from 'lucide-react';
+import React, { useState, useRef } from 'react';
+import { X, Save, Trash2, Upload, Image as ImageIcon, Plus, Minus } from 'lucide-react';
 import { EquipmentItem } from '../types';
-import { getItemSizes } from './EmergencyChecklistView';
+
+interface SubExpField {
+  id: string;
+  label: string;
+  date: string;
+}
 
 interface EditItemModalProps {
   isOpen: boolean;
@@ -10,6 +15,29 @@ interface EditItemModalProps {
   groups: string[];
   onSave: (updatedItem: EquipmentItem) => void;
   onDelete: (itemId: string) => void;
+}
+
+function toIsoDate(str?: string): string {
+  if (!str) return '';
+  const s = str.trim();
+  if (!s || s === '-') return '';
+  const isoMatch = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
+  if (isoMatch) {
+    let y = parseInt(isoMatch[1], 10);
+    if (y > 2400) y -= 543;
+    const m = String(parseInt(isoMatch[2], 10)).padStart(2, '0');
+    const d = String(parseInt(isoMatch[3], 10)).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+  const dmyMatch = s.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})/);
+  if (dmyMatch) {
+    const d = String(parseInt(dmyMatch[1], 10)).padStart(2, '0');
+    const m = String(parseInt(dmyMatch[2], 10)).padStart(2, '0');
+    let y = parseInt(dmyMatch[3], 10);
+    if (y > 2400) y -= 543;
+    return `${y}-${m}-${d}`;
+  }
+  return s;
 }
 
 export const EditItemModal: React.FC<EditItemModalProps> = ({
@@ -25,24 +53,76 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
   const [customCategory, setCustomCategory] = useState('');
   const [spec, setSpec] = useState(item.spec || '');
   const [qty, setQty] = useState(item.qty || '1');
-  const [exp, setExp] = useState(item.exp || '');
   const [img, setImg] = useState(item.img || '');
-  const [expParts, setExpParts] = useState<Record<string, string>>(() => {
-    const parts: Record<string, string> = {};
-    if (item.exp && item.exp.includes(':')) {
-      item.exp.split(',').forEach(p => {
-        const [sz, dt] = p.split(':').map(s => s.trim());
-        if (sz && dt) parts[sz] = dt;
+
+  // Dynamic Sub-EXP State
+  const [subExps, setSubExps] = useState<SubExpField[]>(() => {
+    const fields: SubExpField[] = [];
+    const expStr = item.exp || '';
+    if (expStr && expStr.trim() && expStr !== '-') {
+      const parts = expStr.includes(',') ? expStr.split(',') : [expStr];
+      parts.forEach((p, idx) => {
+        const trimmed = p.trim();
+        if (!trimmed) return;
+        if (trimmed.includes(':')) {
+          const colonIdx = trimmed.indexOf(':');
+          const l = trimmed.substring(0, colonIdx).trim();
+          const d = trimmed.substring(colonIdx + 1).trim();
+          fields.push({
+            id: `sub_${idx}_${Date.now()}`,
+            label: l,
+            date: toIsoDate(d),
+          });
+        } else {
+          fields.push({
+            id: `sub_${idx}_${Date.now()}`,
+            label: parts.length > 1 ? `ชิ้นที่ ${idx + 1}` : '',
+            date: toIsoDate(trimmed),
+          });
+        }
       });
     }
-    return parts;
+    return fields;
+  });
+
+  // Single EXP date state (fallback if subExps is empty)
+  const [singleExp, setSingleExp] = useState<string>(() => {
+    if (!item.exp || item.exp.includes(',') || item.exp.includes(':')) return '';
+    return toIsoDate(item.exp);
   });
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const sizes = useMemo(() => {
-    return getItemSizes({ name, spec, qty });
-  }, [name, spec, qty]);
+  const handleAddSubExp = () => {
+    if (subExps.length === 0) {
+      if (singleExp) {
+        setSubExps([
+          { id: `sub_${Date.now()}_1`, label: 'ชิ้นที่ 1', date: singleExp },
+          { id: `sub_${Date.now()}_2`, label: 'ชิ้นที่ 2', date: '' },
+        ]);
+      } else {
+        setSubExps([
+          { id: `sub_${Date.now()}_1`, label: 'ชิ้นที่ 1', date: '' },
+          { id: `sub_${Date.now()}_2`, label: 'ชิ้นที่ 2', date: '' },
+        ]);
+      }
+    } else {
+      setSubExps((prev) => [
+        ...prev,
+        { id: `sub_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`, label: `ชิ้นที่ ${prev.length + 1}`, date: '' },
+      ]);
+    }
+  };
+
+  const handleRemoveSubExp = (id: string) => {
+    setSubExps((prev) => prev.filter((s) => s.id !== id));
+  };
+
+  const handleSubExpChange = (id: string, field: 'label' | 'date', val: string) => {
+    setSubExps((prev) =>
+      prev.map((s) => (s.id === id ? { ...s, [field]: val } : s))
+    );
+  };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -68,10 +148,16 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
     }
 
     const finalCategory = category === '__custom__' ? customCategory.trim() : category;
-    
-    const finalExp = sizes.length > 1
-      ? sizes.filter(s => expParts[s]).map(s => `${s}:${expParts[s]}`).join(', ')
-      : exp;
+
+    let finalExp = '';
+    if (subExps.length > 0) {
+      finalExp = subExps
+        .filter((s) => s.date || s.label)
+        .map((s) => (s.label ? `${s.label.trim()}: ${s.date}` : s.date))
+        .join(', ');
+    } else {
+      finalExp = singleExp;
+    }
 
     onSave({
       ...item,
@@ -106,22 +192,26 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
 
         <form onSubmit={handleSubmit} className="space-y-3.5 text-xs">
           <div>
-            <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1">ชื่อรายการอุปกรณ์ <span className="text-rose-500">*</span></label>
+            <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1">
+              ชื่อรายการอุปกรณ์ <span className="text-rose-500">*</span>
+            </label>
             <input
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-white/10 bg-white dark:bg-black/20 text-slate-900 dark:text-white outline-none focus:border-blue-500 transition"
+              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-white/10 bg-white dark:bg-black/20 text-slate-900 dark:text-white outline-none focus:border-blue-500 transition font-bold"
               required
             />
           </div>
 
           <div>
-            <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1">หมวดหมู่ / ชั้นวาง <span className="text-rose-500">*</span></label>
+            <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1">
+              หมวดหมู่ / ชั้นวาง <span className="text-rose-500">*</span>
+            </label>
             <select
               value={category}
               onChange={(e) => setCategory(e.target.value)}
-              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-white/10 bg-white dark:bg-black/20 text-slate-900 dark:text-white outline-none focus:border-blue-500 transition"
+              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-white/10 bg-white dark:bg-black/20 text-slate-900 dark:text-white outline-none focus:border-blue-500 transition font-bold"
             >
               {groups.map((g) => (
                 <option key={g} value={g}>{g}</option>
@@ -134,60 +224,94 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
                 value={customCategory}
                 onChange={(e) => setCustomCategory(e.target.value)}
                 placeholder="พิมพ์ชื่อหมวดหมู่ใหม่..."
-                className="w-full mt-2 px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-white/10 bg-white dark:bg-black/20 text-slate-900 dark:text-white outline-none focus:border-blue-500"
+                className="w-full mt-2 px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-white/10 bg-white dark:bg-black/20 text-slate-900 dark:text-white outline-none focus:border-blue-500 font-bold"
               />
             )}
           </div>
 
           <div className="grid grid-cols-2 gap-2.5">
             <div>
-              <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1">จำนวนตั้งต้น</label>
+              <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1">
+                จำนวนตั้งต้น
+              </label>
               <input
                 type="text"
                 value={qty}
                 onChange={(e) => setQty(e.target.value)}
-                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-white/10 bg-white dark:bg-black/20 text-slate-900 dark:text-white outline-none focus:border-blue-500"
+                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-white/10 bg-white dark:bg-black/20 text-slate-900 dark:text-white outline-none focus:border-blue-500 font-bold"
               />
             </div>
 
             <div>
-              <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1">วันหมดอายุ (EXP)</label>
-              {sizes.length > 1 ? (
-                <div className="space-y-1.5 p-2 bg-slate-50 dark:bg-white/5 rounded-xl border border-slate-200 dark:border-white/10">
-                  <p className="text-[10px] text-slate-500 font-bold mb-1 italic">ระบุวันหมดอายุแยกตามชิ้น/ไซส์:</p>
-                  <div className="grid grid-cols-1 gap-1.5">
-                    {sizes.map(sz => (
-                      <div key={sz} className="flex items-center gap-2">
-                        <span className="text-[10px] font-bold text-slate-600 dark:text-slate-400 min-w-[45px]">{sz}:</span>
-                        <input
-                          type="date"
-                          value={expParts[sz] || ''}
-                          onChange={(e) => setExpParts({ ...expParts, [sz]: e.target.value })}
-                          className="flex-1 px-2 py-1 rounded-lg border border-slate-300 dark:border-white/10 bg-white dark:bg-black/20 text-[11px] text-slate-900 dark:text-white outline-none focus:border-blue-500 h-8"
-                        />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ) : (
-                <input
-                  type="date"
-                  value={exp}
-                  onChange={(e) => setExp(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-white/10 bg-white dark:bg-black/20 text-slate-900 dark:text-white outline-none focus:border-blue-500 h-10"
-                />
-              )}
+              <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1">
+                คุณลักษณะ / สเปกเพิ่มเติม
+              </label>
+              <input
+                type="text"
+                value={spec}
+                onChange={(e) => setSpec(e.target.value)}
+                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-white/10 bg-white dark:bg-black/20 text-slate-900 dark:text-white outline-none focus:border-blue-500"
+              />
             </div>
           </div>
 
-          <div>
-            <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1">คุณลักษณะ / สเปกเพิ่มเติม</label>
-            <input
-              type="text"
-              value={spec}
-              onChange={(e) => setSpec(e.target.value)}
-              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-white/10 bg-white dark:bg-black/20 text-slate-900 dark:text-white outline-none focus:border-blue-500"
-            />
+          {/* Dynamic Sub-EXP Section */}
+          <div className="space-y-2 p-3 bg-slate-50 dark:bg-white/5 rounded-2xl border border-slate-200 dark:border-white/10">
+            <div className="flex items-center justify-between">
+              <label className="block text-slate-700 dark:text-slate-300 font-bold">
+                วันหมดอายุ (EXP)
+              </label>
+              <button
+                type="button"
+                onClick={handleAddSubExp}
+                className="px-2.5 py-1 rounded-lg bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-500/20 font-bold text-[11px] flex items-center gap-1 transition cursor-pointer border border-blue-200 dark:border-blue-500/20"
+              >
+                <Plus size={13} className="stroke-[2.5]" />
+                <span>+ เพิ่มวันหมดอายุย่อย</span>
+              </button>
+            </div>
+
+            {subExps.length > 0 ? (
+              <div className="space-y-2 pt-1">
+                <p className="text-[10px] text-slate-500 dark:text-slate-400 font-bold italic">
+                  แก้ไขชื่อกำกับและวันหมดอายุย่อย (กด - ลบ เพื่อนำออก):
+                </p>
+                {subExps.map((sub) => (
+                  <div key={sub.id} className="flex items-center gap-1.5 bg-white dark:bg-black/30 p-1.5 rounded-xl border border-slate-200 dark:border-white/10 shadow-2xs">
+                    <input
+                      type="text"
+                      value={sub.label}
+                      onChange={(e) => handleSubExpChange(sub.id, 'label', e.target.value)}
+                      placeholder="ชื่อกำกับ (เช่น No.4.5, ชิ้นที่ 1)"
+                      className="w-28 sm:w-32 px-2 py-1.5 rounded-lg border border-slate-300 dark:border-white/10 bg-white dark:bg-black/20 text-[11px] text-slate-900 dark:text-white outline-none focus:border-blue-500 font-bold shrink-0"
+                    />
+                    <input
+                      type="date"
+                      value={sub.date}
+                      onChange={(e) => handleSubExpChange(sub.id, 'date', e.target.value)}
+                      className="flex-1 px-2 py-1.5 rounded-lg border border-slate-300 dark:border-white/10 bg-white dark:bg-black/20 text-[11px] text-slate-900 dark:text-white outline-none focus:border-blue-500 h-8 font-bold"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveSubExp(sub.id)}
+                      className="p-1.5 rounded-lg bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-500/20 transition cursor-pointer shrink-0"
+                      title="- ลบวันหมดอายุย่อยนี้"
+                    >
+                      <Minus size={14} className="stroke-[2.5]" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 pt-1">
+                <input
+                  type="date"
+                  value={singleExp}
+                  onChange={(e) => setSingleExp(e.target.value)}
+                  className="w-full px-3.5 py-2 rounded-xl border border-slate-300 dark:border-white/10 bg-white dark:bg-black/20 text-slate-900 dark:text-white outline-none focus:border-blue-500 h-9 font-bold text-xs"
+                />
+              </div>
+            )}
           </div>
 
           <div className="space-y-1">

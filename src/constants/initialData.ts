@@ -174,7 +174,7 @@ export const DEFAULT_LISTS: Record<'bag' | 'cart', ListConfig> = {
         { name: 'Sterile water 10 cc', code: 'BAG-17', qty: '3 ขวด', spec: 'น้ำกลั่นปราศจากเชื้อสำหรับฉีด', source: 'คลังยา', date: '1 ม.ค. 68', no: '17', exp: getSampleExpDate(180), img: '' },
         { name: 'Tensoplast', code: 'BAG-18', qty: '3 อัน', spec: 'พลาสเตอร์ปิดแผลสำเร็จรูป', source: 'คลังยา', date: '1 ม.ค. 68', no: '18', exp: getSampleExpDate(90), img: '' },
         { name: 'Betadine / Ammonia', code: 'BAG-19', qty: '1, 1 ขวด', spec: 'น้ำยาฆ่าเชื้อเบตาดีนและแอมโมเนียหอม', source: 'คลังยา', date: '1 ม.ค. 68', no: '19', exp: getSampleExpDate(110), img: '' },
-        { name: 'สำลีก้อน, ถุงมือ', code: 'BAG-20', qty: '1 แผง, 1 คู่', spec: 'สำลีชุบแอลกอฮอล์และถุงมือแพทย์ปลอดเชื้อ', source: 'คลังยา', date: '1 ม.ค. 68', no: '20', exp: getSampleExpDate(45), img: '' },
+        { name: 'สำลีก้อน, ถุงมือ', code: 'BAG-20', qty: '1 แผง, 1 คู่', spec: 'สำลีชุบแอลกอฮอล์และถุงมือแพทย์ปลอดเชื้อ', source: 'คลังยา', date: '1 ม.ค. 68', no: '20', exp: `สำลีก้อน: ${getSampleExpDate(45)}, ถุงมือ: ${getSampleExpDate(60)}`, img: '' },
         { name: 'Micropore, Transpore, พลาสเตอร์ไร้เสี้ยน', code: 'BAG-21', qty: '1, 1 เส้น', spec: 'เทปแต่งแผลทางการแพทย์ไมโครพอร์และทรานสพอร์', source: 'คลังยา', date: '1 ม.ค. 68', no: '21', exp: '', img: '' },
       ],
     },

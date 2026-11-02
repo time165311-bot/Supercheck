@@ -33,6 +33,10 @@ export interface EquipmentItem {
   no?: string;   // ลำดับ
   exp?: string;  // วันหมดอายุ (YYYY-MM-DD)
   note?: string;
+  type?: string;
+  category?: string;
+  roomId?: string;
+  subExps?: Array<{ label?: string; exp?: string }>;
 }
 
 export interface CheckItemState {

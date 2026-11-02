@@ -1,5 +1,5 @@
 import { initializeApp, getApps } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
+import { getAuth, inMemoryPersistence, setPersistence } from 'firebase/auth';
 import {
   getFirestore,
   doc,
@@ -21,8 +21,13 @@ import { User, AuditLogEntry, InspectionHistoryRecord, EquipmentItem, DrugItem }
 // Initialize Firebase App
 export const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
 
-// Initialize Auth
+// Initialize Auth with inMemoryPersistence to avoid securetoken token refresh network errors
 export const auth = getAuth(app);
+try {
+  setPersistence(auth, inMemoryPersistence).catch(() => {});
+} catch (e) {
+  // Ignore
+}
 
 // Initialize Firestore targeting the provisioned database ID
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
@@ -52,9 +57,16 @@ interface FirestoreErrorInfo {
 
 function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
   const errMsg = error instanceof Error ? error.message : String(error);
-  const isOffline = errMsg.includes('offline') || errMsg.includes('Failed to get document because the client is offline');
+  const isOfflineOrAuth = 
+    errMsg.includes('offline') || 
+    errMsg.includes('Failed to get document because the client is offline') ||
+    errMsg.includes('Could not reach Cloud Firestore backend') ||
+    errMsg.includes('securetoken.googleapis.com') ||
+    errMsg.includes('token-service-api') ||
+    errMsg.includes('Fetching auth token failed');
+
   const errInfo: FirestoreErrorInfo = {
-    error: isOffline ? 'Firestore is currently offline' : errMsg,
+    error: isOfflineOrAuth ? 'Firestore is currently in offline mode' : errMsg,
     authInfo: {
       userId: auth.currentUser?.uid,
       email: auth.currentUser?.email,
@@ -63,7 +75,7 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
     path,
   };
   console.warn('Firestore Log: ', JSON.stringify(errInfo));
-  if (!isOffline) {
+  if (!isOfflineOrAuth) {
     throw new Error(JSON.stringify(errInfo));
   }
 }

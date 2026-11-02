@@ -5,6 +5,7 @@ import {
   formatThaiDate,
   stripEmojis,
   isCurrentYearExp,
+  parseSubExpItems,
   formatRealQuantity,
   cleanQuantityUnit,
   formatStrictCountableNumbers,
@@ -489,22 +490,41 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
                         </td>
                       );
                     })}
-                    {/* Col 8: วันหมดอายุ (EXP) (ตรงกลาง, nowrap) */}
+                    {/* Col 8: วันหมดอายุ (EXP) (ตรงกลาง, บรรทัดแยกอิสระ) */}
                     <td
-                      className={`border border-slate-300 p-2 text-center text-xs ${isCurrentYear ? 'text-red-600 font-bold' : ''}`}
+                      className="border border-slate-300 p-1.5 text-center text-xs"
                       style={{
                         width: '120px',
                         minWidth: '120px',
                         textAlign: 'center',
-                        fontSize: '11pt',
-                        ...(isCurrentYear ? { color: '#DC2626 !important', fontWeight: 'bold !important' } : {}),
+                        fontSize: '10.5pt',
+                        lineHeight: '1.3',
                       }}
                     >
                       {((item.name?.toLowerCase().includes('tank') || item.name?.includes('ถัง')) && 
                         (item.name?.toLowerCase().includes('o2') || item.name?.toLowerCase().includes('oxygen') || item.name?.includes('ออกซิเจน')) &&
                         !(item.name?.toLowerCase().includes('cannula') || item.name?.toLowerCase().includes('mask') || item.name?.includes('หน้ากาก') || item.name?.includes('สาย')))
                         ? 'ปริมาณแรงดันไม่ต่ำกว่า 500 psi'
-                        : formattedExp}
+                        : (() => {
+                            const subItems = parseSubExpItems(expStr);
+                            if (subItems.length === 0) return '-';
+                            return (
+                              <div className="flex flex-col items-center justify-center gap-0.5">
+                                {subItems.map((sub, i) => (
+                                  <div
+                                    key={i}
+                                    style={{
+                                      color: sub.isRed ? '#DC2626 !important' : '#000000 !important',
+                                      fontWeight: sub.isRed ? 'bold' : 'normal',
+                                      whiteSpace: 'nowrap',
+                                    }}
+                                  >
+                                    {sub.label ? `${sub.label}: ${sub.formattedDate}` : sub.formattedDate}
+                                  </div>
+                                ))}
+                              </div>
+                            );
+                          })()}
                     </td>
                   </tr>
                 );
@@ -605,9 +625,20 @@ export function generateEmergencyPrintHtml(
           const checkSymbol = isOk ? '✓' : isBad ? '✗' : isMiss ? '?' : '-';
 
           const expStr = item.exp || (item as any).expDate || (item.note?.match(/Exp:\s*([^\s|]+)/)?.[1]) || '';
-          const formattedExp = expStr ? formatAcquiredDate(expStr) : '-';
-          const isCurrentYear = isCurrentYearExp(expStr) || isCurrentYearExp(formattedExp);
-          const expStyle = isCurrentYear ? 'color: #DC2626 !important; font-weight: bold !important;' : '';
+
+          const expCellHtml = ((item.name?.toLowerCase().includes('tank') || item.name?.includes('ถัง')) && 
+            (item.name?.toLowerCase().includes('o2') || item.name?.toLowerCase().includes('oxygen') || item.name?.includes('ออกซิเจน')) &&
+            !(item.name?.toLowerCase().includes('cannula') || item.name?.toLowerCase().includes('mask') || item.name?.includes('หน้ากาก') || item.name?.includes('สาย')))
+            ? 'ปริมาณแรงดันไม่ต่ำกว่า 500 psi'
+            : (() => {
+                const subItems = parseSubExpItems(expStr);
+                if (subItems.length === 0) return '-';
+                return subItems.map((sub) => {
+                  const text = sub.label ? `${sub.label}: ${sub.formattedDate}` : sub.formattedDate;
+                  const colorStyle = sub.isRed ? 'color: #DC2626 !important; font-weight: bold;' : 'color: #000000 !important; font-weight: normal;';
+                  return `<div style="${colorStyle} white-space: nowrap; line-height: 1.3;">${text}</div>`;
+                }).join('');
+              })();
 
           const realCheckVal = formatRealQuantity(item.qty, item.name, item.spec);
 
@@ -651,12 +682,8 @@ export function generateEmergencyPrintHtml(
               <td style="text-align: left; padding-left: 8px; border: 1px solid #000;">${item.name || '-'}</td>
               <td style="text-align: center; border: 1px solid #000; white-space: nowrap !important;">${item.qty || '1'}</td>
               ${weekCells}
-              <td style="text-align: center; border: 1px solid #000; font-size: 9pt; line-height: 1.2; ${expStyle}">
-                ${((item.name?.toLowerCase().includes('tank') || item.name?.includes('ถัง')) && 
-                  (item.name?.toLowerCase().includes('o2') || item.name?.toLowerCase().includes('oxygen') || item.name?.includes('ออกซิเจน')) &&
-                  !(item.name?.toLowerCase().includes('cannula') || item.name?.toLowerCase().includes('mask') || item.name?.includes('หน้ากาก') || item.name?.includes('สาย')))
-                  ? 'ปริมาณแรงดันไม่ต่ำกว่า 500 psi'
-                  : formattedExp}
+              <td style="text-align: center; border: 1px solid #000; font-size: 9pt; line-height: 1.3; padding: 4px 2px;">
+                ${expCellHtml}
               </td>
             </tr>
           `;

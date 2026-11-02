@@ -153,101 +153,105 @@ export default function App() {
   const [isLoadingData, setIsLoadingData] = useState(true);
   const [authLoading, setAuthLoading] = useState(true);
 
-  // Connectivity Test & Auth Listener
+  // Connectivity Test & Auth Listener with robust error handling
   useEffect(() => {
-    const testConnection = async () => {
-      try {
-        await getDocFromServer(doc(db, 'settings', 'config'));
-      } catch (error: any) {
-        if (error?.message?.includes('offline')) {
-          console.warn('Firebase is offline. Check configuration.');
-        }
-      }
-    };
-    testConnection();
-
-    const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
-      setAuthLoading(true);
-      if (fbUser) {
-        // Find or create user in Firestore
-        const existingUsers = await fetchUsersFromFirebase();
-        let userProfile = existingUsers.find(u => u.id === fbUser.uid);
-        
-        if (!userProfile) {
-          userProfile = {
-            id: fbUser.uid,
-            username: fbUser.email?.split('@')[0] || 'user',
-            name: fbUser.displayName || 'Anonymous User',
-            role: existingUsers.length === 0 ? 'admin' : 'user', // First user is admin
-            position: 'เจ้าหน้าที่',
-            active: true,
-            salt: '',
-            hash: '',
-            must: false,
-            created: new Date().toISOString(),
-            last: new Date().toISOString(),
-            avatar: fbUser.photoURL || '',
-          };
-          await saveUserToFirebase(userProfile);
-        } else {
-          // Update last login
-          userProfile.last = new Date().toISOString();
-          await saveUserToFirebase(userProfile);
-        }
-        setCurrentUser(userProfile);
-        setStored(STORAGE_KEYS.SESSION, userProfile);
-
-        // Load Private Data
-        setAllUsers(existingUsers);
-        
-        // Seed if Admin
-        if (userProfile.role === 'admin') {
-          const currentEq = await fetchEquipmentFromFirebase();
-          if (currentEq.length === 0) {
-            const initialEqMap = getInitialEquipment();
-            const initialListsMap = getInitialLists();
-            for (const [roomId, items] of Object.entries(initialEqMap)) {
-              for (const item of items) {
-                await saveEquipmentItemToFirebase({ ...item, type: 'room', roomId });
-              }
+    let unsubscribe = () => {};
+    try {
+      unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
+        try {
+          setAuthLoading(true);
+          if (fbUser) {
+            // Find or create user in Firestore
+            const existingUsers = await fetchUsersFromFirebase();
+            let userProfile = existingUsers.find(u => u.id === fbUser.uid);
+            
+            if (!userProfile) {
+              userProfile = {
+                id: fbUser.uid,
+                username: fbUser.email?.split('@')[0] || 'user',
+                name: fbUser.displayName || 'Anonymous User',
+                role: existingUsers.length === 0 ? 'admin' : 'user',
+                position: 'เจ้าหน้าที่',
+                active: true,
+                salt: '',
+                hash: '',
+                must: false,
+                created: new Date().toISOString(),
+                last: new Date().toISOString(),
+                avatar: fbUser.photoURL || '',
+              };
+              await saveUserToFirebase(userProfile);
+            } else {
+              userProfile.last = new Date().toISOString();
+              await saveUserToFirebase(userProfile);
             }
-            for (const type of ['bag', 'cart'] as const) {
-              const list = initialListsMap[type];
-              for (const [groupName, items] of Object.entries(list.groups)) {
-                for (const item of items) {
-                  await saveEquipmentItemToFirebase({ ...item, type, category: groupName });
+            setCurrentUser(userProfile);
+            setStored(STORAGE_KEYS.SESSION, userProfile);
+            setAllUsers(existingUsers);
+            
+            if (userProfile.role === 'admin') {
+              const currentEq = await fetchEquipmentFromFirebase();
+              if (currentEq.length === 0) {
+                const initialEqMap = getInitialEquipment();
+                const initialListsMap = getInitialLists();
+                for (const [roomId, items] of Object.entries(initialEqMap)) {
+                  for (const item of items) {
+                    await saveEquipmentItemToFirebase({ ...item, type: 'room', roomId });
+                  }
+                }
+                for (const type of ['bag', 'cart'] as const) {
+                  const list = initialListsMap[type];
+                  for (const [groupName, items] of Object.entries(list.groups)) {
+                    for (const item of items) {
+                      await saveEquipmentItemToFirebase({ ...item, type, category: groupName });
+                    }
+                  }
+                }
+              }
+
+              const currentDrugs = await fetchDrugsFromFirebase();
+              if (currentDrugs.length === 0) {
+                for (const drug of INITIAL_DRUGS_DATA) {
+                  await saveDrugItemToFirebase(drug);
                 }
               }
             }
-          }
+            
+            const fbSettings = await loadSettingsFromFirebase();
+            if (fbSettings) {
+              if (fbSettings.sheetUrl) setSheetUrl(fbSettings.sheetUrl);
+              if (fbSettings.apiUrl) setApiUrl(fbSettings.apiUrl);
+              if (fbSettings.theme) setTheme(fbSettings.theme);
+            }
 
-          const currentDrugs = await fetchDrugsFromFirebase();
-          if (currentDrugs.length === 0) {
-            for (const drug of INITIAL_DRUGS_DATA) {
-              await saveDrugItemToFirebase(drug);
+            await subscribeInspectionHistory((records) => {
+              setHistoryRecords(records);
+            });
+          } else {
+            const sessionUser = getStored<User | null>(STORAGE_KEYS.SESSION, null);
+            if (sessionUser) {
+              setCurrentUser(sessionUser);
             }
           }
+        } catch (authErr) {
+          console.warn('Auth state handler warning (running in offline mode):', authErr);
+        } finally {
+          setAuthLoading(false);
         }
-        
-        const fbSettings = await loadSettingsFromFirebase();
-        if (fbSettings) {
-          if (fbSettings.sheetUrl) setSheetUrl(fbSettings.sheetUrl);
-          if (fbSettings.apiUrl) setApiUrl(fbSettings.apiUrl);
-          if (fbSettings.theme) setTheme(fbSettings.theme);
-        }
-
-        // Subscribe to History
-        const unsubscribeHistory = await subscribeInspectionHistory((records) => {
-          setHistoryRecords(records);
-        });
-      } else {
-        setCurrentUser(null);
-        setStored(STORAGE_KEYS.SESSION, null);
-      }
+      }, (err) => {
+        console.warn('Auth observer error (falling back to offline mode):', err);
+        setAuthLoading(false);
+      });
+    } catch (e) {
+      console.warn('Auth initialization warning:', e);
       setAuthLoading(false);
-    });
+    }
 
-    return () => unsubscribe();
+    return () => {
+      try {
+        unsubscribe();
+      } catch {}
+    };
   }, []);
 
   const handleLogin = async () => {
@@ -256,6 +260,7 @@ export default function App() {
       await signInWithPopup(auth, provider);
     } catch (err) {
       console.error('Login failed:', err);
+      alert('ไม่สามารถเข้าสู่ระบบผ่าน Google ได้ในขณะนี้ (ระบบออฟไลน์หรือยังไม่ได้เปิดใช้งาน Auth API)');
     }
   };
 
@@ -269,20 +274,40 @@ export default function App() {
     }
   };
 
-  // Initial Data Fetching from Firestore
+  // Initial Data Fetching from Firestore with Local Storage Fallback
   useEffect(() => {
     const initData = async () => {
       setIsLoadingData(true);
       try {
-        // 1. Fetch Equipment (Public Read)
         const fbEquipment = await fetchEquipmentFromFirebase();
-        processEquipment(fbEquipment);
+        if (fbEquipment && fbEquipment.length > 0) {
+          processEquipment(fbEquipment);
+        } else {
+          const initialEqMap = getInitialEquipment();
+          const initialListsMap = getInitialLists();
+          processEquipment([
+            ...Object.entries(initialEqMap).flatMap(([roomId, items]) => items.map(i => ({ ...i, type: 'room', roomId }))),
+            ...Object.entries(initialListsMap.bag.groups).flatMap(([cat, items]) => items.map(i => ({ ...i, type: 'bag', category: cat }))),
+            ...Object.entries(initialListsMap.cart.groups).flatMap(([cat, items]) => items.map(i => ({ ...i, type: 'cart', category: cat }))),
+          ]);
+        }
 
-        // 2. Fetch Drugs (Public Read)
         const fbDrugs = await fetchDrugsFromFirebase();
-        setDrugs(fbDrugs);
+        if (fbDrugs && fbDrugs.length > 0) {
+          setDrugs(fbDrugs);
+        } else {
+          setDrugs(INITIAL_DRUGS_DATA);
+        }
       } catch (err) {
-        console.error('Failed to initialize public data from Firebase:', err);
+        console.warn('Failed to initialize data from Firebase, using local defaults:', err);
+        const initialEqMap = getInitialEquipment();
+        const initialListsMap = getInitialLists();
+        processEquipment([
+          ...Object.entries(initialEqMap).flatMap(([roomId, items]) => items.map(i => ({ ...i, type: 'room', roomId }))),
+          ...Object.entries(initialListsMap.bag.groups).flatMap(([cat, items]) => items.map(i => ({ ...i, type: 'bag', category: cat }))),
+          ...Object.entries(initialListsMap.cart.groups).flatMap(([cat, items]) => items.map(i => ({ ...i, type: 'cart', category: cat }))),
+        ]);
+        setDrugs(INITIAL_DRUGS_DATA);
       } finally {
         setIsLoadingData(false);
       }

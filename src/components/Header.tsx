@@ -56,6 +56,9 @@ interface HeaderProps {
   onPullFromGoogleSheets?: () => Promise<{ success: boolean; message: string }>;
   onRestoreBackup?: (backupData: any) => void;
   onChangePasswordSubmit?: (oldPw: string, newPw: string) => Promise<{ success: boolean; message: string }>;
+  firebaseProjectId?: string;
+  firebaseDatabaseId?: string;
+  onTestFirebaseConnection?: () => Promise<{ ok: boolean; msg: string }>;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -80,10 +83,13 @@ export const Header: React.FC<HeaderProps> = ({
   onPullFromGoogleSheets,
   onRestoreBackup,
   onChangePasswordSubmit,
+  firebaseProjectId,
+  firebaseDatabaseId,
+  onTestFirebaseConnection,
 }) => {
   const isAdmin = currentUser?.role === 'admin';
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [menuView, setMenuView] = useState<'main' | 'friends' | 'settings' | 'security'>('main');
+  const [menuView, setMenuView] = useState<'main' | 'friends' | 'settings' | 'security' | 'firebase'>('main');
   const [friendsSearch, setFriendsSearch] = useState('');
   const [friendsTab, setFriendsTab] = useState<'all' | 'online' | 'admin'>('all');
   
@@ -100,6 +106,10 @@ export const Header: React.FC<HeaderProps> = ({
   const [confirmPassword, setConfirmPassword] = useState('');
   const [isPasswordChanging, setIsPasswordChanging] = useState(false);
   const [passwordStatus, setPasswordStatus] = useState<{ ok: boolean; msg: string } | null>(null);
+
+  // Firebase View States
+  const [isTestingFirebase, setIsTestingFirebase] = useState(false);
+  const [firebaseStatus, setFirebaseStatus] = useState<{ ok: boolean; msg: string } | null>(null);
 
   // Sync local settings states when props change
   useEffect(() => {
@@ -397,6 +407,28 @@ export const Header: React.FC<HeaderProps> = ({
                     </span>
                     <span className="text-[11px] text-[#65676b] dark:text-[#b0b3b8]">
                       จัดการระบบและข้อมูล
+                    </span>
+                  </div>
+                </div>
+                <ChevronRight className="w-4 h-4 text-[#65676b] dark:text-[#b0b3b8] group-hover:translate-x-1 transition-transform" />
+              </button>
+
+              {/* 4.5) การเชื่อมต่อ Firebase Cloud Sync */}
+              <button
+                type="button"
+                onClick={() => setMenuView('firebase')}
+                className="w-full px-3 py-3 rounded-2xl hover:bg-[#f0f2f5] dark:hover:bg-[#3a3b3c] flex items-center justify-between gap-3 text-left transition-all cursor-pointer group active:scale-[0.98]"
+              >
+                <div className="flex items-center gap-3.5">
+                  <div className="w-9 h-9 rounded-full bg-blue-50 dark:bg-blue-500/10 text-blue-500 flex items-center justify-center">
+                    <RefreshCw className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <span className="font-bold text-sm text-[#050505] dark:text-[#e4e6eb] group-hover:text-blue-500 transition-colors block">
+                      Firebase Cloud Sync
+                    </span>
+                    <span className="text-[11px] text-[#65676b] dark:text-[#b0b3b8]">
+                      ตรวจสอบการเชื่อมต่อ และจัดการฐานข้อมูล
                     </span>
                   </div>
                 </div>
@@ -925,6 +957,104 @@ export const Header: React.FC<HeaderProps> = ({
                     <span>{isPasswordChanging ? 'กำลังตรวจสอบ...' : 'เปลี่ยนรหัสผ่าน'}</span>
                   </button>
                 </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* VIEW 5: FIREBASE RIGHT SLIDE-IN SUB-PANEL */}
+        {menuView === 'firebase' && (
+          <div className="flex flex-col h-full animate-in slide-in-from-right duration-250 ease-out">
+            <div className="px-3 py-3 border-b border-[#e4e6eb] dark:border-[#3a3b3c] flex items-center justify-between bg-[#f0f2f5] dark:bg-[#18191a] shrink-0">
+              <button
+                type="button"
+                onClick={() => setMenuView('main')}
+                className="px-2.5 py-1.5 rounded-xl bg-white dark:bg-[#242526] hover:bg-[#e4e6eb] dark:hover:bg-[#3a3b3c] border border-[#e4e6eb] dark:border-[#3a3b3c] text-[#1877f2] dark:text-[#2d88ff] font-bold text-xs flex items-center gap-1.5 transition cursor-pointer active:scale-95 shadow-2xs"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                <span>ย้อนกลับ</span>
+              </button>
+              <span className="font-extrabold text-xs text-[#050505] dark:text-white">Firebase Cloud Sync</span>
+              <button
+                type="button"
+                onClick={() => setIsMenuOpen(false)}
+                className="w-7 h-7 rounded-full bg-[#e4e6eb] hover:bg-[#d8dadf] dark:bg-[#3a3b3c] text-[#050505] dark:text-white flex items-center justify-center cursor-pointer transition shrink-0"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4 space-y-4 text-xs">
+              <div className="p-4 bg-blue-50 dark:bg-blue-500/10 rounded-2xl border border-blue-100 dark:border-blue-500/20 text-center space-y-3">
+                <div className="w-12 h-12 bg-white dark:bg-[#3a3b3c] rounded-full mx-auto flex items-center justify-center shadow-sm">
+                  <RefreshCw className={`w-6 h-6 text-blue-500 ${isTestingFirebase ? 'animate-spin' : ''}`} />
+                </div>
+                <div className="space-y-1">
+                  <p className="font-bold text-[#050505] dark:text-white">สถานะการเชื่อมต่อ</p>
+                  <p className="text-[10px] text-slate-500">Firebase Firestore Real-time Database</p>
+                </div>
+              </div>
+
+              {firebaseStatus && (
+                <div className={`p-3 rounded-xl font-bold flex items-center gap-2 ${firebaseStatus.ok ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' : 'bg-rose-50 text-rose-600 border border-rose-100'}`}>
+                  {firebaseStatus.ok ? <Check className="w-4 h-4" /> : <X className="w-4 h-4" />}
+                  <span>{firebaseStatus.msg}</span>
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <p className="font-bold text-slate-400 uppercase tracking-widest text-[9px]">ข้อมูลโครงการ</p>
+                <div className="p-3 bg-slate-50 dark:bg-[#242526] rounded-xl border border-slate-200 dark:border-[#3a3b3c] space-y-2">
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Project ID:</span>
+                    <span className="font-bold dark:text-white">{firebaseProjectId || 'galvanic-crow-v83d0'}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Database:</span>
+                    <span className="font-bold dark:text-white truncate max-w-[150px]">{firebaseDatabaseId || 'ai-studio-anesthesiacare-980ed80f...'}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-3 pt-2">
+                <button
+                  type="button"
+                  disabled={isTestingFirebase}
+                  onClick={async () => {
+                    if (!onTestFirebaseConnection) return;
+                    setIsTestingFirebase(true);
+                    setFirebaseStatus(null);
+                    try {
+                      const res = await onTestFirebaseConnection();
+                      setFirebaseStatus(res);
+                    } catch (err: any) {
+                      setFirebaseStatus({ ok: false, msg: err.message || 'เกิดข้อผิดพลาดในการทดสอบ' });
+                    } finally {
+                      setIsTestingFirebase(false);
+                    }
+                  }}
+                  className="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold transition flex items-center justify-center gap-2 shadow-lg shadow-blue-600/20 active:scale-95 disabled:opacity-50 cursor-pointer"
+                >
+                  <RefreshCw className={`w-4 h-4 ${isTestingFirebase ? 'animate-spin' : ''}`} />
+                  <span>{isTestingFirebase ? 'กำลังทดสอบ...' : 'ทดสอบการเชื่อมต่อใหม่'}</span>
+                </button>
+
+                <a
+                  href={`https://console.firebase.google.com/project/${firebaseProjectId || 'galvanic-crow-v83d0'}/firestore/databases/${firebaseDatabaseId || 'ai-studio-anesthesiacare-980ed80f-6020-4ed3-a9ce-1f56075434f1'}/data`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full py-3 rounded-xl bg-slate-100 dark:bg-[#3a3b3c] hover:bg-slate-200 dark:hover:bg-[#4e4f50] text-[#050505] dark:text-white font-bold transition flex items-center justify-center gap-2 border border-slate-200 dark:border-transparent"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                  <span>เปิด Firebase Console</span>
+                </a>
+              </div>
+
+              <div className="p-3 bg-amber-50 dark:bg-amber-500/10 rounded-xl border border-amber-100 dark:border-amber-500/20">
+                <p className="text-amber-700 dark:text-amber-400 font-bold mb-1">หมายเหตุ:</p>
+                <p className="text-[10px] text-amber-600/80 dark:text-amber-400/80 leading-relaxed">
+                  ระบบจะซิงค์ข้อมูลกับระบบคลาวด์โดยอัตโนมัติเมื่อมีการเปลี่ยนแปลง หากสถานะขึ้นว่าผิดปกติ กรุณาตรวจสอบอินเทอร์เน็ตหรือการตั้งค่าสิทธิ์เข้าถึง
+                </p>
               </div>
             </div>
           </div>

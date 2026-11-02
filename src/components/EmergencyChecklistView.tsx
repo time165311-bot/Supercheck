@@ -20,10 +20,35 @@ import { CheckItemState, ListConfig, EquipmentItem } from '../types';
 import { formatAcquiredDate } from './OfficialReportModal';
 import { EditItemModal } from './EditItemModal';
 
+export interface SubExpItem {
+  label: string;
+  date: string;
+}
+
+export function parseSubExps(expStr?: string): SubExpItem[] {
+  if (!expStr || !expStr.trim() || expStr === '-') return [];
+  const parts = expStr.includes(',') ? expStr.split(',') : [expStr];
+  const results: SubExpItem[] = [];
+  parts.forEach((p, idx) => {
+    const trimmed = p.trim();
+    if (!trimmed) return;
+    if (trimmed.includes(':')) {
+      const colonIdx = trimmed.indexOf(':');
+      const label = trimmed.substring(0, colonIdx).trim();
+      const date = trimmed.substring(colonIdx + 1).trim();
+      results.push({ label, date });
+    } else {
+      results.push({
+        label: parts.length > 1 ? `ชิ้นที่ ${idx + 1}` : '',
+        date: trimmed,
+      });
+    }
+  });
+  return results;
+}
+
 export function getItemSizes(item: { name: string; spec?: string; qty?: string }): string[] {
   const name = (item.name || '').toLowerCase();
-  
-  // [NEW RULES]: Specific EXP slot counts per user request
   if (name.includes('syringe')) {
     if (name.includes('3cc') || name.includes('5cc') || name.includes('10cc')) {
       return ['ชิ้นที่ 1', 'ชิ้นที่ 2', 'ชิ้นที่ 3'];
@@ -37,26 +62,18 @@ export function getItemSizes(item: { name: string; spec?: string; qty?: string }
   }
   if (name.includes('betadine') || name.includes('ammonia')) return ['ชิ้นที่ 1', 'ชิ้นที่ 2'];
   if (name.includes('สำลีก้อน') || name.includes('ถุงมือ')) {
-    const qtyNum = parseInt(String(item.qty || '').replace(/\D/g, ''), 10);
-    if (!isNaN(qtyNum) && qtyNum > 0) {
-      return Array.from({ length: Math.min(qtyNum, 20) }, (_, i) => `ชิ้นที่ ${i + 1}`);
-    }
+    return ['สำลีก้อน', 'ถุงมือ'];
   }
-
-  // Fallback 1: Pattern matching for No./Size
   const combined = `${item.name} ${item.spec || ''} ${item.qty || ''}`;
   const sizePattern = /(?:No\.|no\.|เบอร์|ขนาด)\s*([0-9.,\s/&]+)/i;
   const match = combined.match(sizePattern);
   if (match && match[1]) {
-    return match[1].split(/[,/&]/).map((s) => s.trim()).filter((s) => s.length > 0).map(s => `No.${s}`);
+    return match[1].split(/[,/&]/).map((s: string) => s.trim()).filter((s: string) => s.length > 0).map((s: string) => `No.${s}`);
   }
-  
-  // Fallback 2: Numeric quantity > 1
   const qtyNum = parseInt(String(item.qty || '').replace(/\D/g, ''), 10);
   if (!isNaN(qtyNum) && qtyNum > 1 && !item.qty?.includes(',')) {
     return Array.from({ length: Math.min(qtyNum, 10) }, (_, i) => `ชิ้นที่ ${i + 1}`);
   }
-  
   return [];
 }
 
@@ -265,7 +282,7 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
     }
 
     const combinedExp = modalSizes.length > 1
-      ? modalSizes.filter(s => newItemExpParts[s]).map(s => `${s}:${newItemExpParts[s]}`).join(', ')
+      ? modalSizes.filter((s: string) => newItemExpParts[s]).map((s: string) => `${s}:${newItemExpParts[s]}`).join(', ')
       : newItemExp.trim();
 
     if (onAddItem) {
@@ -577,30 +594,28 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
                     {item.exp && (
                       <div className="mt-1 space-y-1.5 border-l-2 border-rose-200 pl-2">
                         {(() => {
-                          const sizes = getItemSizes(item);
                           const currentExp = check?.exp || item.exp || '';
+                          const subExps = parseSubExps(currentExp);
                           
-                          if (sizes.length > 1) {
-                            // Split currentExp into parts. Format: "No.4: date, No.5: date"
-                            const expParts: Record<string, string> = {};
-                            currentExp.split(',').forEach(p => {
-                              const [sz, dt] = p.split(':').map(s => s.trim());
-                              if (sz && dt) expParts[sz] = dt;
-                            });
-
+                          if (subExps.length > 0) {
                             return (
                               <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                                {sizes.map(sz => (
-                                  <div key={sz} className="flex items-center gap-1.5">
-                                    <span className="text-[9px] font-bold text-slate-500 whitespace-nowrap min-w-[35px]">{sz}:</span>
+                                {subExps.map((sub, idx) => (
+                                  <div key={sub.label || idx} className="flex items-center gap-1.5">
+                                    {sub.label && (
+                                      <span className="text-[9px] font-bold text-slate-500 whitespace-nowrap min-w-[35px] max-w-[80px] truncate" title={sub.label}>
+                                        {sub.label}:
+                                      </span>
+                                    )}
                                     <input
                                       type="date"
-                                      value={expParts[sz] || ''}
+                                      value={sub.date || ''}
                                       onChange={(e) => {
-                                        const newParts = { ...expParts, [sz]: e.target.value };
-                                        const combined = sizes
-                                          .filter(s => newParts[s])
-                                          .map(s => `${s}:${newParts[s]}`)
+                                        const newSubExps = [...subExps];
+                                        newSubExps[idx] = { ...sub, date: e.target.value };
+                                        const combined = newSubExps
+                                          .map(s => (s.label ? `${s.label.trim()}: ${s.date}` : s.date))
+                                          .filter(Boolean)
                                           .join(', ');
                                         onUpdateNote(item.itemKey, `EXP:${combined}`);
                                       }}
@@ -792,7 +807,7 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
                     <div className="space-y-1.5 p-2 bg-slate-50 rounded-xl border border-slate-200">
                       <p className="text-[10px] text-slate-500 font-bold mb-1 italic">ระบุวันหมดอายุแยกตามชิ้น/ไซส์:</p>
                       <div className="grid grid-cols-1 gap-1.5">
-                        {modalSizes.map(sz => (
+                        {modalSizes.map((sz: string) => (
                           <div key={sz} className="flex items-center gap-2">
                             <span className="text-[10px] font-bold text-slate-600 min-w-[45px]">{sz}:</span>
                             <input

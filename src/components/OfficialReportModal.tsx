@@ -159,30 +159,82 @@ export function stripEmojis(str?: string): string {
   return str.replace(/[\u{1F300}-\u{1F9FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]|[\u{1F600}-\u{1F64F}]|[\u{1F680}-\u{1F6FF}]/gu, '').trim();
 }
 
-export function isCurrentYearExp(expVal?: string | null): boolean {
-  if (!expVal) return false;
+export interface SubExpItem {
+  label?: string;
+  dateStr: string;
+  formattedDate: string;
+  isRed: boolean;
+}
+
+export function parseSubExpItems(expVal?: string | null): SubExpItem[] {
+  if (!expVal) return [];
   const str = String(expVal).trim();
-  if (!str || str === '-' || str === 'null' || str === 'undefined') return false;
+  if (!str || str === '-' || str === 'null' || str === 'undefined') return [];
 
-  const currentYearAD = new Date().getFullYear();
-  const currentYearBE = currentYearAD + 543;
-  const shortAD = String(currentYearAD).slice(-2);
-  const shortBE = String(currentYearBE).slice(-2);
+  const currentYearAD = new Date().getFullYear(); // 2026
+  const currentYearBE = currentYearAD + 543; // 2569
 
-  if (str.includes(',') || str.includes(':')) {
-    return str.split(',').some(p => {
-      const lastPart = p.split(':').pop()?.trim();
-      return isCurrentYearExp(lastPart);
+  const parts = str.includes(',') ? str.split(',') : [str];
+  const items: SubExpItem[] = [];
+
+  parts.forEach((part) => {
+    const trimmed = part.trim();
+    if (!trimmed) return;
+
+    let label = '';
+    let datePart = trimmed;
+
+    if (trimmed.includes(':')) {
+      const colonIdx = trimmed.indexOf(':');
+      label = trimmed.substring(0, colonIdx).trim();
+      datePart = trimmed.substring(colonIdx + 1).trim();
+    }
+
+    const formattedDate = formatAcquiredDate(datePart);
+
+    let isRed = false;
+    let yearAD: number | null = null;
+
+    const isoMatch = datePart.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
+    const dmyMatch = datePart.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})/);
+    const fmtDmyMatch = formattedDate.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})/);
+
+    if (isoMatch) {
+      let y = parseInt(isoMatch[1], 10);
+      yearAD = y > 2400 ? y - 543 : y;
+    } else if (dmyMatch) {
+      let y = parseInt(dmyMatch[3], 10);
+      yearAD = y > 2400 ? y - 543 : y;
+    } else if (fmtDmyMatch) {
+      let y = parseInt(fmtDmyMatch[3], 10);
+      yearAD = y > 2400 ? y - 543 : y;
+    }
+
+    if (yearAD !== null) {
+      // RED ONLY for current year (<= 2026 / 2569) or expired
+      if (yearAD <= currentYearAD) {
+        isRed = true;
+      }
+    } else {
+      if (trimmed.includes(String(currentYearAD)) || trimmed.includes(String(currentYearBE))) {
+        isRed = true;
+      }
+    }
+
+    items.push({
+      label,
+      dateStr: datePart,
+      formattedDate: formattedDate || datePart,
+      isRed,
     });
-  }
+  });
 
-  if (str.includes(String(currentYearAD)) || str.includes(String(currentYearBE))) {
-    return true;
-  }
-  if (new RegExp(`[\\/.-]${shortAD}$`).test(str) || new RegExp(`[\\/.-]${shortBE}$`).test(str)) {
-    return true;
-  }
-  return false;
+  return items;
+}
+
+export function isCurrentYearExp(expVal?: string | null): boolean {
+  const items = parseSubExpItems(expVal);
+  return items.some((i) => i.isRed);
 }
 
 export function cleanQuantityUnit(valStr?: string | number): string {

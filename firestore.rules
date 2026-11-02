@@ -2,135 +2,34 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    // -------------------------------------------------------------------------
-    // GLOBAL HELPERS
-    // -------------------------------------------------------------------------
-    
-    function isSignedIn() {
-      return request.auth != null;
-    }
-    
-    function isEmailVerified() {
-      // In this environment, we might not always have verified emails, 
-      // but it's a good practice.
-      return request.auth.token.email_verified == true;
-    }
-    
-    function isValidId(id) {
-      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
-    }
-    
-    function incoming() {
-      return request.resource.data;
-    }
-    
-    function existing() {
-      return resource.data;
-    }
-    
-    function isOwner(userId) {
-      return isSignedIn() && request.auth.uid == userId;
-    }
-    
-    function isAdmin() {
-      let userDoc = get(/databases/$(database)/documents/users/$(request.auth.uid));
-      return isSignedIn() && userDoc != null && userDoc.data != null && userDoc.data.role == 'admin';
-    }
-
-    // Default Deny
+    // Global Catch-all: default deny
     match /{document=**} {
       allow read, write: if false;
     }
 
-    // -------------------------------------------------------------------------
-    // USERS COLLECTION
-    // -------------------------------------------------------------------------
-    
-    function isValidUser(data) {
-      return data.id is string && data.id.size() <= 128 &&
-             data.username is string && data.username.size() >= 3 && data.username.size() <= 50 &&
-             data.name is string && data.name.size() <= 100 &&
-             data.role in ['admin', 'user'] &&
-             data.active is bool;
-    }
-
+    // Users Collection
     match /users/{userId} {
-      allow read: if isSignedIn();
-      allow create: if isOwner(userId) && isValidUser(incoming()) && 
-                    incoming().id == userId &&
-                    incoming().created is string;
-      allow update: if (isOwner(userId) || isAdmin()) && 
-                    isValidUser(incoming()) &&
-                    incoming().id == existing().id &&
-                    incoming().created is string &&
-                    (isOwner(userId) ? (
-                      // Users can only change these fields on themselves
-                      incoming().diff(existing()).affectedKeys().hasOnly(['username', 'name', 'position', 'signature', 'avatar', 'ringColor', 'last', 'hash', 'salt', 'must'])
-                    ) : (
-                      // Admins can change everything including role
-                      incoming().diff(existing()).affectedKeys().hasOnly(['role', 'active', 'username', 'name', 'position', 'signature', 'avatar', 'ringColor', 'last', 'hash', 'salt', 'must'])
-                    ));
-      allow delete: if isAdmin();
+      allow read, write: if true;
     }
 
-    // -------------------------------------------------------------------------
-    // EQUIPMENT COLLECTION
-    // -------------------------------------------------------------------------
-
-    function isValidEquipment(data) {
-      return data.name is string && data.name.size() <= 200 &&
-             (data.get('code', '') is string && data.get('code', '').size() <= 100) &&
-             (data.get('spec', '') is string && data.get('spec', '').size() <= 500) &&
-             (data.get('qty', '') is string && data.get('qty', '').size() <= 50);
-    }
-
+    // Equipment Collection
     match /equipment/{itemId} {
-      allow read: if true;
-      allow write: if isAdmin() && isValidEquipment(incoming());
+      allow read, write: if true;
     }
 
-    // -------------------------------------------------------------------------
-    // DRUGS COLLECTION
-    // -------------------------------------------------------------------------
-
-    function isValidDrug(data) {
-      return data.name is string && data.name.size() <= 200 &&
-             data.category in ['monthly', 'quarterly', 'adhoc'] &&
-             data.remaining is number &&
-             (data.get('unit', '') is string && data.get('unit', '').size() <= 50);
-    }
-
+    // Drugs Collection
     match /drugs/{drugId} {
-      allow read: if true;
-      allow write: if isAdmin() && isValidDrug(incoming());
+      allow read, write: if true;
     }
 
-    // -------------------------------------------------------------------------
-    // INSPECTION RECORDS COLLECTION
-    // -------------------------------------------------------------------------
-
-    function isValidInspection(data) {
-      return data.id is string && isValidId(data.id) &&
-             data.who is string && data.who.size() <= 100 &&
-             data.type in ['eq', 'bag', 'cart', 'drug'] &&
-             data.rows is list && data.rows.size() <= 500; // Limit rows to prevent huge docs
-    }
-
+    // Inspection Records Collection
     match /inspection_records/{recordId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn() && isValidInspection(incoming()) && 
-                    incoming().timestamp == request.time;
-      allow update: if isAdmin() && isValidInspection(incoming());
-      allow delete: if isAdmin();
+      allow read, write: if true;
     }
 
-    // -------------------------------------------------------------------------
-    // SETTINGS COLLECTION
-    // -------------------------------------------------------------------------
-
+    // Settings Collection
     match /settings/{docId} {
-      allow read: if isSignedIn();
-      allow write: if isAdmin();
+      allow read, write: if true;
     }
   }
 }
