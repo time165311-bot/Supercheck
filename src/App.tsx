@@ -363,11 +363,11 @@ export default function App() {
       if (!ticking) {
         window.requestAnimationFrame(() => {
           const currentScrollY = window.scrollY;
-          if (currentScrollY <= 30) {
+          if (currentScrollY <= 10) {
             setIsBottomBarVisible(true);
-          } else if (currentScrollY > lastScrollY + 6) {
+          } else if (currentScrollY > lastScrollY && currentScrollY > 50) {
             setIsBottomBarVisible(false);
-          } else if (currentScrollY < lastScrollY - 6) {
+          } else if (currentScrollY < lastScrollY) {
             setIsBottomBarVisible(true);
           }
           lastScrollY = currentScrollY;
