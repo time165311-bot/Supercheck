@@ -16,6 +16,7 @@ import {
 import { EmergencyChecklistView } from './components/EmergencyChecklistView';
 import { GoogleSheetsSettings } from './components/GoogleSheetsSettings';
 import { GlobalScrollButtons } from './components/GlobalScrollButtons';
+import { AuraAssistant } from './components/AuraAssistant';
 
 import {
   STORAGE_KEYS,
@@ -659,7 +660,10 @@ export default function App() {
 
       const newGroups: Record<string, EquipmentItem[]> = {};
       Object.entries(currentList.groups).forEach(([groupName, items]) => {
-        newGroups[groupName] = items.filter((it) => it.id !== itemKey);
+        newGroups[groupName] = items.filter((it, idx) => {
+          const currentKey = it.id || `${type}_${groupName}_${idx}`;
+          return currentKey !== itemKey;
+        });
       });
 
       const updatedLists = { ...prev, [type]: { ...currentList, groups: newGroups } };
@@ -1836,6 +1840,17 @@ export default function App() {
           currentUser={currentUser}
         />
       )}
+
+      {/* 🌟 AI Assistant "AURA" Voice Chat & Function Calling */}
+      <AuraAssistant
+        equipment={equipment}
+        drugs={drugs}
+        lists={lists}
+        stats={overallStats}
+        onAddItem={(type, newItem) => handleAddItem(type, newItem)}
+        onDeleteItem={(type, key) => handleDeleteItem(type, key)}
+        isDarkMode={isDark}
+      />
 
       {/* 📍 Floating Quick Controls (Scroll to Top, Scroll to Bottom, Back to Dashboard) */}
       <GlobalScrollButtons

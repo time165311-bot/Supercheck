@@ -19,7 +19,7 @@ import { categoryCovers } from '../assets/categoryCovers';
 import operatingRoomBg from '../assets/images/modern_operating_room_1793107748862.jpg';
 import { Swiper, SwiperSlide } from 'swiper/react';
 import { EffectCoverflow, Pagination } from 'swiper/modules';
-import AiInsightsWidget from './AiInsightsWidget';
+// AiInsightsWidget removed - consolidated into AuraAssistant
 
 // Import Swiper styles
 import 'swiper/css';
@@ -616,17 +616,9 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
 
 
 
-        {/* 🤖 1.5 วิดเจ็ต AI สรุปความพร้อมประจำวัน (AiInsightsWidget) */}
-        <div className="lg:col-span-2">
-          <AiInsightsWidget
-            readinessData={{
-              completionPct: stats.completionPct,
-              defectiveCount: stats.grandDefective,
-            }}
-            isDarkMode={isDarkMode}
-            stats={stats}
-            defectiveItems={defectiveItems}
-          />
+        {/* 🤖 AI Summary consolidated into AuraAssistant floating button */}
+        <div className="lg:col-span-2 invisible h-0 overflow-hidden">
+          {/* AiInsightsWidget removed to avoid duplicate bots */}
         </div>
 
         {/* 🗂️ 2. หมวดหมู่ตรวจเช็ก (Large Responsive Category Cards with Inset Arrow Navigation) */}
