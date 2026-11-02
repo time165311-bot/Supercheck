@@ -16,8 +16,9 @@ import {
   Image as ImageIcon,
   CheckCircle2,
 } from 'lucide-react';
-import { CheckItemState, ListConfig } from '../types';
+import { CheckItemState, ListConfig, EquipmentItem } from '../types';
 import { formatAcquiredDate } from './OfficialReportModal';
+import { EditItemModal } from './EditItemModal';
 
 export function getItemSizes(item: { name: string; spec?: string; qty?: string }): string[] {
   const name = (item.name || '').toLowerCase();
@@ -79,6 +80,7 @@ export interface EmergencyChecklistProps {
     img?: string;
   }) => void;
   onDeleteItem?: (type: 'bag' | 'cart', itemKey: string) => void;
+  onEditItem?: (item: EquipmentItem) => void;
   weekDates: Record<number, string>;
   onWeekDatesChange: (dates: Record<number, string>) => void;
   onSaveByWeek?: (week: number, weekDates: Record<number, string>) => void;
@@ -97,13 +99,38 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
   onBack,
   onAddItem,
   onDeleteItem,
+  onEditItem,
   weekDates,
   onWeekDatesChange,
   onSaveByWeek,
 }) => {
   const [selectedGroup, setSelectedGroup] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
-  const [activeMenuKey, setActiveMenuKey] = useState<string | null>(null);
+  
+  // Edit Item Modal State
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [itemToEdit, setItemToEdit] = useState<EquipmentItem | null>(null);
+
+  const handleOpenEditModal = (item: EquipmentItem) => {
+    setItemToEdit(item);
+    setIsEditModalOpen(true);
+  };
+
+  const handleSaveEdit = (updatedItem: EquipmentItem) => {
+    if (onEditItem) {
+      onEditItem(updatedItem);
+    }
+    setIsEditModalOpen(false);
+    setItemToEdit(null);
+  };
+
+  const handleDeleteItemInEdit = (itemId: string) => {
+    if (onDeleteItem) {
+      onDeleteItem(type, itemId);
+    }
+    setIsEditModalOpen(false);
+    setItemToEdit(null);
+  };
 
   const [selectedWeek, setSelectedWeek] = useState<number>(1);
 
@@ -528,12 +555,12 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
                         )}
                       </div>
 
-                      {/* 3-Dots Menu Button [⋮] */}
+                      {/* 3-Dots Edit Button [✏️] */}
                       <button
                         type="button"
-                        onClick={() => setActiveMenuKey(activeMenuKey === item.itemKey ? null : item.itemKey)}
-                        className="p-1 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition cursor-pointer"
-                        title="ตัวเลือกเพิ่มเติม"
+                        onClick={() => handleOpenEditModal(item as any)}
+                        className="p-1 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-blue-600 transition cursor-pointer"
+                        title="แก้ไขรายการอุปกรณ์"
                       >
                         <MoreVertical size={15} />
                       </button>
@@ -618,43 +645,7 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
                   )}
                 </div>
 
-                {/* 3-Dots Dropdown Detail Menu */}
-                {activeMenuKey === item.itemKey && (
-                  <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs space-y-1.5 animate-in zoom-in-95">
-                    <div className="flex justify-between items-center border-b border-slate-200 pb-1 font-bold text-slate-800">
-                      <span>รายละเอียดอุปกรณ์</span>
-                      <button
-                        type="button"
-                        onClick={() => setActiveMenuKey(null)}
-                        className="text-slate-400 hover:text-slate-700 font-bold"
-                      >
-                        ✕
-                      </button>
-                    </div>
-                    <p className="text-slate-700"><b>ชื่อ:</b> {item.name}</p>
-                    {item.code && <p className="text-slate-700"><b>รหัส:</b> {item.code}</p>}
-                    {item.spec && <p className="text-slate-700"><b>คุณลักษณะ:</b> {item.spec}</p>}
-                    {item.location && <p className="text-slate-700"><b>ตำแหน่ง:</b> {item.location}</p>}
-                    {item.exp && <p className="text-rose-600 font-bold"><b>วันหมดอายุ:</b> {item.exp}</p>}
-                    
-                    {/* Delete Item Button in Menu */}
-                    <div className="pt-2 border-t border-slate-200 mt-2">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (onDeleteItem && confirm(`คุณต้องการลบรายการ "${item.name}" ออกจากระบบใช่หรือไม่?`)) {
-                            onDeleteItem(type, item.itemKey);
-                            setActiveMenuKey(null);
-                          }
-                        }}
-                        className="w-full flex items-center gap-2 px-3 py-2 rounded-lg bg-rose-50 text-rose-700 hover:bg-rose-100 font-bold transition-colors cursor-pointer"
-                      >
-                        <X size={14} className="stroke-[3]" />
-                        <span>ลบรายการนี้</span>
-                      </button>
-                    </div>
-                  </div>
-                )}
+                {/* Dropdown Menu removed in favor of Modal */}
 
                 {/* Compact Touch Check Buttons */}
                 <div className="space-y-1.5 pt-1.5 border-t border-slate-100">
@@ -901,6 +892,17 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
         </div>
       )}
 
+      {/* ✏️ Modal แก้ไขรายการอุปกรณ์ */}
+      {isEditModalOpen && itemToEdit && (
+        <EditItemModal
+          isOpen={isEditModalOpen}
+          onClose={() => setIsEditModalOpen(false)}
+          item={itemToEdit as any}
+          groups={groups}
+          onSave={handleSaveEdit}
+          onDelete={handleDeleteItemInEdit}
+        />
+      )}
     </div>
   );
 };

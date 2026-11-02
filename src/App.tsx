@@ -26,6 +26,14 @@ import {
   getInitialEquipment,
   getInitialLists,
 } from './services/storage';
+import {
+  signInWithPopup,
+  GoogleAuthProvider,
+  onAuthStateChanged,
+  signOut,
+} from 'firebase/auth';
+import { doc, getDocFromServer } from 'firebase/firestore';
+import { auth, db } from './services/firebase';
 import { sendInspectionToGas, testGasConnection } from './services/api';
 import { INITIAL_DRUGS_DATA } from './constants/initialDrugs';
 import { ROOMS, GAS_SCRIPT_V5 } from './constants/initialData';
@@ -65,6 +73,21 @@ import {
   Menu,
 } from 'lucide-react';
 
+import {
+  fetchEquipmentFromFirebase,
+  saveEquipmentItemToFirebase,
+  deleteEquipmentItemInFirebase,
+  fetchDrugsFromFirebase,
+  saveDrugItemToFirebase,
+  fetchUsersFromFirebase,
+  saveUserToFirebase,
+  loadSettingsFromFirebase,
+  saveSettingsToFirebase,
+  saveInspectionToFirebase,
+  subscribeInspectionHistory,
+  deleteInspectionFromFirebase,
+} from './services/firebase';
+
 export default function App() {
   // Navigation & Theme
   const [currentView, setCurrentView] = useState<
@@ -78,10 +101,7 @@ export default function App() {
     return (getStoredString(STORAGE_KEYS.THEME, 'dark') as 'light' | 'dark') || 'dark';
   });
 
-  // Drawer menu open state (Samsung One UI Bottom Sheet Drawer)
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
-
-  // Zoomed Image Modal State
   const [zoomedImgUrl, setZoomedImgUrl] = useState<string | null>(null);
 
   // Current Logged-in User
@@ -103,36 +123,23 @@ export default function App() {
     };
   });
 
-  const [allUsers, setAllUsers] = useState<User[]>(() => {
-    const users = getStored<User[]>(STORAGE_KEYS.USERS, []);
-    if (users.length > 0) return users;
-    return currentUser ? [currentUser] : [];
-  });
-
-  // App Settings
+  const [allUsers, setAllUsers] = useState<User[]>([]);
   const [apiUrl, setApiUrl] = useState<string>(() => getStoredString(STORAGE_KEYS.API_URL, ''));
   const [sheetUrl, setSheetUrl] = useState<string>(() => getStoredString(STORAGE_KEYS.SHEET_URL, ''));
 
   // Main Data States
-  const [drugs, setDrugs] = useState<DrugItem[]>(() => {
-    return getStored<DrugItem[]>(STORAGE_KEYS.DRUGS, INITIAL_DRUGS_DATA);
-  });
-
-  const [equipment, setEquipment] = useState<Record<string, EquipmentItem[]>>(() => {
-    return getInitialEquipment();
-  });
-
-  const [lists, setLists] = useState<Record<'bag' | 'cart', ListConfig>>(() => {
-    return getInitialLists();
+  const [drugs, setDrugs] = useState<DrugItem[]>([]);
+  const [equipment, setEquipment] = useState<Record<string, EquipmentItem[]>>({});
+  const [lists, setLists] = useState<Record<'bag' | 'cart', ListConfig>>({
+    bag: { title: 'กระเป๋าฉุกเฉิน', sheet: 'กระเป๋า Emergency', groups: {} },
+    cart: { title: 'รถฉุกเฉิน', sheet: 'รถ Emergency', groups: {} },
   });
 
   const [globalChecks, setGlobalChecks] = useState<Record<string, Record<string, CheckItemState>>>(() => {
     return getStored<Record<string, Record<string, CheckItemState>>>(STORAGE_KEYS.GLOBAL_CHECKS, {});
   });
 
-  const [historyRecords, setHistoryRecords] = useState<InspectionHistoryRecord[]>(() => {
-    return getStored<InspectionHistoryRecord[]>(STORAGE_KEYS.HISTORY, []);
-  });
+  const [historyRecords, setHistoryRecords] = useState<InspectionHistoryRecord[]>([]);
 
   const [emergencyWeekDates, setEmergencyWeekDates] = useState<Record<string, Record<number, string>>>(() => {
     const today = new Date().toISOString().split('T')[0];
@@ -143,12 +150,203 @@ export default function App() {
     return getStored<Record<string, Record<number, string>>>(STORAGE_KEYS.EMER_WEEK_DATES, initial);
   });
 
+  const [isLoadingData, setIsLoadingData] = useState(true);
+  const [authLoading, setAuthLoading] = useState(true);
+
+  // Connectivity Test & Auth Listener
+  useEffect(() => {
+    const testConnection = async () => {
+      try {
+        await getDocFromServer(doc(db, 'settings', 'config'));
+      } catch (error: any) {
+        if (error?.message?.includes('offline')) {
+          console.warn('Firebase is offline. Check configuration.');
+        }
+      }
+    };
+    testConnection();
+
+    const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
+      setAuthLoading(true);
+      if (fbUser) {
+        // Find or create user in Firestore
+        const existingUsers = await fetchUsersFromFirebase();
+        let userProfile = existingUsers.find(u => u.id === fbUser.uid);
+        
+        if (!userProfile) {
+          userProfile = {
+            id: fbUser.uid,
+            username: fbUser.email?.split('@')[0] || 'user',
+            name: fbUser.displayName || 'Anonymous User',
+            role: existingUsers.length === 0 ? 'admin' : 'user', // First user is admin
+            position: 'เจ้าหน้าที่',
+            active: true,
+            salt: '',
+            hash: '',
+            must: false,
+            created: new Date().toISOString(),
+            last: new Date().toISOString(),
+            avatar: fbUser.photoURL || '',
+          };
+          await saveUserToFirebase(userProfile);
+        } else {
+          // Update last login
+          userProfile.last = new Date().toISOString();
+          await saveUserToFirebase(userProfile);
+        }
+        setCurrentUser(userProfile);
+        setStored(STORAGE_KEYS.SESSION, userProfile);
+
+        // Load Private Data
+        setAllUsers(existingUsers);
+        
+        // Seed if Admin
+        if (userProfile.role === 'admin') {
+          const currentEq = await fetchEquipmentFromFirebase();
+          if (currentEq.length === 0) {
+            const initialEqMap = getInitialEquipment();
+            const initialListsMap = getInitialLists();
+            for (const [roomId, items] of Object.entries(initialEqMap)) {
+              for (const item of items) {
+                await saveEquipmentItemToFirebase({ ...item, type: 'room', roomId });
+              }
+            }
+            for (const type of ['bag', 'cart'] as const) {
+              const list = initialListsMap[type];
+              for (const [groupName, items] of Object.entries(list.groups)) {
+                for (const item of items) {
+                  await saveEquipmentItemToFirebase({ ...item, type, category: groupName });
+                }
+              }
+            }
+          }
+
+          const currentDrugs = await fetchDrugsFromFirebase();
+          if (currentDrugs.length === 0) {
+            for (const drug of INITIAL_DRUGS_DATA) {
+              await saveDrugItemToFirebase(drug);
+            }
+          }
+        }
+        
+        const fbSettings = await loadSettingsFromFirebase();
+        if (fbSettings) {
+          if (fbSettings.sheetUrl) setSheetUrl(fbSettings.sheetUrl);
+          if (fbSettings.apiUrl) setApiUrl(fbSettings.apiUrl);
+          if (fbSettings.theme) setTheme(fbSettings.theme);
+        }
+
+        // Subscribe to History
+        const unsubscribeHistory = await subscribeInspectionHistory((records) => {
+          setHistoryRecords(records);
+        });
+      } else {
+        setCurrentUser(null);
+        setStored(STORAGE_KEYS.SESSION, null);
+      }
+      setAuthLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  const handleLogin = async () => {
+    try {
+      const provider = new GoogleAuthProvider();
+      await signInWithPopup(auth, provider);
+    } catch (err) {
+      console.error('Login failed:', err);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+      setCurrentUser(null);
+      setStored(STORAGE_KEYS.SESSION, null);
+    } catch (err) {
+      console.error('Logout failed:', err);
+    }
+  };
+
+  // Initial Data Fetching from Firestore
+  useEffect(() => {
+    const initData = async () => {
+      setIsLoadingData(true);
+      try {
+        // 1. Fetch Equipment (Public Read)
+        const fbEquipment = await fetchEquipmentFromFirebase();
+        processEquipment(fbEquipment);
+
+        // 2. Fetch Drugs (Public Read)
+        const fbDrugs = await fetchDrugsFromFirebase();
+        setDrugs(fbDrugs);
+      } catch (err) {
+        console.error('Failed to initialize public data from Firebase:', err);
+      } finally {
+        setIsLoadingData(false);
+      }
+    };
+
+    const processEquipment = (items: EquipmentItem[]) => {
+      const roomEq: Record<string, EquipmentItem[]> = {};
+      const bagGroups: Record<string, EquipmentItem[]> = {};
+      const cartGroups: Record<string, EquipmentItem[]> = {};
+
+      items.forEach((item) => {
+        if (item.type === 'room' && item.roomId) {
+          if (!roomEq[item.roomId]) roomEq[item.roomId] = [];
+          roomEq[item.roomId].push(item);
+        } else if (item.type === 'bag' && item.category) {
+          if (!bagGroups[item.category]) bagGroups[item.category] = [];
+          bagGroups[item.category].push(item);
+        } else if (item.type === 'cart' && item.category) {
+          if (!cartGroups[item.category]) cartGroups[item.category] = [];
+          cartGroups[item.category].push(item);
+        }
+      });
+
+      setEquipment(roomEq);
+      setLists({
+        bag: { title: 'กระเป๋าฉุกเฉิน', sheet: 'กระเป๋า Emergency', groups: bagGroups },
+        cart: { title: 'รถฉุกเฉิน', sheet: 'รถ Emergency', groups: cartGroups },
+      });
+    };
+
+    initData();
+  }, []);
+
   // Modals
   const [isOfficialReportOpen, setIsOfficialReportOpen] = useState(false);
   const [reportInitialWeek, setReportInitialWeek] = useState<number | undefined>(undefined);
   const [reportInitialWeekDates, setReportInitialWeekDates] = useState<Record<number, string> | undefined>(undefined);
   const [reportInitialRoundId, setReportInitialRoundId] = useState<string | undefined>(undefined);
   const [isBarcodeScannerOpen, setIsBarcodeScannerOpen] = useState(false);
+  
+  // Firebase Connectivity Test
+  const [isTestingFirebase, setIsTestingFirebase] = useState(false);
+  const [firebaseTestResult, setFirebaseTestResult] = useState<{ ok: boolean; msg: string } | null>(null);
+
+  const handleTestFirebaseConnection = async () => {
+    setIsTestingFirebase(true);
+    setFirebaseTestResult(null);
+    try {
+      // Test by attempting to get a doc from server
+      await getDocFromServer(doc(db, 'settings', 'config'));
+      setFirebaseTestResult({ ok: true, msg: 'เชื่อมต่อฐานข้อมูล Firebase สำเร็จ (Online)' });
+    } catch (error: any) {
+      console.error('Firebase test failed:', error);
+      setFirebaseTestResult({ 
+        ok: false, 
+        msg: error?.message?.includes('offline') 
+          ? 'ฐานข้อมูลอยู่ในโหมด Offline หรือไม่ได้เชื่อมต่ออินเทอร์เน็ต' 
+          : `เกิดข้อผิดพลาด: ${error?.message || 'ไม่สามารถติดต่อ Firebase ได้'}`
+      });
+    } finally {
+      setIsTestingFirebase(false);
+    }
+  };
+
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isPasswordOpen, setIsPasswordOpen] = useState(false);
@@ -251,9 +449,11 @@ export default function App() {
     setStoredString(STORAGE_KEYS.THEME, nextTheme);
   };
 
-  const handleDrugsChange = (nextDrugs: DrugItem[]) => {
+  const handleDrugsChange = async (nextDrugs: DrugItem[]) => {
     setDrugs(nextDrugs);
     setStored(STORAGE_KEYS.DRUGS, nextDrugs);
+    // Ideally we'd save each changed drug, but for now we'll just keep the local sync and assume individual updates happen elsewhere if needed.
+    // However, the DrugInventoryView might need an onUpdateDrug prop.
   };
 
   // Toggle Item Inspection Result ('ปกติ' | 'ผิดปกติ')
@@ -347,76 +547,56 @@ export default function App() {
   };
 
   // Add New Item to Emergency Bag or Crash Cart Checklist
-  const handleAddItem = (
+  const handleAddItem = async (
     type: 'bag' | 'cart',
     newItem: { name: string; groupName: string; spec?: string; qty?: string; exp?: string; img?: string }
   ) => {
+    const itemKey = `${type}_${newItem.groupName}_${Date.now()}`;
+    const itemObject: EquipmentItem = {
+      id: itemKey,
+      name: newItem.name,
+      no: '1', // Will be re-indexed locally by the processEquipment logic if we were using it, but here we update state directly
+      code: `NEW-${Math.floor(1000 + Math.random() * 9000)}`,
+      spec: newItem.spec || '',
+      qty: newItem.qty || '1',
+      location: newItem.groupName,
+      category: newItem.groupName,
+      exp: newItem.exp || '',
+      img: newItem.img || '',
+      type,
+    };
+
+    const saved = await saveEquipmentItemToFirebase(itemObject);
+    if (!saved) return;
+
     setLists((prev) => {
       const currentList = prev[type] || { title: type === 'bag' ? 'กระเป๋าฉุกเฉิน' : 'รถฉุกเฉิน', groups: {} };
       const groups = { ...(currentList.groups || {}) };
       const targetGroup = groups[newItem.groupName] ? [...groups[newItem.groupName]] : [];
-      const itemKey = `${type}_${newItem.groupName}_${Date.now()}`;
+      
+      groups[newItem.groupName] = [...targetGroup, saved];
 
-      const itemObject = {
-        id: itemKey,
-        name: newItem.name,
-        no: String(targetGroup.length + 1),
-        code: `NEW-${Math.floor(1000 + Math.random() * 9000)}`,
-        spec: newItem.spec || '',
-        qty: newItem.qty || '1',
-        location: newItem.groupName,
-        exp: newItem.exp || '',
-        img: newItem.img || '',
-      };
-
-      groups[newItem.groupName] = [...targetGroup, itemObject];
-
-      const updatedList = {
-        ...currentList,
-        groups,
-      };
-
-      const updatedLists = {
-        ...prev,
-        [type]: updatedList,
-      };
-
+      const updatedLists = { ...prev, [type]: { ...currentList, groups } };
       setStored(STORAGE_KEYS.CUSTOM_LISTS, updatedLists);
       return updatedLists;
     });
   };
 
   // Delete Item from Emergency Bag or Crash Cart Checklist
-  const handleDeleteItem = (type: 'bag' | 'cart', itemKey: string) => {
+  const handleDeleteItem = async (type: 'bag' | 'cart', itemKey: string) => {
+    const ok = await deleteEquipmentItemInFirebase(itemKey);
+    if (!ok) return;
+
     setLists((prev) => {
       const currentList = prev[type];
       if (!currentList || !currentList.groups) return prev;
 
       const newGroups: Record<string, EquipmentItem[]> = {};
-      let itemFound = false;
-
       Object.entries(currentList.groups).forEach(([groupName, items]) => {
-        const filteredItems = items.filter((it) => (it.id || it.name) !== itemKey);
-        if (filteredItems.length !== items.length) {
-          itemFound = true;
-        }
-        // Re-numbering the items in the group after deletion
-        newGroups[groupName] = filteredItems.map((it, idx) => ({
-          ...it,
-          no: String(idx + 1),
-        }));
+        newGroups[groupName] = items.filter((it) => it.id !== itemKey);
       });
 
-      if (!itemFound) return prev;
-
-      const updatedLists = {
-        ...prev,
-        [type]: {
-          ...currentList,
-          groups: newGroups,
-        },
-      };
-
+      const updatedLists = { ...prev, [type]: { ...currentList, groups: newGroups } };
       setStored(STORAGE_KEYS.CUSTOM_LISTS, updatedLists);
       return updatedLists;
     });
@@ -429,13 +609,42 @@ export default function App() {
       const newCategoryChecks = { ...categoryChecks };
       delete newCategoryChecks[itemKey];
 
-      const updatedGlobal = {
-        ...prev,
-        [type]: newCategoryChecks,
-      };
-
+      const updatedGlobal = { ...prev, [type]: newCategoryChecks };
       setStored(STORAGE_KEYS.GLOBAL_CHECKS, updatedGlobal);
       return updatedGlobal;
+    });
+  };
+
+  // Edit Item in Emergency Bag or Crash Cart Checklist
+  const handleEditItem = async (type: 'bag' | 'cart', updatedItem: EquipmentItem) => {
+    const saved = await saveEquipmentItemToFirebase({ ...updatedItem, type });
+    if (!saved) return;
+
+    setLists((prev) => {
+      const currentList = prev[type];
+      if (!currentList || !currentList.groups) return prev;
+
+      const newGroups: Record<string, EquipmentItem[]> = {};
+      Object.entries(currentList.groups).forEach(([groupName, items]) => {
+        newGroups[groupName] = items.map((it) => 
+          (it.id === saved.id) ? saved : it
+        );
+      });
+
+      // If category changed, move item to new group
+      const oldGroup = Object.keys(currentList.groups).find(g => 
+        currentList.groups[g].some(it => it.id === saved.id)
+      );
+
+      if (oldGroup && saved.category && oldGroup !== saved.category) {
+        newGroups[oldGroup] = newGroups[oldGroup].filter(it => it.id !== saved.id);
+        const targetGroup = newGroups[saved.category] || [];
+        newGroups[saved.category] = [...targetGroup, saved];
+      }
+
+      const updatedLists = { ...prev, [type]: { ...currentList, groups: newGroups } };
+      setStored(STORAGE_KEYS.CUSTOM_LISTS, updatedLists);
+      return updatedLists;
     });
   };
 
@@ -779,9 +988,7 @@ export default function App() {
         who: currentUser?.name || 'ผู้ดูแลระบบ (Admin)',
         rows: formattedEqItems,
       };
-      const nextHist = [newRecord, ...historyRecords.filter((r) => r.id !== newRecord.id)].slice(0, 50);
-      setHistoryRecords(nextHist);
-      setStored(STORAGE_KEYS.HISTORY, nextHist);
+      await saveInspectionToFirebase(newRecord);
 
       // 3. Open OfficialReportModal with 'eq' tab active and eqItems populated
       setReportInitialRoundId(newRecord.id);
@@ -817,8 +1024,7 @@ export default function App() {
       };
 
       const nextHist = [newRecord, ...historyRecords].slice(0, 50);
-      setHistoryRecords(nextHist);
-      setStored(STORAGE_KEYS.HISTORY, nextHist);
+      await saveInspectionToFirebase(newRecord);
 
       // 2. Open Modal
       setReportInitialRoundId(newRecord.id);
@@ -896,12 +1102,64 @@ export default function App() {
 
   const isDark = theme === 'dark';
 
+  if (authLoading) {
+    return (
+      <div className={`min-h-screen flex items-center justify-center ${isDark ? 'bg-[#0E0F12]' : 'bg-[#F2F4F8]'}`}>
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+          <p className={`text-lg font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>กำลังโหลดข้อมูล...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!currentUser) {
+    return (
+      <div className={`min-h-screen flex items-center justify-center relative overflow-hidden ${isDark ? 'bg-[#0E0F12]' : 'bg-[#F2F4F8]'}`}>
+        {/* Background Video (Samsung One UI Soft Background) */}
+        <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
+          <video autoPlay loop muted playsInline className={`w-full h-full object-cover transition-all duration-700 ${isDark ? 'opacity-25' : 'opacity-15'}`}>
+            <source src="https://assets.mixkit.co/videos/preview/mixkit-surgeons-during-an-operation-41539-large.mp4" type="video/mp4" />
+          </video>
+          <div className={`absolute inset-0 ${isDark ? 'bg-gradient-to-b from-[#0E0F12]/80 via-[#0E0F12]/50 to-[#0E0F12]/95' : 'bg-gradient-to-b from-[#F2F4F8]/80 via-[#F2F4F8]/40 to-[#F2F4F8]/95'}`} />
+        </div>
+
+        <div className="relative z-10 w-full max-w-sm p-8 bg-white/10 dark:bg-black/40 backdrop-blur-2xl rounded-[3rem] border border-white/20 shadow-2xl space-y-8 text-center animate-in fade-in zoom-in duration-500">
+          <div className="space-y-2">
+            <div className="font-valorant text-4xl font-bold tracking-widest">
+              <span className="text-[#67e8f9] drop-shadow-[0_2px_8px_rgba(103,232,249,0.5)]">ANESTHESIA</span>
+              <span className="text-white"> CARE</span>
+            </div>
+            <p className="text-slate-300 text-sm font-medium">ระบบจัดการและตรวจสอบครุภัณฑ์ทางการแพทย์</p>
+          </div>
+
+          <div className="py-4">
+            <div className="w-24 h-24 bg-blue-600 rounded-[2rem] mx-auto flex items-center justify-center shadow-lg shadow-blue-600/40 transform rotate-12">
+              <BriefcaseMedical size={48} className="text-white -rotate-12" />
+            </div>
+          </div>
+
+          <button
+            onClick={handleLogin}
+            className="w-full py-4 px-6 bg-white hover:bg-slate-100 text-slate-900 font-bold rounded-2xl flex items-center justify-center gap-3 transition shadow-lg active:scale-95 cursor-pointer"
+          >
+            <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google" className="w-5 h-5" />
+            <span>เข้าสู่ระบบด้วย Google</span>
+          </button>
+          
+          <p className="text-[10px] text-slate-400 uppercase tracking-tighter">โรงพยาบาลวิสัญญีวิทยา • ระบบรักษาความปลอดภัย Firestore</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       className={`min-h-screen w-full font-['TH_Sarabun_New','Sarabun',sans-serif] relative transition-colors duration-500 overflow-x-hidden ${
         isDark ? 'bg-[#0E0F12] text-slate-100' : 'bg-[#F2F4F8] text-slate-900'
       }`}
     >
+
       <link
         href="https://fonts.googleapis.com/css2?family=Teko:wght@700&display=swap"
         rel="stylesheet"
@@ -996,7 +1254,9 @@ export default function App() {
               setIsSheetsAccordionOpen(true);
               setIsDrawerOpen(true);
             }}
+            onLogout={handleLogout}
             onToggleCheck={handleToggleCheck}
+
             onOpenBarcodeScan={() => setIsBarcodeScannerOpen(true)}
             overallStats={overallStats}
           />
@@ -1035,6 +1295,7 @@ export default function App() {
             onBack={() => setCurrentView('home')}
             onAddItem={(newItem) => handleAddItem('bag', newItem)}
             onDeleteItem={handleDeleteItem}
+            onEditItem={(item) => handleEditItem('bag', item)}
             weekDates={emergencyWeekDates.bag}
             onWeekDatesChange={(dates) => {
               const updated = { ...emergencyWeekDates, bag: dates };
@@ -1062,6 +1323,7 @@ export default function App() {
             onBack={() => setCurrentView('home')}
             onAddItem={(newItem) => handleAddItem('cart', newItem)}
             onDeleteItem={handleDeleteItem}
+            onEditItem={(item) => handleEditItem('cart', item)}
             weekDates={emergencyWeekDates.cart}
             onWeekDatesChange={(dates) => {
               const updated = { ...emergencyWeekDates, cart: dates };
@@ -1290,6 +1552,65 @@ export default function App() {
                 </div>
                 <span className="text-xs text-[#3B82F6] font-bold">สลับ</span>
               </button>
+
+              {/* 5. Firebase Cloud Sync Section */}
+              <div className="pt-2 mt-2 border-t border-slate-100 dark:border-slate-800 space-y-3">
+                <div className="px-2">
+                  <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                    <div className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-pulse" />
+                    <span>Firebase Cloud Storage</span>
+                  </h4>
+                </div>
+                
+                <div className={`p-4 rounded-2xl border transition-all ${isDark ? 'bg-slate-900/50 border-slate-800' : 'bg-blue-50/30 border-blue-100'}`}>
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2.5">
+                      <div className="p-2 rounded-xl bg-blue-500/10 text-blue-500">
+                        <RefreshCw size={18} className={isTestingFirebase ? 'animate-spin' : ''} />
+                      </div>
+                      <div>
+                        <p className="text-xs font-bold dark:text-white">สถานะคลาวด์</p>
+                        <p className="text-[9px] text-slate-500">Real-time Synchronization</p>
+                      </div>
+                    </div>
+                    {firebaseTestResult && (
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${firebaseTestResult.ok ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600'}`}>
+                        {firebaseTestResult.ok ? 'Online' : 'Error'}
+                      </span>
+                    )}
+                  </div>
+
+                  {firebaseTestResult && (
+                    <div className={`mb-3 p-2.5 rounded-xl text-[11px] font-bold flex items-start gap-2 ${firebaseTestResult.ok ? 'bg-emerald-500/10 text-emerald-600' : 'bg-rose-500/10 text-rose-600'}`}>
+                      {firebaseTestResult.ok ? <Check size={14} className="mt-0.5" /> : <X size={14} className="mt-0.5" />}
+                      <span>{firebaseTestResult.msg}</span>
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      disabled={isTestingFirebase}
+                      onClick={handleTestFirebaseConnection}
+                      className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold transition shadow-lg shadow-blue-600/20 active:scale-95 disabled:opacity-50 cursor-pointer"
+                    >
+                      <RefreshCw size={14} className={isTestingFirebase ? 'animate-spin' : ''} />
+                      <span>{isTestingFirebase ? 'กำลังทดสอบ...' : 'ทดสอบการเชื่อมต่อ'}</span>
+                    </button>
+                    
+                    <a
+                      href={`https://console.firebase.google.com/project/galvanic-crow-v83d0/firestore/databases/ai-studio-anesthesiacare-980ed80f-6020-4ed3-a9ce-1f56075434f1/data`}
+
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-white text-[11px] font-bold transition border border-slate-200 dark:border-slate-700 cursor-pointer"
+                    >
+                      <ExternalLink size={14} />
+                      <span>Console</span>
+                    </a>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>

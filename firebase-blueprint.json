@@ -1,111 +1,124 @@
 {
   "entities": {
-    "InspectionRecord": {
-      "title": "Inspection Record",
-      "description": "Historical record of a completed inspection",
-      "type": "object",
-      "properties": {
-        "id": { "type": "string" },
-        "timestamp": { "type": "string" },
-        "date": { "type": "string" },
-        "time": { "type": "string" },
-        "who": { "type": "string" },
-        "type": { "type": "string", "enum": ["eq", "bag", "cart", "drug"] },
-        "title": { "type": "string" },
-        "rows": { "type": "array" }
-      },
-      "required": ["id", "timestamp", "who", "type"]
-    },
-    "AuditLog": {
-      "title": "Audit Log",
-      "description": "System audit log entry",
-      "type": "object",
-      "properties": {
-        "id": { "type": "string" },
-        "userId": { "type": "string" },
-        "userName": { "type": "string" },
-        "action": { "type": "string" },
-        "details": { "type": "string" },
-        "category": { "type": "string" },
-        "timestamp": { "type": "string" },
-        "ip": { "type": "string" }
-      },
-      "required": ["id", "action", "timestamp"]
-    },
     "User": {
       "title": "User",
-      "description": "Application user",
+      "description": "User profile and authentication data",
       "type": "object",
       "properties": {
-        "id": { "type": "string" },
-        "username": { "type": "string" },
-        "name": { "type": "string" },
-        "role": { "type": "string", "enum": ["admin", "staff"] },
+        "id": { "type": "string", "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "username": { "type": "string", "minLength": 3, "maxLength": 50 },
+        "name": { "type": "string", "maxLength": 100 },
+        "role": { "type": "string", "enum": ["admin", "user"] },
+        "position": { "type": "string", "maxLength": 100 },
+        "signature": { "type": "string" },
         "active": { "type": "boolean" },
         "salt": { "type": "string" },
         "hash": { "type": "string" },
         "must": { "type": "boolean" },
-        "created": { "type": "string" },
-        "last": { "type": "string" },
+        "created": { "type": "string", "format": "date-time" },
+        "last": { "type": "string", "format": "date-time" },
         "avatar": { "type": "string" },
-        "signature": { "type": "string" },
-        "position": { "type": "string" }
+        "ringColor": { "type": "string" }
       },
-      "required": ["id", "username", "name", "role"]
+      "required": ["id", "username", "name", "role", "active", "created"]
     },
-    "GlobalChecks": {
-      "title": "Global Checks",
-      "description": "Current status of all checklist items",
+    "EquipmentItem": {
+      "title": "Equipment Item",
+      "description": "A single piece of equipment in a bag, cart, or room",
       "type": "object",
       "properties": {
-        "data": { "type": "object" },
-        "updatedAt": { "type": "string" }
-      }
+        "id": { "type": "string", "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "maxLength": 200 },
+        "code": { "type": "string", "maxLength": 100 },
+        "sap": { "type": "string", "maxLength": 100 },
+        "spec": { "type": "string", "maxLength": 500 },
+        "source": { "type": "string", "maxLength": 100 },
+        "date": { "type": "string" },
+        "qty": { "type": "string", "maxLength": 50 },
+        "tax": { "type": "string" },
+        "price": { "type": "string" },
+        "location": { "type": "string", "maxLength": 100 },
+        "img": { "type": "string" },
+        "no": { "type": "string", "maxLength": 20 },
+        "exp": { "type": "string", "maxLength": 1000 },
+        "note": { "type": "string", "maxLength": 500 },
+        "category": { "type": "string", "maxLength": 100 }
+      },
+      "required": ["id", "name"]
     },
-    "LastSubmitted": {
-      "title": "Last Submitted",
-      "description": "Timestamps of last submissions per category/room",
+    "DrugItem": {
+      "title": "Drug Item",
+      "description": "A medication or fluid in the inventory",
       "type": "object",
       "properties": {
-        "data": { "type": "object" },
-        "updatedAt": { "type": "string" }
-      }
+        "id": { "type": "string", "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "category": { "type": "string", "enum": ["monthly", "quarterly", "adhoc"] },
+        "name": { "type": "string", "maxLength": 200 },
+        "remaining": { "type": "number" },
+        "receivedDate": { "type": "string" },
+        "receivedQty": { "type": "number" },
+        "minStock": { "type": "number" },
+        "batchRequest": { "type": "string", "maxLength": 100 },
+        "unit": { "type": "string", "maxLength": 50 },
+        "expDate": { "type": "string", "maxLength": 1000 },
+        "note": { "type": "string", "maxLength": 500 },
+        "img": { "type": "string" },
+        "barcode": { "type": "string", "maxLength": 100 }
+      },
+      "required": ["id", "name", "category"]
     },
-    "AppSettings": {
-      "title": "App Settings",
-      "description": "Global application configuration",
+    "InspectionRecord": {
+      "title": "Inspection Record",
+      "description": "Historical record of an inspection round",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "date": { "type": "string" },
+        "time": { "type": "string" },
+        "who": { "type": "string", "maxLength": 100 },
+        "type": { "type": "string", "enum": ["eq", "bag", "cart", "drug"] },
+        "title": { "type": "string", "maxLength": 200 },
+        "rows": { "type": "array" },
+        "weekDates": { "type": "object" }
+      },
+      "required": ["id", "timestamp", "date", "who", "type"]
+    },
+    "Settings": {
+      "title": "Settings",
+      "description": "Application settings and global state",
       "type": "object",
       "properties": {
         "sheetUrl": { "type": "string" },
+        "apiUrl": { "type": "string" },
         "theme": { "type": "string" },
-        "updatedAt": { "type": "string" }
+        "globalChecks": { "type": "object" },
+        "lastSubmitted": { "type": "object" },
+        "updatedAt": { "type": "string", "format": "date-time" }
       }
     }
   },
   "firestore": {
-    "/inspection_records/{recordId}": {
-      "schema": "InspectionRecord",
-      "description": "Collection of inspection history"
-    },
-    "/audit_logs/{logId}": {
-      "schema": "AuditLog",
-      "description": "Collection of system audit logs"
-    },
     "/users/{userId}": {
       "schema": "User",
-      "description": "Collection of application users"
+      "description": "Registered users"
     },
-    "/settings/global_checks": {
-      "schema": "GlobalChecks",
-      "description": "Document storing the current state of all checks"
+    "/equipment/{itemId}": {
+      "schema": "EquipmentItem",
+      "description": "Equipment items catalog"
     },
-    "/settings/last_submitted": {
-      "schema": "LastSubmitted",
-      "description": "Document storing the last submission timestamps"
+    "/drugs/{drugId}": {
+      "schema": "DrugItem",
+      "description": "Drug inventory"
+    },
+    "/inspection_records/{recordId}": {
+      "schema": "InspectionRecord",
+      "description": "Historical inspection results"
     },
     "/settings/config": {
-      "schema": "AppSettings",
-      "description": "Document storing global app configuration"
+      "schema": "Settings",
+      "description": "Global application configuration"
     }
   }
 }
+

@@ -500,7 +500,9 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
                         ...(isCurrentYear ? { color: '#DC2626 !important', fontWeight: 'bold !important' } : {}),
                       }}
                     >
-                      {(item.name?.toLowerCase().includes('tank') || item.name?.includes('ถัง')) && (item.name?.toLowerCase().includes('o2') || item.name?.toLowerCase().includes('oxygen') || item.name?.includes('ออกซิเจน'))
+                      {((item.name?.toLowerCase().includes('tank') || item.name?.includes('ถัง')) && 
+                        (item.name?.toLowerCase().includes('o2') || item.name?.toLowerCase().includes('oxygen') || item.name?.includes('ออกซิเจน')) &&
+                        !(item.name?.toLowerCase().includes('cannula') || item.name?.toLowerCase().includes('mask') || item.name?.includes('หน้ากาก') || item.name?.includes('สาย')))
                         ? 'ปริมาณแรงดันไม่ต่ำกว่า 500 psi'
                         : formattedExp}
                     </td>
@@ -650,7 +652,9 @@ export function generateEmergencyPrintHtml(
               <td style="text-align: center; border: 1px solid #000; white-space: nowrap !important;">${item.qty || '1'}</td>
               ${weekCells}
               <td style="text-align: center; border: 1px solid #000; font-size: 9pt; line-height: 1.2; ${expStyle}">
-                ${(item.name?.toLowerCase().includes('tank') || item.name?.includes('ถัง')) && (item.name?.toLowerCase().includes('o2') || item.name?.toLowerCase().includes('oxygen') || item.name?.includes('ออกซิเจน'))
+                ${((item.name?.toLowerCase().includes('tank') || item.name?.includes('ถัง')) && 
+                  (item.name?.toLowerCase().includes('o2') || item.name?.toLowerCase().includes('oxygen') || item.name?.includes('ออกซิเจน')) &&
+                  !(item.name?.toLowerCase().includes('cannula') || item.name?.toLowerCase().includes('mask') || item.name?.includes('หน้ากาก') || item.name?.includes('สาย')))
                   ? 'ปริมาณแรงดันไม่ต่ำกว่า 500 psi'
                   : formattedExp}
               </td>
