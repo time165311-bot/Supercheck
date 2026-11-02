@@ -141,8 +141,8 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
       utterance.lang = 'th-TH';
       utterance.rate = 1.05;
       utterance.pitch = 1.2;
-      // [CRITICAL UPDATE]: Set volume to 50%
-      utterance.volume = 0.5;
+      // [CRITICAL UPDATE]: Set volume to 75%
+      utterance.volume = 0.75;
 
       const thaiVoices = voices.filter((v) => v.lang.includes('th') || v.lang.includes('TH'));
       const femaleVoice = thaiVoices.find(
@@ -476,31 +476,29 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
 
   return (
     <>
-      <div
-        className="fixed right-6 z-[999] transition-all duration-300"
-        style={{ bottom: isBottomBarVisible ? '85px' : '20px' }}
-      >
-        <button
-          type="button"
-          onClick={handleOpen}
-          className="group relative flex items-center gap-2 px-4 py-3 bg-gradient-to-r from-pink-500 via-purple-600 to-indigo-600 text-white rounded-full shadow-2xl hover:scale-105 active:scale-95 transition-all duration-300 cursor-pointer border border-white/25"
+      {!isOpen && (
+        <div
+          className="fixed right-6 z-[999] transition-all duration-300"
+          style={{ bottom: isBottomBarVisible ? '85px' : '20px' }}
         >
-          <span className="absolute -top-1 -right-1 flex h-3 w-3">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-pink-400 opacity-75"></span>
-            <span className="relative inline-flex rounded-full h-3 w-3 bg-pink-500"></span>
-          </span>
-          <Bot size={22} className="animate-bounce" />
-          <span className="text-xs font-bold tracking-wide font-sans">น้องออร่า AI</span>
-        </button>
-      </div>
+          <button
+            type="button"
+            onClick={handleOpen}
+            className="w-14 h-14 flex items-center justify-center bg-gradient-to-br from-purple-500 to-cyan-400 text-white rounded-full shadow-lg hover:scale-110 active:scale-90 transition-all duration-300 cursor-pointer border border-white/20"
+          >
+            <Sparkles size={24} className="animate-pulse" />
+          </button>
+        </div>
+      )}
 
       {isOpen && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
           <div
-            className={`w-full sm:max-w-md h-[85vh] sm:h-[600px] flex flex-col rounded-t-[2.5rem] sm:rounded-[2.5rem] shadow-2xl border transition-all duration-300 transform ${
-              isAnimating ? 'translate-y-0 opacity-100 scale-100' : 'translate-y-12 opacity-0 scale-95'
+            className={`w-full sm:max-w-md h-[85vh] sm:h-[600px] flex flex-col rounded-t-[2.5rem] sm:rounded-[2.5rem] shadow-2xl border transition-all duration-300 origin-bottom-right ${
+              isAnimating ? 'scale-100 opacity-100' : 'scale-0 opacity-0'
             } ${isDarkMode ? 'bg-[#181A20] border-white/10 text-white' : 'bg-white border-slate-200 text-slate-900'}`}
           >
+
             {/* Header */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-white/10 bg-gradient-to-r from-pink-500/10 via-purple-500/10 to-indigo-500/10 rounded-t-[2.5rem]">
               <div className="flex items-center gap-3">

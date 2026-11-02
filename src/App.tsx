@@ -421,15 +421,19 @@ export default function App() {
 
   // Auto-hiding Bottom Navigation Bar on Scroll
   const [isBottomBarVisible, setIsBottomBarVisible] = useState<boolean>(true);
+  const contentRef = React.useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    let lastScrollY = window.scrollY;
+    const container = contentRef.current;
+    if (!container) return;
+    
+    let lastScrollY = container.scrollTop;
     let ticking = false;
 
     const handleScroll = () => {
       if (!ticking) {
         window.requestAnimationFrame(() => {
-          const currentScrollY = window.scrollY;
+          const currentScrollY = container.scrollTop;
           if (currentScrollY <= 10) {
             setIsBottomBarVisible(true);
           } else if (currentScrollY > lastScrollY && currentScrollY > 50) {
@@ -444,8 +448,8 @@ export default function App() {
       }
     };
 
-    window.addEventListener('scroll', handleScroll, { passive: true });
-    return () => window.removeEventListener('scroll', handleScroll);
+    container.addEventListener('scroll', handleScroll, { passive: true });
+    return () => container.removeEventListener('scroll', handleScroll);
   }, []);
 
   // Selected Room ID for Room Check
@@ -1225,7 +1229,8 @@ export default function App() {
 
   return (
     <div
-      className={`min-h-screen w-full font-['TH_Sarabun_New','Sarabun',sans-serif] relative transition-colors duration-500 overflow-x-hidden ${
+      ref={contentRef}
+      className={`min-h-screen w-full font-['TH_Sarabun_New','Sarabun',sans-serif] relative transition-colors duration-500 overflow-x-hidden overflow-y-auto ${
         isDark ? 'bg-[#0E0F12] text-slate-100' : 'bg-[#F2F4F8] text-slate-900'
       }`}
     >
