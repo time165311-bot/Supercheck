@@ -213,7 +213,7 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
           border-color: #cbd5e1 !important;
           background-image: none !important;
           color-scheme: light !important;
-          white-space: normal !important;
+          white-space: normal;
           word-break: keep-all !important;
           padding: 6px 4px !important;
           overflow: visible !important;
@@ -221,6 +221,9 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
           font-size: 11px !important;
           vertical-align: middle !important;
           height: auto !important;
+        }
+        .a4-print-container .nowrap {
+          white-space: nowrap !important;
         }
         .a4-print-container p, 
         .a4-print-container span, 
@@ -342,8 +345,8 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
             {/* Col 2: จำนวนตั้งต้น (60px, center, nowrap) */}
             <th
               rowSpan={2}
-              className="border border-slate-400"
-              style={{ width: '70px', minWidth: '60px', textAlign: 'center', verticalAlign: 'middle', whiteSpace: 'nowrap', lineHeight: '1.4 !important', padding: '6px 4px !important' }}
+              className="border border-slate-400 nowrap"
+              style={{ width: '85px', minWidth: '85px', textAlign: 'center', verticalAlign: 'middle', whiteSpace: 'nowrap', lineHeight: '1.4 !important', padding: '6px 4px !important' }}
             >
               จำนวนตั้งต้น
             </th>
@@ -430,7 +433,7 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
                     </td>
                     {/* Col 2: จำนวนตั้งต้น (ตรงกลาง, nowrap) - Standard configured item quantity cleaned of unit words */}
                     <td
-                      className="border border-slate-300"
+                      className="border border-slate-300 nowrap"
                       style={{ textAlign: 'center', whiteSpace: 'nowrap', lineHeight: '1.4 !important', padding: '6px 4px !important' }}
                     >
                       {item.qty || '1'}
@@ -644,7 +647,7 @@ export function generateEmergencyPrintHtml(
           return `
             <tr>
               <td style="text-align: left; padding-left: 8px; border: 1px solid #000;">${item.name || '-'}</td>
-              <td style="text-align: center; border: 1px solid #000;">${item.qty || '1'}</td>
+              <td style="text-align: center; border: 1px solid #000; white-space: nowrap !important;">${item.qty || '1'}</td>
               ${weekCells}
               <td style="text-align: center; border: 1px solid #000; font-size: 9pt; line-height: 1.2; ${expStyle}">
                 ${(item.name?.toLowerCase().includes('tank') || item.name?.includes('ถัง')) && (item.name?.toLowerCase().includes('o2') || item.name?.toLowerCase().includes('oxygen') || item.name?.includes('ออกซิเจน'))
@@ -776,7 +779,7 @@ export function generateEmergencyPrintHtml(
           <thead>
             <tr>
               <th rowspan="2" style="width: 280px; text-align: center;">รายการ</th>
-              <th rowspan="2" style="width: 60px; text-align: center; white-space: nowrap;">จำนวน</th>
+              <th rowspan="2" style="width: 85px; text-align: center; white-space: nowrap !important;">จำนวนตั้งต้น</th>
               <th colspan="5" style="text-align: center;">สัปดาห์ที่ 1 - 5</th>
               <th rowspan="2" style="width: 100px; text-align: center;">วันหมดอายุ (EXP)</th>
             </tr>

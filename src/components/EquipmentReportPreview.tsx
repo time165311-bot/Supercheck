@@ -115,7 +115,7 @@ export const EquipmentReportPreview: React.FC<EquipmentReportPreviewProps> = ({
                 <th rowSpan={2} style={{ border: '1px solid #000', padding: '6px 4px', width: '145px', textAlign: 'left' }}>มาตรฐาน/สเปก</th>
                 <th rowSpan={2} style={{ border: '1px solid #000', padding: '6px 4px', width: '85px', textAlign: 'center' }}>แหล่งเงิน</th>
                 <th rowSpan={2} style={{ border: '1px solid #000', padding: '6px 4px', width: '85px', textAlign: 'center' }}>ว/ด/ป ได้มา</th>
-                <th rowSpan={2} style={{ border: '1px solid #000', padding: '6px 4px', width: '42px', textAlign: 'center' }}>จำนวน</th>
+                <th rowSpan={2} style={{ border: '1px solid #000', padding: '6px 4px', width: '85px', textAlign: 'center', whiteSpace: 'nowrap' }}>จำนวน</th>
                 <th rowSpan={2} style={{ border: '1px solid #000', padding: '6px 4px', width: '62px', textAlign: 'center' }}>ภาษี%</th>
                 <th rowSpan={2} style={{ border: '1px solid #000', padding: '6px 4px', width: '80px', textAlign: 'right' }}>ราคา</th>
                 <th rowSpan={2} style={{ border: '1px solid #000', padding: '6px 4px', width: '115px', textAlign: 'center' }}>สถานที่ตั้ง</th>
@@ -142,7 +142,7 @@ export const EquipmentReportPreview: React.FC<EquipmentReportPreviewProps> = ({
                     <td style={{ border: '1px solid #000', padding: '6px 4px', textAlign: 'left', fontSize: '10px' }}>{item.spec || '-'}</td>
                     <td style={{ border: '1px solid #000', padding: '6px 2px', textAlign: 'center', fontSize: '10px' }}>{item.source || '-'}</td>
                     <td style={{ border: '1px solid #000', padding: '6px 2px', textAlign: 'center', fontSize: '10px' }}>{formatAcquiredDate(item.date)}</td>
-                    <td style={{ border: '1px solid #000', padding: '6px 2px', textAlign: 'center' }}>{formatRealQuantity(item.qty, item.name, item.spec)}</td>
+                    <td style={{ border: '1px solid #000', padding: '6px 2px', textAlign: 'center', whiteSpace: 'nowrap' }}>{item.qty || '1'}</td>
                     <td style={{ border: '1px solid #000', padding: '6px 2px', textAlign: 'center' }}>{item.tax || '7'}</td>
                     <td style={{ border: '1px solid #000', padding: '6px 2px', textAlign: 'right' }}>{item.price || '-'}</td>
                     <td style={{ border: '1px solid #000', padding: '6px 2px', textAlign: 'center', fontSize: '10px' }}>{item.location || '-'}</td>
@@ -227,7 +227,7 @@ export function generateEquipmentPrintHtml(
           <td style="text-align: left; border: 1px solid #000; padding-left: 5px; font-size: 9pt;">${item.spec || '-'}</td>
           <td style="text-align: center; border: 1px solid #000; font-size: 9pt;">${item.source || '-'}</td>
           <td style="text-align: center; border: 1px solid #000; font-size: 9pt;">${formatAcquiredDate(item.date)}</td>
-          <td style="text-align: center; border: 1px solid #000;">${formatRealQuantity(item.qty, item.name, item.spec)}</td>
+          <td style="text-align: center; border: 1px solid #000; white-space: nowrap;">${item.qty || '1'}</td>
           <td style="text-align: center; border: 1px solid #000;">${item.tax || '7'}</td>
           <td style="text-align: right; border: 1px solid #000; padding-right: 5px;">${item.price || '-'}</td>
           <td style="text-align: center; border: 1px solid #000; font-size: 9pt;">${item.location || '-'}</td>
@@ -283,7 +283,7 @@ export function generateEquipmentPrintHtml(
               <th rowspan="2" style="min-width: 145px;">มาตรฐาน/สเปก</th>
               <th rowspan="2" style="width: 85px;">แหล่งเงิน</th>
               <th rowspan="2" style="width: 85px;">ว/ด/ป ได้มา</th>
-              <th rowspan="2" style="width: 42px;">จำนวน</th>
+              <th rowspan="2" style="width: 85px; white-space: nowrap;">จำนวน</th>
               <th rowspan="2" style="width: 62px;">ภาษี%</th>
               <th rowspan="2" style="width: 80px;">ราคา</th>
               <th rowspan="2" style="width: 115px;">สถานที่ตั้ง</th>
