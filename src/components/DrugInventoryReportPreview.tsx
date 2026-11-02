@@ -99,6 +99,7 @@ export const DrugInventoryReportPreview: React.FC<DrugInventoryReportPreviewProp
   }, [drugs, subCategory]);
 
   const mainHeading = getDrugCategoryTitle(subCategory, surveyDate);
+  const effectiveInspector = (inspector || (typeof window !== 'undefined' ? localStorage.getItem('user_display_name') : null) || 'สาธิต').trim();
 
   return (
     <div

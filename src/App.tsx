@@ -107,13 +107,21 @@ export default function App() {
   // Current Logged-in User
   const [currentUser, setCurrentUser] = useState<User | null>(() => {
     const sessionUser = getStored<User | null>(STORAGE_KEYS.SESSION, null);
-    if (sessionUser) return sessionUser;
+    const savedDisplayName = typeof window !== 'undefined' ? (localStorage.getItem('user_display_name') || localStorage.getItem('user_name_default')) : null;
+    const savedPosition = typeof window !== 'undefined' ? (localStorage.getItem('user_display_position') || localStorage.getItem('user_position_default')) : null;
+    if (sessionUser) {
+      return {
+        ...sessionUser,
+        name: savedDisplayName || sessionUser.name || 'สาธิต',
+        position: savedPosition || sessionUser.position || 'พยาบาลวิสัญญี',
+      };
+    }
     return {
       id: 'usr_admin',
       username: 'admin',
-      name: 'ผู้ดูแลระบบ (Admin)',
+      name: savedDisplayName || 'สาธิต',
       role: 'admin',
-      position: 'วิสัญญีแพทย์',
+      position: savedPosition || 'วิสัญญีแพทย์',
       active: true,
       salt: '',
       hash: '',
@@ -122,6 +130,27 @@ export default function App() {
       last: new Date().toISOString(),
     };
   });
+
+  // Listen for real-time user profile updates across components
+  useEffect(() => {
+    const handleProfileUpdated = (e: any) => {
+      const detail = e.detail;
+      if (detail) {
+        setCurrentUser((prev) => {
+          if (!prev) return detail;
+          return {
+            ...prev,
+            name: detail.name || prev.name,
+            position: detail.position || prev.position,
+            avatar: detail.avatar !== undefined ? detail.avatar : prev.avatar,
+            signature: detail.signature !== undefined ? detail.signature : prev.signature,
+          };
+        });
+      }
+    };
+    window.addEventListener('user_profile_updated', handleProfileUpdated);
+    return () => window.removeEventListener('user_profile_updated', handleProfileUpdated);
+  }, []);
 
   const [allUsers, setAllUsers] = useState<User[]>([]);
   const [apiUrl, setApiUrl] = useState<string>(() => getStoredString(STORAGE_KEYS.API_URL, ''));
@@ -185,6 +214,12 @@ export default function App() {
               userProfile.last = new Date().toISOString();
               await saveUserToFirebase(userProfile);
             }
+
+            const savedName = localStorage.getItem('user_display_name');
+            const savedPos = localStorage.getItem('user_display_position');
+            if (savedName) userProfile.name = savedName;
+            if (savedPos) userProfile.position = savedPos;
+
             setCurrentUser(userProfile);
             setStored(STORAGE_KEYS.SESSION, userProfile);
             setAllUsers(existingUsers);
@@ -229,8 +264,14 @@ export default function App() {
             });
           } else {
             const sessionUser = getStored<User | null>(STORAGE_KEYS.SESSION, null);
+            const savedName = localStorage.getItem('user_display_name');
+            const savedPos = localStorage.getItem('user_display_position');
             if (sessionUser) {
-              setCurrentUser(sessionUser);
+              setCurrentUser({
+                ...sessionUser,
+                name: savedName || sessionUser.name || 'สาธิต',
+                position: savedPos || sessionUser.position || 'พยาบาลวิสัญญี',
+              });
             }
           }
         } catch (authErr) {
@@ -1772,9 +1813,16 @@ export default function App() {
           onUpdateUser={(updated) => {
             setCurrentUser(updated);
             setStored(STORAGE_KEYS.SESSION, updated);
+            if (updated.name) {
+              localStorage.setItem('user_display_name', updated.name);
+            }
+            if (updated.position) {
+              localStorage.setItem('user_display_position', updated.position);
+            }
             const nextUsers = allUsers.map((u) => (u.id === updated.id ? updated : u));
             setAllUsers(nextUsers);
             setStored(STORAGE_KEYS.USERS, nextUsers);
+            saveUserToFirebase(updated).catch((err) => console.warn('Firebase user sync:', err));
           }}
         />
       )}

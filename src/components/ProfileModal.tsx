@@ -23,6 +23,7 @@ import {
 import { User } from '../types';
 import { UserAvatarBadge } from './UserAvatarBadge';
 import { AvatarRingKey, getEffectiveAvatarRing, RING_CONFIGS } from '../utils/avatarRings';
+import { saveUserToFirebase } from '../services/firebase';
 
 const PRESET_AVATARS = [
   {
@@ -82,9 +83,25 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
   onOpenPasswordModal,
   onLogout,
 }) => {
+  const [name, setName] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('user_display_name') || localStorage.getItem('user_name_default') || currentUser?.name || 'สาธิต';
+    }
+    return currentUser?.name || 'สาธิต';
+  });
+  const [position, setPosition] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('user_display_position') || localStorage.getItem('user_position_default') || currentUser?.position || 'พยาบาลวิสัญญี';
+    }
+    return currentUser?.position || 'พยาบาลวิสัญญี';
+  });
+
+  // Controlled component input states
+  const [tempName, setTempName] = useState<string>(name);
+  const [tempPosition, setTempPosition] = useState<string>(position);
+  const [profileSaved, setProfileSaved] = useState(false);
   const [avatar, setAvatar] = useState<string>(currentUser?.avatar || '');
   const [avatarSaved, setAvatarSaved] = useState(false);
-  const [position, setPosition] = useState<string>(currentUser?.position || 'พยาบาลวิสัญญี');
 
   // Cropper states
   const [rawImageForCrop, setRawImageForCrop] = useState<string | null>(null);
@@ -120,23 +137,100 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
 
   // Load user data on open
   useEffect(() => {
-    if (isOpen && currentUser) {
-      setAvatar(currentUser.avatar || '');
-      const userPos = currentUser.position || (currentUser.role === 'admin' ? 'วิสัญญีแพทย์' : 'พยาบาลวิสัญญี');
-      setPosition(userPos);
+    if (isOpen) {
+      const activeName = (typeof window !== 'undefined' ? localStorage.getItem('user_display_name') : null) || currentUser?.name || 'สาธิต';
+      const activePos = (typeof window !== 'undefined' ? localStorage.getItem('user_display_position') : null) || currentUser?.position || (currentUser?.role === 'admin' ? 'วิสัญญีแพทย์' : 'พยาบาลวิสัญญี');
+      setName(activeName);
+      setTempName(activeName);
+      setPosition(activePos);
+      setTempPosition(activePos);
+      setAvatar(currentUser?.avatar || '');
+      setProfileSaved(false);
       setAvatarSaved(false);
       setRawImageForCrop(null);
-      setSelectedRingColor(getEffectiveAvatarRing({ ...currentUser, position: userPos }));
+      setSelectedRingColor(getEffectiveAvatarRing({ ...(currentUser || {}), position: activePos } as any));
 
       const savedSig =
-        currentUser.signature ||
-        localStorage.getItem(`user_signature_${currentUser.id}`) ||
+        currentUser?.signature ||
+        (currentUser?.id ? localStorage.getItem(`user_signature_${currentUser.id}`) : null) ||
         localStorage.getItem('user_signature_default') ||
         '';
       setSignature(savedSig);
       setSignatureSaved(false);
     }
   }, [isOpen, currentUser]);
+
+  const handleSaveProfile = async () => {
+    const trimmedName = tempName.trim();
+    if (!trimmedName) {
+      alert('กรุณากรอกชื่อ-นามสกุล ผู้ใช้งาน');
+      return;
+    }
+    const trimmedPos = tempPosition.trim() || 'พยาบาลวิสัญญี';
+
+    // 1. Save to localStorage immediately
+    localStorage.setItem('user_display_name', trimmedName);
+    localStorage.setItem('user_display_position', trimmedPos);
+    localStorage.setItem('user_name_default', trimmedName);
+    localStorage.setItem('user_position_default', trimmedPos);
+    if (currentUser?.id) {
+      localStorage.setItem(`user_name_${currentUser.id}`, trimmedName);
+      localStorage.setItem(`user_position_${currentUser.id}`, trimmedPos);
+    }
+
+    const updatedUser: User = {
+      ...(currentUser || {
+        id: 'usr_admin',
+        username: 'admin',
+        role: 'admin',
+        active: true,
+        salt: '',
+        hash: '',
+        must: false,
+        created: new Date().toISOString(),
+        last: new Date().toISOString(),
+      }),
+      name: trimmedName,
+      position: trimmedPos,
+      avatar: avatar || currentUser?.avatar || '',
+      signature: signature || currentUser?.signature || '',
+    };
+
+    // 2. Sync to anesthesia_session
+    try {
+      const sessionRaw = localStorage.getItem('anesthesia_session');
+      const sessionObj = sessionRaw ? JSON.parse(sessionRaw) : {};
+      localStorage.setItem('anesthesia_session', JSON.stringify({ ...sessionObj, ...updatedUser }));
+    } catch (e) {
+      console.warn('Session sync warning', e);
+    }
+
+    // 3. Save to Firebase Database
+    try {
+      await saveUserToFirebase(updatedUser);
+    } catch (err) {
+      console.warn('Firebase user sync skipped or offline:', err);
+    }
+
+    // 4. Update parent states immediately
+    if (onUpdateUser) {
+      onUpdateUser(updatedUser);
+    }
+    if (onUpdatePosition) {
+      onUpdatePosition(trimmedPos);
+    }
+
+    setName(trimmedName);
+    setPosition(trimmedPos);
+
+    // 5. Broadcast global events for instant reactive re-rendering across Header, Dashboard, Drawer, and Reports
+    window.dispatchEvent(new CustomEvent('user_profile_updated', { detail: updatedUser }));
+    window.dispatchEvent(new CustomEvent('user_avatar_ring_updated'));
+    window.dispatchEvent(new Event('storage'));
+
+    setProfileSaved(true);
+    setTimeout(() => setProfileSaved(false), 3000);
+  };
 
   // Compute Personal Activity Stats dynamically from localStorage
   const userStats = useMemo(() => {
@@ -452,10 +546,12 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
   };
 
   const handlePositionChange = (newPos: string) => {
+    setTempPosition(newPos);
     setPosition(newPos);
     if (currentUser?.id) {
       localStorage.setItem(`user_position_${currentUser.id}`, newPos);
     }
+    localStorage.setItem('user_display_position', newPos);
     if (onUpdatePosition) {
       onUpdatePosition(newPos);
     }
@@ -560,35 +656,90 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
           {/* TAB 1: OVERVIEW & HEALTH APP STATS WIDGET */}
           {activeTab === 'overview' && (
             <div className="space-y-4">
-              {/* User Identity Card */}
-              <div className="p-4 bg-[#f0f2f5] dark:bg-[#18191a] rounded-2xl border border-[#e4e6eb] dark:border-[#3a3b3c] flex items-center gap-4">
-                <UserAvatarBadge
-                  user={{ ...currentUser, avatar, position }}
-                  size="lg"
-                  showBadge={true}
-                  overrideRingColor={selectedRingColor}
-                />
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <h3 className="font-extrabold text-sm sm:text-base text-[#050505] dark:text-white truncate">
-                      {currentUser.name}
-                    </h3>
-                    <span
-                      className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                        currentUser.role === 'admin'
-                          ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/80 dark:text-amber-200 border border-amber-300'
-                          : 'bg-[#e7f3ff] text-[#1877f2] dark:bg-[#1877f2]/20 dark:text-[#2d88ff]'
-                      }`}
-                    >
-                      {currentUser.role === 'admin' ? 'ผู้ดูแลระบบ (Admin)' : 'พยาบาลวิสัญญี (Staff)'}
-                    </span>
+              {/* User Identity Card & Quick Edit Form */}
+              <div className="p-4 bg-[#f0f2f5] dark:bg-[#18191a] rounded-2xl border border-[#e4e6eb] dark:border-[#3a3b3c] space-y-3">
+                <div className="flex items-center gap-4">
+                  <UserAvatarBadge
+                    user={{ ...currentUser, name: tempName || name, avatar, position: tempPosition || position }}
+                    size="lg"
+                    showBadge={true}
+                    overrideRingColor={selectedRingColor}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h3 className="font-extrabold text-sm sm:text-base text-[#050505] dark:text-white truncate">
+                        {tempName || name || currentUser.name}
+                      </h3>
+                      <span
+                        className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                          currentUser.role === 'admin'
+                            ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/80 dark:text-amber-200 border border-amber-300'
+                            : 'bg-[#e7f3ff] text-[#1877f2] dark:bg-[#1877f2]/20 dark:text-[#2d88ff]'
+                        }`}
+                      >
+                        {currentUser.role === 'admin' ? 'ผู้ดูแลระบบ (Admin)' : 'พยาบาลวิสัญญี (Staff)'}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-[#65676b] dark:text-[#b0b3b8] mt-0.5">
+                      @{currentUser.username} · ตำแหน่ง: <span className="font-semibold text-[#050505] dark:text-[#e4e6eb]">{tempPosition || position}</span>
+                    </p>
+                    <p className="text-[10px] text-slate-400 mt-1">
+                      เข้าสู่ระบบล่าสุด: {currentUser.last || 'วันนี้'}
+                    </p>
                   </div>
-                  <p className="text-[11px] text-[#65676b] dark:text-[#b0b3b8] mt-0.5">
-                    @{currentUser.username} · ตำแหน่ง: <span className="font-semibold text-[#050505] dark:text-[#e4e6eb]">{position}</span>
-                  </p>
-                  <p className="text-[10px] text-slate-400 mt-1">
-                    เข้าสู่ระบบล่าสุด: {currentUser.last || 'วันนี้'}
-                  </p>
+                </div>
+
+                {/* Editable Profile Inputs */}
+                <div className="pt-2 border-t border-[#e4e6eb] dark:border-[#3a3b3c] space-y-3">
+                  <div className="space-y-1">
+                    <label className="block text-[11px] font-bold text-[#050505] dark:text-[#e4e6eb]">
+                      ชื่อ-นามสกุล ผู้ใช้งาน (แสดงผลในรายงาน A4):
+                    </label>
+                    <input
+                      type="text"
+                      value={tempName}
+                      onChange={(e) => setTempName(e.target.value)}
+                      placeholder="ระบุชื่อ-นามสกุล เช่น สาธิต"
+                      className="w-full px-3 py-2 rounded-xl bg-white dark:bg-[#242526] border border-[#ccd0d5] dark:border-[#4e4f50] text-[#050505] dark:text-white font-medium text-xs focus:ring-2 focus:ring-[#1877f2]/20 focus:border-[#1877f2] outline-none"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="block text-[11px] font-bold text-[#050505] dark:text-[#e4e6eb]">
+                      ตำแหน่ง / บทบาทวิชาชีพ:
+                    </label>
+                    <input
+                      type="text"
+                      value={tempPosition}
+                      onChange={(e) => {
+                        setTempPosition(e.target.value);
+                        handlePositionChange(e.target.value);
+                      }}
+                      placeholder="ระบุตำแหน่ง เช่น พยาบาลวิสัญญี, หัวหน้าพยาบาลวิสัญญี"
+                      className="w-full px-3 py-2 rounded-xl bg-white dark:bg-[#242526] border border-[#ccd0d5] dark:border-[#4e4f50] text-[#050505] dark:text-white font-medium text-xs focus:ring-2 focus:ring-[#1877f2]/20 focus:border-[#1877f2] outline-none"
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between pt-1">
+                    {profileSaved ? (
+                      <span className="text-emerald-600 dark:text-emerald-400 font-bold text-xs flex items-center gap-1.5 animate-in fade-in">
+                        <CheckCircle2 className="w-4 h-4" />
+                        <span>บันทึกข้อมูลส่วนตัวเรียบร้อยแล้ว</span>
+                      </span>
+                    ) : (
+                      <span className="text-[11px] text-[#65676b] dark:text-[#b0b3b8]">
+                        บันทึกชื่อและตำแหน่งเพื่อใช้ออกรายงานทางการ
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={handleSaveProfile}
+                      className="px-4 py-2 rounded-xl bg-[#1877f2] hover:bg-[#166fe5] text-white font-bold text-xs flex items-center gap-1.5 transition cursor-pointer shadow-xs active:scale-95"
+                    >
+                      <Check className="w-4 h-4" />
+                      <span>บันทึกข้อมูลโปรไฟล์</span>
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -768,7 +919,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                       type="button"
                       onClick={() => handlePositionChange(p.title)}
                       className={`p-2.5 rounded-xl border text-left transition cursor-pointer flex items-center gap-2 ${
-                        position === p.title
+                        (tempPosition || position) === p.title
                           ? 'bg-white dark:bg-[#242526] border-[#1877f2] ring-2 ring-[#1877f2]/20 shadow-xs'
                           : 'bg-white/50 dark:bg-[#242526]/50 border-[#e4e6eb] dark:border-[#3a3b3c] hover:bg-white dark:hover:bg-[#242526]'
                       }`}

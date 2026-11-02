@@ -54,6 +54,7 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
   const [spec, setSpec] = useState(item.spec || '');
   const [qty, setQty] = useState(item.qty || '1');
   const [img, setImg] = useState(item.img || '');
+  const [noExp, setNoExp] = useState<boolean>(item.exp === '-' || !item.exp);
 
   // Dynamic Sub-EXP State
   const [subExps, setSubExps] = useState<SubExpField[]>(() => {
@@ -150,7 +151,9 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
     const finalCategory = category === '__custom__' ? customCategory.trim() : category;
 
     let finalExp = '';
-    if (subExps.length > 0) {
+    if (noExp) {
+      finalExp = '-';
+    } else if (subExps.length > 0) {
       finalExp = subExps
         .filter((s) => s.date || s.label)
         .map((s) => (s.label ? `${s.label.trim()}: ${s.date}` : s.date))
@@ -257,60 +260,76 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
 
           {/* Dynamic Sub-EXP Section */}
           <div className="space-y-2 p-3 bg-slate-50 dark:bg-white/5 rounded-2xl border border-slate-200 dark:border-white/10">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between flex-wrap gap-2">
               <label className="block text-slate-700 dark:text-slate-300 font-bold">
                 วันหมดอายุ (EXP)
               </label>
-              <button
-                type="button"
-                onClick={handleAddSubExp}
-                className="px-2.5 py-1 rounded-lg bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-500/20 font-bold text-[11px] flex items-center gap-1 transition cursor-pointer border border-blue-200 dark:border-blue-500/20"
-              >
-                <Plus size={13} className="stroke-[2.5]" />
-                <span>+ เพิ่มวันหมดอายุย่อย</span>
-              </button>
+              <label className="flex items-center gap-1.5 cursor-pointer select-none text-[11px] font-bold text-blue-600 dark:text-blue-400">
+                <input
+                  type="checkbox"
+                  checked={noExp}
+                  onChange={(e) => setNoExp(e.target.checked)}
+                  className="w-3.5 h-3.5 rounded text-blue-600"
+                />
+                <span>ไม่มีวันหมดอายุ (No EXP)</span>
+              </label>
             </div>
 
-            {subExps.length > 0 ? (
-              <div className="space-y-2 pt-1">
-                <p className="text-[10px] text-slate-500 dark:text-slate-400 font-bold italic">
-                  แก้ไขชื่อกำกับและวันหมดอายุย่อย (กด - ลบ เพื่อนำออก):
-                </p>
-                {subExps.map((sub) => (
-                  <div key={sub.id} className="flex items-center gap-1.5 bg-white dark:bg-black/30 p-1.5 rounded-xl border border-slate-200 dark:border-white/10 shadow-2xs">
-                    <input
-                      type="text"
-                      value={sub.label}
-                      onChange={(e) => handleSubExpChange(sub.id, 'label', e.target.value)}
-                      placeholder="ชื่อกำกับ (เช่น No.4.5, ชิ้นที่ 1)"
-                      className="w-28 sm:w-32 px-2 py-1.5 rounded-lg border border-slate-300 dark:border-white/10 bg-white dark:bg-black/20 text-[11px] text-slate-900 dark:text-white outline-none focus:border-blue-500 font-bold shrink-0"
-                    />
+            {!noExp && (
+              <>
+                <div className="flex justify-end pt-1">
+                  <button
+                    type="button"
+                    onClick={handleAddSubExp}
+                    className="px-2.5 py-1 rounded-lg bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-500/20 font-bold text-[11px] flex items-center gap-1 transition cursor-pointer border border-blue-200 dark:border-blue-500/20"
+                  >
+                    <Plus size={13} className="stroke-[2.5]" />
+                    <span>+ เพิ่มวันหมดอายุย่อย</span>
+                  </button>
+                </div>
+
+                {subExps.length > 0 ? (
+                  <div className="space-y-2 pt-1">
+                    <p className="text-[10px] text-slate-500 dark:text-slate-400 font-bold italic">
+                      แก้ไขชื่อกำกับและวันหมดอายุย่อย (กด - ลบ เพื่อนำออก):
+                    </p>
+                    {subExps.map((sub) => (
+                      <div key={sub.id} className="flex items-center gap-1.5 bg-white dark:bg-black/30 p-1.5 rounded-xl border border-slate-200 dark:border-white/10 shadow-2xs">
+                        <input
+                          type="text"
+                          value={sub.label}
+                          onChange={(e) => handleSubExpChange(sub.id, 'label', e.target.value)}
+                          placeholder="ชื่อกำกับ (เช่น No.4.5, ชิ้นที่ 1)"
+                          className="w-28 sm:w-32 px-2 py-1.5 rounded-lg border border-slate-300 dark:border-white/10 bg-white dark:bg-black/20 text-[11px] text-slate-900 dark:text-white outline-none focus:border-blue-500 font-bold shrink-0"
+                        />
+                        <input
+                          type="date"
+                          value={sub.date}
+                          onChange={(e) => handleSubExpChange(sub.id, 'date', e.target.value)}
+                          className="flex-1 px-2 py-1.5 rounded-lg border border-slate-300 dark:border-white/10 bg-white dark:bg-black/20 text-[11px] text-slate-900 dark:text-white outline-none focus:border-blue-500 h-8 font-bold"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveSubExp(sub.id)}
+                          className="p-1.5 rounded-lg bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-500/20 transition cursor-pointer shrink-0"
+                          title="- ลบวันหมดอายุย่อยนี้"
+                        >
+                          <Minus size={14} className="stroke-[2.5]" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 pt-1">
                     <input
                       type="date"
-                      value={sub.date}
-                      onChange={(e) => handleSubExpChange(sub.id, 'date', e.target.value)}
-                      className="flex-1 px-2 py-1.5 rounded-lg border border-slate-300 dark:border-white/10 bg-white dark:bg-black/20 text-[11px] text-slate-900 dark:text-white outline-none focus:border-blue-500 h-8 font-bold"
+                      value={singleExp}
+                      onChange={(e) => setSingleExp(e.target.value)}
+                      className="w-full px-3.5 py-2 rounded-xl border border-slate-300 dark:border-white/10 bg-white dark:bg-black/20 text-slate-900 dark:text-white outline-none focus:border-blue-500 h-9 font-bold text-xs"
                     />
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveSubExp(sub.id)}
-                      className="p-1.5 rounded-lg bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-500/20 transition cursor-pointer shrink-0"
-                      title="- ลบวันหมดอายุย่อยนี้"
-                    >
-                      <Minus size={14} className="stroke-[2.5]" />
-                    </button>
                   </div>
-                ))}
-              </div>
-            ) : (
-              <div className="flex items-center gap-2 pt-1">
-                <input
-                  type="date"
-                  value={singleExp}
-                  onChange={(e) => setSingleExp(e.target.value)}
-                  className="w-full px-3.5 py-2 rounded-xl border border-slate-300 dark:border-white/10 bg-white dark:bg-black/20 text-slate-900 dark:text-white outline-none focus:border-blue-500 h-9 font-bold text-xs"
-                />
-              </div>
+                )}
+              </>
             )}
           </div>
 

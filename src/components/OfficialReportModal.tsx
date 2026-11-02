@@ -265,10 +265,58 @@ export function cleanQuantityUnit(valStr?: string | number): string {
 
 export const formatStrictCountableNumbers = cleanQuantityUnit;
 
-export function formatRealQuantity(qtyVal?: string | number, nameStr?: string, specStr?: string): string {
+export function formatRealQuantity(qtyVal?: string | number, nameStr?: string, specStr?: string, expVal?: string): string {
   const combined = `${nameStr || ''} ${specStr || ''} ${qtyVal || ''}`;
   const strQty = String(qtyVal || '').trim();
+  const lowerName = (nameStr || '').toLowerCase();
+  const lowerSpec = (specStr || '').toLowerCase();
 
+  // 1. Sub-items from explicit expiration list
+  const subItems = parseSubExpItems(expVal);
+  if (subItems.length > 1) {
+    return subItems.map(() => '1').join(', ');
+  }
+
+  // 2. Specific known dual / multi medical supply items
+  if (lowerName.includes('สำลีก้อน') || lowerName.includes('ถุงมือ')) {
+    return '1, 1';
+  }
+  if (lowerName.includes('betadine') || lowerName.includes('ammonia')) {
+    return '1, 1';
+  }
+  if (lowerName.includes('micropore') || lowerName.includes('transpore')) {
+    return '1, 1';
+  }
+  if (lowerName.includes('syringe blow cuff')) {
+    return '1, 1';
+  }
+  if (lowerName.includes('ambu bag') && (lowerName.includes('เด็ก') || lowerSpec.includes('เด็ก'))) {
+    return '1, 1';
+  }
+  if (lowerName.includes('o2 mask') && (lowerName.includes('เด็ก') || lowerSpec.includes('เด็ก'))) {
+    return '1, 1';
+  }
+  if (lowerName.includes('stylet')) {
+    if (lowerName.includes('กลาง') || lowerSpec.includes('กลาง')) return '1, 1, 1';
+    return '1, 1';
+  }
+  if (lowerName.includes('extension tube') && (lowerName.includes('t-way') || lowerName.includes('t') || lowerSpec.includes('t'))) {
+    return '1, 1, 1';
+  }
+  if (lowerName.includes('extension tube') && (lowerName.includes('เด็ก') || lowerSpec.includes('เด็ก'))) {
+    return '1, 1';
+  }
+  if (lowerName.includes('iv set') && (lowerName.includes('ใหญ่') || lowerSpec.includes('ใหญ่'))) {
+    return '1, 1';
+  }
+  if (lowerName.includes('0.9% nss') && (lowerName.includes('100 cc') || lowerName.includes('500cc') || lowerName.includes('10cc') || lowerName.includes('100cc'))) {
+    return '1, 1, 1';
+  }
+  if (lowerName.includes('syringe') && (lowerName.includes('3cc') || lowerName.includes('5cc') || lowerName.includes('10cc') || lowerName.includes('ขนาด 3, 5, 10'))) {
+    return '1, 1, 1';
+  }
+
+  // 3. Multi-size equipment (e.g., Endotracheal tube No. 4, 5, 5.5, 6.5, 7, 7.5 or Oral airway No. 2, 3, 4)
   const sizePattern = /(?:No\.|no\.|เบอร์|ขนาด)\s*([0-9.,\s/&]+)/i;
   const match = combined.match(sizePattern);
   if (match && match[1]) {
@@ -284,6 +332,23 @@ export function formatRealQuantity(qtyVal?: string | number, nameStr?: string, s
       return Array(numbers.length).fill('1').join(', ');
     }
     return '1';
+  }
+
+  // 4. Comma-separated quantities
+  if (strQty.includes(',')) {
+    const parts = strQty.split(',').map((p) => p.trim()).filter(Boolean);
+    if (parts.length > 1) {
+      return parts.map(() => '1').join(', ');
+    }
+  }
+
+  // 5. Quantity count > 1 (e.g., "2 อัน", "3 อัน", "4 เส้น") excluding fluids and pressure units
+  const isExcluded = lowerName.includes('o2') || lowerName.includes('oxygen') || lowerName.includes('ถัง') || lowerName.includes('psi') || lowerName.includes('5% d/w') || lowerName.includes('nss') || lowerName.includes('water') || lowerName.includes('alcohol');
+  if (!isExcluded) {
+    const qtyNum = parseInt(strQty.replace(/\D/g, ''), 10);
+    if (!isNaN(qtyNum) && qtyNum > 1 && qtyNum <= 10) {
+      return Array(qtyNum).fill('1').join(', ');
+    }
   }
 
   return cleanQuantityUnit(strQty || '1');
@@ -464,17 +529,23 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
     return true;
   });
 
+  const activeUserName = useMemo(() => {
+    const stored = typeof window !== 'undefined' ? localStorage.getItem('user_display_name') : null;
+    return (stored || currentUser?.name || inspector || 'สาธิต').trim();
+  }, [currentUser, inspector]);
+
   let activeItems: OfficialReportItemRow[] = [];
   let displayTitle = title;
   let displayDate = surveyDate;
-  let displayInspector = inspector;
+  let displayInspector = activeUserName;
 
   if (selectedRecord) {
     activeItems = selectedRecord.rows || [];
     displayTitle = selectedRecord.title || title;
     displayDate = selectedRecord.date || surveyDate;
-    displayInspector = selectedRecord.who || inspector;
+    displayInspector = selectedRecord.who || activeUserName;
   } else {
+    displayInspector = activeUserName;
     if (selectedCategory === 'eq') {
       activeItems = eqItems.length > 0 ? eqItems : items;
       displayTitle = 'คลินิกงานบริการผู้ป่วยในวิสัญญี';
@@ -531,12 +602,12 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
     let printHtml = '';
     const printOptions: any = {
       date: displayDate,
-      inspector: displayInspector,
+      inspector: displayInspector || activeUserName,
       signature: userSignature,
       clinicName: cleanClinicName,
       mainDocHeading: mainDocHeading,
       orientation: orientation,
-      currentUser: currentUser,
+      currentUser: currentUser ? { ...currentUser, name: activeUserName } : ({ name: activeUserName } as any),
     };
 
     if (selectedCategory === 'drug') {
@@ -553,9 +624,12 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
         return acc;
       }, {} as any) : activeItems.reduce((acc, it) => {
         if (it.name) {
-          acc[`${it.name}|${it.code || ''}`] = {
-            [activeWeek]: it.res === 'ใช้งานได้' ? '1' : (it.res === 'ใช้งานไม่ได้' ? '0' : '')
-          };
+          const realVal = formatRealQuantity(it.qty, it.name, it.spec, it.exp);
+          acc[`${it.name}|${it.code || ''}`] = it.weekVals && Object.keys(it.weekVals).length > 0
+            ? it.weekVals
+            : {
+                [activeWeek]: it.res === 'ใช้งานได้' ? (realVal || '1') : (it.res === 'ใช้งานไม่ได้' ? '0' : '')
+              };
         }
         return acc;
       }, {} as any);
@@ -1124,16 +1198,17 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
                     return acc;
                   }, {} as any) : activeItems.reduce((acc, it) => {
                     if (it.name) {
+                      const realVal = formatRealQuantity(it.qty, it.name, it.spec, it.exp);
                       // Prefer multi-week live data (it.weekVals) if available
                       acc[`${it.name}|${it.code || ''}`] = it.weekVals && Object.keys(it.weekVals).length > 0
                         ? it.weekVals
-                        : { [activeWeek]: it.res === 'ใช้งานได้' ? '1' : (it.res === 'ใช้งานไม่ได้' ? '0' : '') };
+                        : { [activeWeek]: it.res === 'ใช้งานได้' ? (realVal || '1') : (it.res === 'ใช้งานไม่ได้' ? '0' : '') };
                     }
                     return acc;
                   }, {} as any)}
                   weekDates={selectedRecord ? selectedRecord.weekDates : weekDates}
                   activeWeek={selectedRecord ? (Object.keys(selectedRecord.rows[0]?.weekVals || {}).map(Number)[0] || 1) : activeWeek}
-                  currentUser={currentUser}
+                  currentUser={currentUser ? { ...currentUser, name: activeUserName } : ({ name: activeUserName } as any)}
                 />
               ) : (
                 <EquipmentReportPreview
@@ -1143,7 +1218,7 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
                   signature={userSignature}
                   clinicName={cleanClinicName}
                   mainDocHeading={mainDocHeading}
-                  currentUser={currentUser}
+                  currentUser={currentUser ? { ...currentUser, name: activeUserName } : ({ name: activeUserName } as any)}
                 />
               )}
             </div>

@@ -83,6 +83,20 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
   const isDarkMode = theme ? theme === 'dark' : true;
   const swiperRef = React.useRef<any>(null);
 
+  // Listen for user profile updates in real-time
+  const [, setProfileTrigger] = useState(0);
+  useEffect(() => {
+    const handleUpdate = () => setProfileTrigger((prev) => prev + 1);
+    window.addEventListener('user_profile_updated', handleUpdate);
+    window.addEventListener('storage', handleUpdate);
+    return () => {
+      window.removeEventListener('user_profile_updated', handleUpdate);
+      window.removeEventListener('storage', handleUpdate);
+    };
+  }, []);
+
+  const effectiveDisplayName = (typeof window !== 'undefined' ? localStorage.getItem('user_display_name') : null) || currentUser?.name || 'สาธิต';
+
   // Map category ID to Swiper slide index (in second cycle of looped categories)
   const getCategorySlideIndex = (catId?: string) => {
     if (catId === 'medicine') return 4;
@@ -473,10 +487,32 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
 
           {/* Top Row: Title + User Profile + Menu + Notifications + Theme Toggle */}
           <div className="flex flex-wrap sm:flex-nowrap justify-between items-center relative z-10 gap-3">
-            {/* Title / Brand */}
-            <div className="flex items-center gap-2 font-valorant text-2xl sm:text-3xl lg:text-4xl font-bold tracking-wider shrink-0">
-              <span className="text-[#67e8f9] drop-shadow-[0_2px_8px_rgba(103,232,249,0.5)]">ANESTHESIA</span>
-              <span className="text-white drop-shadow-sm">CARE</span>
+            {/* Title / Brand & User Profile Badge */}
+            <div className="flex items-center gap-3 shrink-0 flex-wrap">
+              <div className="flex items-center gap-2 font-valorant text-2xl sm:text-3xl lg:text-4xl font-bold tracking-wider shrink-0">
+                <span className="text-[#67e8f9] drop-shadow-[0_2px_8px_rgba(103,232,249,0.5)]">ANESTHESIA</span>
+                <span className="text-white drop-shadow-sm">CARE</span>
+              </div>
+
+              {currentUser && (
+                <button
+                  type="button"
+                  onClick={onOpenProfile}
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-full border border-white/30 bg-white/20 hover:bg-white/30 text-white transition active:scale-95 cursor-pointer shadow-sm backdrop-blur-md"
+                  title="คลิกเพื่อแก้ไขโปรไฟล์และชื่อผู้ใช้งาน"
+                >
+                  <div className="w-5 h-5 rounded-full bg-cyan-400 text-blue-900 font-black flex items-center justify-center text-[10px] shadow-xs overflow-hidden shrink-0">
+                    {currentUser.avatar ? (
+                      <img src={currentUser.avatar} alt={effectiveDisplayName} className="w-full h-full object-cover" />
+                    ) : (
+                      effectiveDisplayName ? effectiveDisplayName.charAt(0) : 'U'
+                    )}
+                  </div>
+                  <span className="text-xs font-bold truncate max-w-[130px] text-white drop-shadow-xs">
+                    {effectiveDisplayName}
+                  </span>
+                </button>
+              )}
             </div>
 
             {/* Controls Right: 1. [ รายงาน ] 2. [ ชีต ] 3. [ เมนู ] */}

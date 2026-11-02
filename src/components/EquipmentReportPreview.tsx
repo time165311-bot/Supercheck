@@ -63,8 +63,9 @@ export const EquipmentReportPreview: React.FC<EquipmentReportPreviewProps> = ({
     return hasData ? items : FALLBACK_EQUIPMENT_ROWS;
   }, [items]);
 
-  const inspectorRole = currentUser?.role === 'admin' ? 'ผู้ดูแลระบบ (Admin)' : 'เจ้าหน้าที่วิสัญญี';
-  const rawInspector = (inspector || currentUser?.name || 'ผู้ดูแลระบบ (Admin)').trim();
+  const storedDisplayName = typeof window !== 'undefined' ? localStorage.getItem('user_display_name') : null;
+  const inspectorRole = currentUser?.role === 'admin' ? 'ผู้ดูแลระบบ (Admin)' : (currentUser?.position || 'เจ้าหน้าที่วิสัญญี');
+  const rawInspector = (storedDisplayName || inspector || currentUser?.name || 'สาธิต').trim();
   const displayInspectorWithRole = rawInspector.includes('/')
     ? rawInspector
     : (rawInspector.includes('ผู้ดูแลระบบ') || rawInspector.toLowerCase().includes('admin'))
@@ -209,8 +210,10 @@ export function generateEquipmentPrintHtml(
     currentUser = null,
   } = options;
 
-  const printInspectorRole = currentUser?.role === 'admin' ? 'ผู้ดูแลระบบ (Admin)' : 'เจ้าหน้าที่วิสัญญี';
-  const printInspectorWithRole = (inspector || currentUser?.name || 'ผู้ดูแลระบบ (Admin)').trim() + ` (${printInspectorRole})`;
+  const storedDisplayName = typeof window !== 'undefined' ? localStorage.getItem('user_display_name') : null;
+  const printInspectorRole = currentUser?.role === 'admin' ? 'ผู้ดูแลระบบ (Admin)' : (currentUser?.position || 'เจ้าหน้าที่วิสัญญี');
+  const rawPrintInspector = (storedDisplayName || inspector || currentUser?.name || 'สาธิต').trim();
+  const printInspectorWithRole = `${rawPrintInspector} (${printInspectorRole})`;
 
   const rowsHtml = effectivePrintItems
     .map((item, idx) => {
@@ -270,7 +273,7 @@ export function generateEquipmentPrintHtml(
           <div><strong>${clinicName}</strong></div>
           <div>
             <span>วัน, เดือน, ปี ที่สำรวจ: ${formatThaiDate(date) || '1 พฤศจิกายน 2569'}</span>
-            <span style="margin-left: 18px;">ผู้ตรวจ: <strong>${inspector || 'Admin'}</strong></span>
+            <span style="margin-left: 18px;">ผู้ตรวจ: <strong>${rawPrintInspector}</strong></span>
           </div>
         </div>
         <table>

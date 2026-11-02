@@ -144,6 +144,37 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
   const [internalWeekValues, setInternalWeekValues] = useState<{ [itemKey: string]: { [week: number]: string } }>({});
   const resolvedWeekValues = propWeekItemValues || internalWeekValues;
 
+  const effectiveStoredName = typeof window !== 'undefined' ? localStorage.getItem('user_display_name') : null;
+  const defaultInspector1 = (effectiveStoredName || inspector || currentUser?.name || 'สาธิต').trim();
+  const [inspectors1, setInspectors1] = useState<{ [week: number]: string }>({
+    1: defaultInspector1,
+    2: defaultInspector1,
+    3: defaultInspector1,
+    4: defaultInspector1,
+    5: defaultInspector1,
+  });
+
+  // Re-synchronize inspectors1 when defaultInspector1 changes
+  useEffect(() => {
+    setInspectors1((prev) => {
+      const next = { ...prev };
+      [1, 2, 3, 4, 5].forEach((w) => {
+        if (!next[w] || next[w] === '-' || next[w] === 'คุณสาทิตย์ บุตรน้ำเพชร' || next[w] === 'ผู้ดูแลระบบ (Admin)') {
+          next[w] = defaultInspector1;
+        }
+      });
+      return next;
+    });
+  }, [defaultInspector1]);
+
+  const [inspectors2, setInspectors2] = useState<{ [week: number]: string }>({
+    1: '',
+    2: '',
+    3: '',
+    4: '',
+    5: '',
+  });
+
   const handleCellValChange = (itemKey: string, week: number, val: string) => {
     const updated = {
       ...resolvedWeekValues,
@@ -162,8 +193,8 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
   // 1. Header Layout
   const headingTitle =
     type === 'cart'
-      ? `ตารางตรวจเช็ครถ Emergency ประจำเดือน ${month} / ปี ${year}`
-      : `ตารางตรวจเช็คกระเป๋ายา Emergency ประจำเดือน ${month} / ปี ${year}`;
+      ? `ตารางตรวจเช็ครถ Emergency ประจำเดือน..................... พ.ศ. ............`
+      : `ตารางตรวจเช็คกระเป๋า Emergency ประจำเดือน..................... พ.ศ. ............`;
 
   // Group items by their section/group
   const groupedItems = React.useMemo(() => {
@@ -388,7 +419,7 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
                     type="text"
                     value={wkDate}
                     onChange={(e) => handleDateChange(w, e.target.value)}
-                    placeholder="ว/ด/ป"
+                    placeholder="ว/ด/ป ที่สำรวจ"
                     className="w-full text-center bg-transparent border-0 focus:ring-1 focus:ring-blue-500 rounded text-xs p-0 text-slate-800"
                   />
                 </th>
@@ -421,7 +452,7 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
                 const isCurrentYear = isCurrentYearExp(expStr) || isCurrentYearExp(formattedExp);
 
                 // Multi-size breakdown for actual week check result cell
-                const realCheckVal = formatRealQuantity(item.qty, item.name, item.spec);
+                const realCheckVal = formatRealQuantity(item.qty, item.name, item.spec, item.exp);
 
                 return (
                   <tr key={idx} className="hover:bg-slate-50 transition-colors">
@@ -458,6 +489,14 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
                           displayVal = '✗';
                         } else if (isMiss) {
                           displayVal = '?';
+                        }
+                      }
+
+                      // [CRITICAL FIX]: If item has multiple sizes/sub-items (realCheckVal has comma),
+                      // NEVER display a single "1" or "✓"! Expand it to realCheckVal!
+                      if (realCheckVal && realCheckVal.includes(',')) {
+                        if (displayVal === '1' || displayVal === '✓') {
+                          displayVal = realCheckVal;
                         }
                       }
 
@@ -531,10 +570,75 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
               })}
             </React.Fragment>
           ))}
+
+          {/* Table Footer Row 1: ผู้ตรวจสอบ 1 across Weeks 1-5 */}
+          <tr style={{ backgroundColor: '#f8fafc', fontWeight: 'bold' }}>
+            <td
+              className="border border-slate-400 font-bold"
+              style={{ textAlign: 'left', paddingLeft: '10px', verticalAlign: 'middle', height: '36px' }}
+            >
+              ผู้ตรวจสอบ 1
+            </td>
+            <td className="border border-slate-400" style={{ textAlign: 'center', verticalAlign: 'middle' }}>
+              -
+            </td>
+            {[1, 2, 3, 4, 5].map((w) => {
+              const hasActivity = !!resolvedWeekDates[w] || items.some((it) => {
+                const ik = `${it.name}|${it.code || ''}`;
+                return it.weekVals?.[w] || resolvedWeekValues[ik]?.[w];
+              });
+              const val = inspectors1[w] !== undefined && inspectors1[w] !== '' ? inspectors1[w] : (hasActivity ? defaultInspector1 : '-');
+              return (
+                <td key={w} className="border border-slate-400 p-0 text-center" style={{ width: '75px', verticalAlign: 'middle' }}>
+                  <input
+                    type="text"
+                    value={val === '-' ? '' : val}
+                    placeholder="-"
+                    onChange={(e) => setInspectors1((prev) => ({ ...prev, [w]: e.target.value }))}
+                    className="w-full h-8 text-center bg-transparent border-0 focus:ring-1 focus:ring-blue-500 rounded text-[10.5px] p-0.5 font-bold text-slate-800"
+                    title={`ผู้ตรวจสอบ 1 สัปดาห์ที่ ${w}`}
+                  />
+                </td>
+              );
+            })}
+            <td className="border border-slate-400" style={{ textAlign: 'center', verticalAlign: 'middle' }}>
+              -
+            </td>
+          </tr>
+
+          {/* Table Footer Row 2: ผู้ตรวจสอบ 2 across Weeks 1-5 */}
+          <tr style={{ backgroundColor: '#f8fafc', fontWeight: 'bold' }}>
+            <td
+              className="border border-slate-400 font-bold"
+              style={{ textAlign: 'left', paddingLeft: '10px', verticalAlign: 'middle', height: '36px' }}
+            >
+              ผู้ตรวจสอบ 2
+            </td>
+            <td className="border border-slate-400" style={{ textAlign: 'center', verticalAlign: 'middle' }}>
+              -
+            </td>
+            {[1, 2, 3, 4, 5].map((w) => {
+              const val = inspectors2[w] || '';
+              return (
+                <td key={w} className="border border-slate-400 p-0 text-center" style={{ width: '75px', verticalAlign: 'middle' }}>
+                  <input
+                    type="text"
+                    value={val}
+                    placeholder="-"
+                    onChange={(e) => setInspectors2((prev) => ({ ...prev, [w]: e.target.value }))}
+                    className="w-full h-8 text-center bg-transparent border-0 focus:ring-1 focus:ring-blue-500 rounded text-[10.5px] p-0.5 font-bold text-slate-800"
+                    title={`ผู้ตรวจสอบ 2 สัปดาห์ที่ ${w}`}
+                  />
+                </td>
+              );
+            })}
+            <td className="border border-slate-400" style={{ textAlign: 'center', verticalAlign: 'middle' }}>
+              -
+            </td>
+          </tr>
         </tbody>
       </table>
       </div>
-
     </div>
   );
 };
@@ -567,7 +671,8 @@ export function generateEmergencyPrintHtml(
   } = options;
 
   const printInspectorRole = currentUser?.role === 'admin' ? 'ผู้ดูแลระบบ' : 'เจ้าหน้าที่';
-  const printInspectorRaw = (inspector || currentUser?.name || 'คุณสาทิตย์ บุตรน้ำเพชร').trim();
+  const effectiveStoredName = typeof window !== 'undefined' ? localStorage.getItem('user_display_name') : null;
+  const printInspectorRaw = (effectiveStoredName || inspector || currentUser?.name || 'สาธิต').trim();
   const displayInspectorWithRole = printInspectorRaw.includes('/')
     ? printInspectorRaw
     : (printInspectorRaw.includes('ผู้ดูแลระบบ') || printInspectorRaw.toLowerCase().includes('admin'))
@@ -589,8 +694,8 @@ export function generateEmergencyPrintHtml(
 
   const headingTitle =
     type === 'cart'
-      ? `ตารางตรวจเช็ครถ Emergency ประจำเดือน ${month} / ปี ${year}`
-      : `ตารางตรวจเช็คกระเป๋ายา Emergency ประจำเดือน ${month} / ปี ${year}`;
+      ? `ตารางตรวจเช็ครถ Emergency ประจำเดือน..................... พ.ศ. ............`
+      : `ตารางตรวจเช็คกระเป๋า Emergency ประจำเดือน..................... พ.ศ. ............`;
 
   // Group items by section
   const groups: { [g: string]: OfficialReportItemRow[] } = {};
@@ -621,9 +726,6 @@ export function generateEmergencyPrintHtml(
           const isOk = item.res ? item.res.includes('ใช้งานได้') : (item as any).status === 'normal' || (item as any).checked;
           const isBad = item.res ? item.res.includes('ไม่ได้') : false;
           const isMiss = item.res ? item.res.includes('ไม่พบ') : false;
-
-          const checkSymbol = isOk ? '✓' : isBad ? '✗' : isMiss ? '?' : '-';
-
           const expStr = item.exp || (item as any).expDate || (item.note?.match(/Exp:\s*([^\s|]+)/)?.[1]) || '';
 
           const expCellHtml = ((item.name?.toLowerCase().includes('tank') || item.name?.includes('ถัง')) && 
@@ -640,7 +742,7 @@ export function generateEmergencyPrintHtml(
                 }).join('');
               })();
 
-          const realCheckVal = formatRealQuantity(item.qty, item.name, item.spec);
+          const realCheckVal = formatRealQuantity(item.qty, item.name, item.spec, item.exp);
 
           const weekCells = [1, 2, 3, 4, 5]
             .map((w) => {
@@ -661,6 +763,13 @@ export function generateEmergencyPrintHtml(
                   displayVal = '✗';
                 } else if (isMiss) {
                   displayVal = '?';
+                }
+              }
+
+              // Ensure multi-item rows never render a single "1" or "✓"
+              if (realCheckVal && realCheckVal.includes(',')) {
+                if (displayVal === '1' || displayVal === '✓') {
+                  displayVal = realCheckVal;
                 }
               }
 
@@ -694,14 +803,24 @@ export function generateEmergencyPrintHtml(
     })
     .join('');
 
-  const weekHeadersHtml = [1, 2, 3, 4, 5]
-    .map((w) => {
-      const wkDate = weekDates[w] ? formatShortDmy(weekDates[w]) : (activeWeek === w ? shortDate : 'ว/ด/ป');
-      return `<th style="width: 75px; text-align: center; border: 1px solid #000; font-size: 9.5pt; font-weight: normal;">${wkDate}</th>`;
-    })
-    .join('');
-
-
+  const printFooterRows = `
+    <tr style="background-color: #f8fafc; font-weight: bold;">
+      <td style="text-align: left; padding-left: 8px; border: 1px solid #000; font-weight: bold; height: 28px;">ผู้ตรวจสอบ 1</td>
+      <td style="text-align: center; border: 1px solid #000;">-</td>
+      ${[1, 2, 3, 4, 5].map((w) => {
+        const isWeekActive = !!weekDates[w] || items.some((it) => it.weekVals?.[w] || weekItemValues[`${it.name}|${it.code || ''}`]?.[w]);
+        const val = isWeekActive ? printInspectorRaw : '-';
+        return `<td style="text-align: center; border: 1px solid #000; font-size: 9pt;">${val}</td>`;
+      }).join('')}
+      <td style="text-align: center; border: 1px solid #000;">-</td>
+    </tr>
+    <tr style="background-color: #f8fafc; font-weight: bold;">
+      <td style="text-align: left; padding-left: 8px; border: 1px solid #000; font-weight: bold; height: 28px;">ผู้ตรวจสอบ 2</td>
+      <td style="text-align: center; border: 1px solid #000;">-</td>
+      ${[1, 2, 3, 4, 5].map(() => `<td style="text-align: center; border: 1px solid #000; font-size: 9pt;">-</td>`).join('')}
+      <td style="text-align: center; border: 1px solid #000;">-</td>
+    </tr>
+  `;
 
   return `
     <!DOCTYPE html>
@@ -711,118 +830,40 @@ export function generateEmergencyPrintHtml(
         <title>${headingTitle}</title>
         <style>
           @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;600;700&display=swap');
-
-          @page {
-            size: A4 ${orientation};
-            margin: 10mm;
-          }
-
-          * {
-            box-sizing: border-box;
-            -webkit-print-color-adjust: exact !important;
-            print-color-adjust: exact !important;
-          }
-
-          body {
-            font-family: 'TH Sarabun PSK', 'Sarabun', Tahoma, sans-serif;
-            margin: 0;
-            padding: 0;
-            color: #000;
-            background: #fff;
-            font-size: 11pt;
-            line-height: 1.25;
-          }
-
-          .title-area {
-            text-align: center;
-            margin-bottom: 6px;
-          }
-
-          .title-area h2 {
-            margin: 0;
-            font-size: 16pt;
-            font-weight: bold;
-          }
-
-          .title-area p {
-            margin: 2px 0 0 0;
-            font-size: 11.5pt;
-            font-weight: 600;
-          }
-
-          .meta-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            font-size: 10.5pt;
-            font-weight: 600;
-            margin-bottom: 6px;
-          }
-
-          table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 10pt;
-          }
-
-          thead {
-            display: table-header-group !important; /* Force repeat header on every printed page */
-          }
-
-          tr {
-            page-break-inside: avoid !important;
-          }
-
-          th, td {
-            border: 1px solid #000;
-            padding: 5px 4px;
-            white-space: normal !important;
-            word-break: keep-all !important;
-            line-height: 1.3 !important;
-            vertical-align: middle;
-          }
-
-          th {
-            background-color: #f1f5f9;
-            font-weight: bold;
-            text-align: center;
-          }
-
-          tfoot {
-            page-break-inside: avoid;
-          }
+          @page { size: A4 ${orientation}; margin: 10mm; }
+          * { box-sizing: border-box; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+          body { font-family: 'TH Sarabun PSK', 'Sarabun', Tahoma, sans-serif; margin: 0; padding: 0; color: #000; background: #fff; font-size: 11pt; line-height: 1.25; }
+          .title-area { text-align: center; margin-bottom: 6px; }
+          .title-area h2 { margin: 0; font-size: 16pt; font-weight: bold; }
+          table { width: 100%; border-collapse: collapse; font-size: 10pt; }
+          thead { display: table-header-group !important; }
+          tr { page-break-inside: avoid !important; }
+          th, td { border: 1px solid #000; padding: 5px 4px; line-height: 1.3 !important; vertical-align: middle; }
+          th { background-color: #f1f5f9; font-weight: bold; text-align: center; }
         </style>
       </head>
       <body>
         <div class="title-area">
           <h2>${headingTitle}</h2>
         </div>
-        <div class="meta-header">
-          <div>
-            <span style="font-size: 11pt; font-weight: bold;">หน่วยงาน: ${cleanPrintAgency}</span>
-          </div>
-          <div>
-            <span>วัน, เดือน, ปี ที่สำรวจ: ${formatThaiDate(date)}</span>
-            ${inspector ? `<span style="margin-left: 18px;">ผู้ตรวจ: <strong>${inspector}</strong></span>` : ''}
-          </div>
-        </div>
         <table>
           <thead>
             <tr>
-              <th rowspan="2" style="width: 280px; text-align: center;">รายการ</th>
-              <th rowspan="2" style="width: 85px; text-align: center; white-space: nowrap !important;">จำนวนตั้งต้น</th>
-              <th colspan="5" style="text-align: center;">สัปดาห์ที่ 1 - 5</th>
-              <th rowspan="2" style="width: 100px; text-align: center;">วันหมดอายุ (EXP)</th>
+              <th rowspan="2" style="width: 280px;">รายการ</th>
+              <th rowspan="2" style="width: 85px;">จำนวน</th>
+              <th colspan="5">สัปดาห์ที่ตรวจ</th>
+              <th rowspan="2" style="width: 100px;">วันหมดอายุ (EXP)</th>
             </tr>
             <tr>
-              ${weekHeadersHtml}
+              ${[1, 2, 3, 4, 5].map(w => `<th style="width: 75px;">สัปดาห์ที่ ${w}<br><small style="font-size:8pt; font-weight:normal;">วัน,เดือน,ปี</small></th>`).join('')}
             </tr>
           </thead>
           <tbody>
-            ${tableBodyHtml || '<tr><td colspan="8" style="text-align:center; padding: 20px;">ไม่มีข้อมูลรายการ</td></tr>'}
+            ${tableBodyHtml ? (tableBodyHtml + printFooterRows) : '<tr><td colspan="8" style="text-align:center; padding: 20px;">ไม่มีข้อมูลรายการ</td></tr>'}
           </tbody>
         </table>
       </body>
     </html>
   `;
 }
+

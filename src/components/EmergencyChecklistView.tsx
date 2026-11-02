@@ -47,34 +47,108 @@ export function parseSubExps(expStr?: string): SubExpItem[] {
   return results;
 }
 
-export function getItemSizes(item: { name: string; spec?: string; qty?: string }): string[] {
+export function getItemSizes(item: { name: string; spec?: string; qty?: string; exp?: string }): string[] {
   const name = (item.name || '').toLowerCase();
-  if (name.includes('syringe')) {
-    if (name.includes('3cc') || name.includes('5cc') || name.includes('10cc')) {
-      return ['ชิ้นที่ 1', 'ชิ้นที่ 2', 'ชิ้นที่ 3'];
+  const spec = (item.spec || '').toLowerCase();
+  const exp = item.exp || '';
+
+  // 1. If exp has explicit sub-item labels (e.g. "สำลีก้อน: ..., ถุงมือ: ...")
+  if (exp && exp.includes(':') && exp.includes(',')) {
+    const subExps = parseSubExps(exp);
+    const validLabels = subExps.map((s) => s.label).filter(Boolean);
+    if (validLabels.length > 1) {
+      return validLabels;
     }
   }
-  if (name.includes('5% d/w/2')) return ['ชิ้นที่ 1'];
-  if (name.includes('0.9% nss')) {
-    if (name.includes('100 cc') || name.includes('500cc') || name.includes('10cc')) {
-      return ['ชิ้นที่ 1', 'ชิ้นที่ 2', 'ชิ้นที่ 3'];
-    }
-  }
-  if (name.includes('betadine') || name.includes('ammonia')) return ['ชิ้นที่ 1', 'ชิ้นที่ 2'];
+
+  // 2. Specific known dual / multi medical supply items
   if (name.includes('สำลีก้อน') || name.includes('ถุงมือ')) {
     return ['สำลีก้อน', 'ถุงมือ'];
   }
-  const combined = `${item.name} ${item.spec || ''} ${item.qty || ''}`;
+  if (name.includes('betadine') || name.includes('ammonia')) {
+    return ['Betadine', 'Ammonia'];
+  }
+  if (name.includes('micropore') || name.includes('transpore')) {
+    return ['Micropore', 'Transpore'];
+  }
+  if (name.includes('syringe blow cuff')) {
+    return ['อันที่ 1', 'อันที่ 2'];
+  }
+  if (name.includes('ambu bag') && (name.includes('เด็ก') || spec.includes('เด็ก'))) {
+    return ['เด็ก', 'ผู้ใหญ่'];
+  }
+  if (name.includes('o2 mask') && (name.includes('เด็ก') || spec.includes('เด็ก'))) {
+    return ['เด็ก', 'ผู้ใหญ่'];
+  }
+  if (name.includes('stylet')) {
+    if (name.includes('กลาง') || spec.includes('กลาง')) return ['ใหญ่', 'กลาง', 'เล็ก'];
+    return ['ใหญ่', 'เล็ก'];
+  }
+  if (name.includes('extension tube') && (name.includes('t-way') || name.includes('t') || spec.includes('t'))) {
+    return ['ผู้ใหญ่', 'เด็ก', 'T-way'];
+  }
+  if (name.includes('extension tube') && (name.includes('เด็ก') || spec.includes('เด็ก'))) {
+    return ['ผู้ใหญ่', 'เด็ก'];
+  }
+  if (name.includes('iv set') && (name.includes('ใหญ่') || spec.includes('ใหญ่'))) {
+    return ['หยดมาตรฐาน (ใหญ่)', 'ไมโคร (เล็ก)'];
+  }
+  if (name.includes('0.9% nss') && (name.includes('100 cc') || name.includes('500cc') || name.includes('10cc') || name.includes('100cc'))) {
+    return ['100 cc', '500 cc', '10 cc'];
+  }
+  if (name.includes('syringe') && (name.includes('3cc') || name.includes('5cc') || name.includes('10cc') || name.includes('ขนาด 3, 5, 10'))) {
+    return ['3 cc', '5 cc', '10 cc'];
+  }
+
+  // 3. Multi-size equipment (e.g., Endotracheal tube No. 4, 5, 5.5, 6, 6.5, 7, 7.5 or Oral airway No. 2, 3, 4)
+  const combined = `${item.name} ${item.spec || ''}`;
   const sizePattern = /(?:No\.|no\.|เบอร์|ขนาด)\s*([0-9.,\s/&]+)/i;
   const match = combined.match(sizePattern);
   if (match && match[1]) {
-    return match[1].split(/[,/&]/).map((s: string) => s.trim()).filter((s: string) => s.length > 0).map((s: string) => `No.${s}`);
+    const rawSizes = match[1].split(/[,/&]/).map((s: string) => s.trim()).filter((s: string) => /^\d+(\.\d+)?$/.test(s));
+    if (rawSizes.length > 1) {
+      return rawSizes.map((s: string) => `No.${s}`);
+    }
   }
-  const qtyNum = parseInt(String(item.qty || '').replace(/\D/g, ''), 10);
-  if (!isNaN(qtyNum) && qtyNum > 1 && !item.qty?.includes(',')) {
-    return Array.from({ length: Math.min(qtyNum, 10) }, (_, i) => `ชิ้นที่ ${i + 1}`);
+
+  // 4. Quantity with comma e.g. "1 แผง, 1 คู่" or "1, 1 ขวด"
+  if (item.qty && item.qty.includes(',')) {
+    const parts = item.qty.split(',').map((p) => p.trim()).filter(Boolean);
+    if (parts.length > 1) {
+      return parts.map((_, i) => `ชิ้นที่ ${i + 1}`);
+    }
   }
+
+  // 5. Quantity count > 1 (e.g., "2 อัน", "3 อัน", "4 เส้น") excluding fluid bags/bottles
+  const isExcluded = name.includes('o2') || name.includes('oxygen') || name.includes('ถัง') || name.includes('psi') || name.includes('5% d/w') || name.includes('nss') || name.includes('water') || name.includes('alcohol');
+  if (!isExcluded) {
+    const qtyNum = parseInt(String(item.qty || '').replace(/\D/g, ''), 10);
+    if (!isNaN(qtyNum) && qtyNum > 1 && qtyNum <= 10) {
+      return Array.from({ length: qtyNum }, (_, i) => `ชิ้นที่ ${i + 1}`);
+    }
+  }
+
   return [];
+}
+
+export function parseSubItemStatuses(weekVal: string | undefined, subCount: number): string[] {
+  if (subCount <= 1) {
+    return [weekVal === '1' ? '1' : weekVal === '0' || weekVal === '✗' ? '0' : ''];
+  }
+  if (!weekVal || weekVal === '-') {
+    return Array(subCount).fill('');
+  }
+  if (weekVal === '1' || weekVal === '✓') {
+    return Array(subCount).fill('1');
+  }
+  if (weekVal === '0' || weekVal === '✗') {
+    return Array(subCount).fill('0');
+  }
+  if (weekVal.includes(',')) {
+    const parts = weekVal.split(',').map((p) => p.trim());
+    return Array.from({ length: subCount }, (_, i) => (parts[i] !== undefined ? parts[i] : '1'));
+  }
+  return Array(subCount).fill(weekVal);
 }
 
 export interface EmergencyChecklistProps {
@@ -168,6 +242,7 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
   const [customGroup, setCustomGroup] = useState<string>('');
   const [newItemSpec, setNewItemSpec] = useState<string>('');
   const [newItemQty, setNewItemQty] = useState<string>('1');
+  const [newItemNoExp, setNewItemNoExp] = useState<boolean>(false);
   const [newItemExp, setNewItemExp] = useState<string>('');
   const [newItemExpParts, setNewItemExpParts] = useState<Record<string, string>>({});
   const [newItemImgUrl, setNewItemImgUrl] = useState<string>('');
@@ -281,9 +356,14 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
       return;
     }
 
-    const combinedExp = modalSizes.length > 1
-      ? modalSizes.filter((s: string) => newItemExpParts[s]).map((s: string) => `${s}:${newItemExpParts[s]}`).join(', ')
-      : newItemExp.trim();
+    let combinedExp = '';
+    if (newItemNoExp) {
+      combinedExp = '-';
+    } else if (modalSizes.length > 1) {
+      combinedExp = modalSizes.filter((s: string) => newItemExpParts[s]).map((s: string) => `${s}:${newItemExpParts[s]}`).join(', ');
+    } else {
+      combinedExp = newItemExp.trim() || '-';
+    }
 
     if (onAddItem) {
       onAddItem({
@@ -300,6 +380,7 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
     setNewItemName('');
     setNewItemSpec('');
     setNewItemQty('1');
+    setNewItemNoExp(false);
     setNewItemExp('');
     setNewItemExpParts({});
     setNewItemImgUrl('');
@@ -538,8 +619,45 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
           filteredItems.map((item) => {
             const check = checks[item.itemKey];
             const weekVal = check?.weekVals?.[selectedWeek];
-            const isOk = weekVal === '1';
-            const isBad = weekVal === '0';
+            const subItems = getItemSizes(item);
+            const hasMultipleSubItems = subItems.length > 1;
+            const subStatuses = parseSubItemStatuses(weekVal, subItems.length);
+
+            const isOk = hasMultipleSubItems
+              ? (weekVal ? subStatuses.every((s) => s === '1') : false)
+              : (weekVal === '1' || check?.result === 'ปกติ');
+            const isBad = hasMultipleSubItems
+              ? (weekVal ? subStatuses.some((s) => s === '0' || s === '✗') : false)
+              : (weekVal === '0' || check?.result === 'ผิดปกติ');
+
+            const currentExp = check?.exp || item.exp || '';
+            const subExps = parseSubExps(currentExp);
+
+            // Handler for toggling single sub-item
+            const handleToggleSubItem = (idx: number, targetStatus: '1' | '0') => {
+              const nextStatuses = [...subStatuses];
+              // If already targetStatus, toggle off/reset or keep
+              if (nextStatuses[idx] === targetStatus) {
+                nextStatuses[idx] = targetStatus === '1' ? '0' : '1';
+              } else {
+                nextStatuses[idx] = targetStatus;
+              }
+              // Fill any unselected sub-items with '1' if user has started checking
+              const cleaned = nextStatuses.map((s) => (s === '0' ? '0' : '1'));
+              const combinedStr = cleaned.join(', ');
+              const hasProblem = cleaned.some((s) => s === '0');
+              onToggleCheck(item.itemKey, hasProblem ? 'ผิดปกติ' : 'ปกติ', item.name, selectedWeek, true, combinedStr);
+            };
+
+            const handleMasterAllOk = () => {
+              const allOk = Array(subItems.length).fill('1').join(', ');
+              onToggleCheck(item.itemKey, 'ปกติ', item.name, selectedWeek, true, allOk);
+            };
+
+            const handleMasterAllBad = () => {
+              const allBad = Array(subItems.length).fill('0').join(', ');
+              onToggleCheck(item.itemKey, 'ผิดปกติ', item.name, selectedWeek, true, allBad);
+            };
 
             return (
               <div
@@ -570,6 +688,11 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
                             {item.code}
                           </span>
                         )}
+                        {hasMultipleSubItems && (
+                          <span className="text-[10px] px-2 py-0.5 rounded-md bg-purple-50 text-purple-700 font-bold border border-purple-200">
+                            {subItems.length} ชิ้นย่อย ({subStatuses.filter((s) => s === '1').length}/{subItems.length} ปกติ)
+                          </span>
+                        )}
                       </div>
 
                       {/* 3-Dots Edit Button [✏️] */}
@@ -591,57 +714,19 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
                       <p className="text-xs text-slate-500 line-clamp-1 font-sans">{item.spec}</p>
                     )}
 
-                    {item.exp && (
-                      <div className="mt-1 space-y-1.5 border-l-2 border-rose-200 pl-2">
-                        {(() => {
-                          const currentExp = check?.exp || item.exp || '';
-                          const subExps = parseSubExps(currentExp);
-                          
-                          if (subExps.length > 0) {
-                            return (
-                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                                {subExps.map((sub, idx) => (
-                                  <div key={sub.label || idx} className="flex items-center gap-1.5">
-                                    {sub.label && (
-                                      <span className="text-[9px] font-bold text-slate-500 whitespace-nowrap min-w-[35px] max-w-[80px] truncate" title={sub.label}>
-                                        {sub.label}:
-                                      </span>
-                                    )}
-                                    <input
-                                      type="date"
-                                      value={sub.date || ''}
-                                      onChange={(e) => {
-                                        const newSubExps = [...subExps];
-                                        newSubExps[idx] = { ...sub, date: e.target.value };
-                                        const combined = newSubExps
-                                          .map(s => (s.label ? `${s.label.trim()}: ${s.date}` : s.date))
-                                          .filter(Boolean)
-                                          .join(', ');
-                                        onUpdateNote(item.itemKey, `EXP:${combined}`);
-                                      }}
-                                      className="text-[10px] bg-white border border-rose-200 rounded px-1 py-0.5 text-rose-700 font-bold outline-none flex-1 h-7"
-                                    />
-                                  </div>
-                                ))}
-                              </div>
-                            );
-                          }
-
-                          return (
-                            <div className="flex items-center gap-2">
-                              <p className="text-xs text-rose-600 font-bold flex items-center gap-1">
-                                <span>⏳ EXP:</span>
-                              </p>
-                              <input
-                                type="date"
-                                value={currentExp}
-                                onChange={(e) => onUpdateNote(item.itemKey, `EXP:${e.target.value}`)}
-                                className="text-[10px] bg-white border border-rose-200 rounded px-1 py-0.5 text-rose-700 font-bold outline-none w-32 h-7"
-                                title="ใส่วันหมดอายุ"
-                              />
-                            </div>
-                          );
-                        })()}
+                    {/* Non-multi Single Item EXP Display */}
+                    {!hasMultipleSubItems && item.exp && (
+                      <div className="mt-1 flex items-center gap-2 border-l-2 border-rose-200 pl-2">
+                        <p className="text-xs text-rose-600 font-bold flex items-center gap-1">
+                          <span>⏳ EXP:</span>
+                        </p>
+                        <input
+                          type="date"
+                          value={currentExp}
+                          onChange={(e) => onUpdateNote(item.itemKey, `EXP:${e.target.value}`)}
+                          className="text-[10px] bg-white border border-rose-200 rounded px-1 py-0.5 text-rose-700 font-bold outline-none w-32 h-7"
+                          title="ใส่วันหมดอายุ"
+                        />
                       </div>
                     )}
                   </div>
@@ -660,37 +745,157 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
                   )}
                 </div>
 
-                {/* Dropdown Menu removed in favor of Modal */}
+                {/* Sub-Items Dynamic Check Section (when item has multiple sub-items / sizes) */}
+                {hasMultipleSubItems ? (
+                  <div className="space-y-2 pt-2 border-t border-slate-100">
+                    <div className="flex items-center justify-between text-[11px] text-slate-600 font-bold">
+                      <span>ตรวจเช็กแยกตามชิ้นย่อย / แต่ละเบอร์:</span>
+                      <span className="text-[10px] font-normal text-slate-500">
+                        สัปดาห์ที่ {selectedWeek}
+                      </span>
+                    </div>
 
-                {/* Compact Touch Check Buttons */}
-                <div className="space-y-1.5 pt-1.5 border-t border-slate-100">
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => onToggleCheck(item.itemKey, 'ปกติ', item.name, selectedWeek)}
-                      className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer active:scale-95 ${
-                        isOk
-                          ? 'bg-emerald-500 text-white shadow-xs'
-                          : 'bg-slate-100 text-slate-700 hover:bg-emerald-50 hover:text-emerald-700 border border-slate-200/80'
-                      }`}
-                    >
-                      <Check size={16} strokeWidth={2.5} />
-                      <span>ปกติ (พร้อมใช้)</span>
-                    </button>
+                    {/* Sub-item Grid */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {subItems.map((subLabel, idx) => {
+                        const status = subStatuses[idx];
+                        const isSubOk = status === '1';
+                        const isSubBad = status === '0';
+                        const matchedSubExp = subExps[idx]?.date || (subExps.find((s) => s.label?.includes(subLabel))?.date) || '';
 
-                    <button
-                      type="button"
-                      onClick={() => onToggleCheck(item.itemKey, 'ผิดปกติ', item.name, selectedWeek)}
-                      className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer active:scale-95 ${
-                        isBad
-                          ? 'bg-rose-500 text-white shadow-xs'
-                          : 'bg-slate-100 text-slate-700 hover:bg-rose-50 hover:text-rose-700 border border-slate-200/80'
-                      }`}
-                    >
-                      <X size={16} strokeWidth={2.5} />
-                      <span>มีปัญหา</span>
-                    </button>
+                        return (
+                          <div
+                            key={idx}
+                            className={`p-2 rounded-xl border flex flex-col justify-between gap-1.5 transition ${
+                              isSubBad
+                                ? 'bg-rose-50 border-rose-200'
+                                : isSubOk
+                                ? 'bg-emerald-50 border-emerald-200'
+                                : 'bg-slate-50 dark:bg-black/20 border-slate-200'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between gap-1">
+                              <span className="font-bold text-xs text-slate-800 line-clamp-1" title={subLabel}>
+                                {subLabel}
+                              </span>
+                              <div className="flex items-center gap-1 shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleSubItem(idx, '1')}
+                                  className={`px-2 py-1 rounded-lg text-[11px] font-bold flex items-center gap-0.5 cursor-pointer transition active:scale-95 ${
+                                    isSubOk
+                                      ? 'bg-emerald-600 text-white shadow-2xs'
+                                      : 'bg-white border border-slate-300 text-slate-700 hover:bg-emerald-100'
+                                  }`}
+                                  title="ตรวจแล้ว ปกติ (1)"
+                                >
+                                  <Check size={12} strokeWidth={3} />
+                                  <span>1</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleSubItem(idx, '0')}
+                                  className={`px-2 py-1 rounded-lg text-[11px] font-bold flex items-center gap-0.5 cursor-pointer transition active:scale-95 ${
+                                    isSubBad
+                                      ? 'bg-rose-600 text-white shadow-2xs'
+                                      : 'bg-white border border-slate-300 text-slate-700 hover:bg-rose-100'
+                                  }`}
+                                  title="ตรวจแล้ว มีปัญหา/ขาด (0)"
+                                >
+                                  <X size={12} strokeWidth={3} />
+                                  <span>0</span>
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* Sub-item EXP Date Picker if applicable */}
+                            {(item.exp || subExps.length > 0) && (
+                              <div className="flex items-center gap-1 pt-1 border-t border-slate-200/60 text-[10px]">
+                                <span className="text-slate-500 font-semibold shrink-0">EXP:</span>
+                                <input
+                                  type="date"
+                                  value={matchedSubExp}
+                                  onChange={(e) => {
+                                    const newSubExps = subExps.length >= subItems.length
+                                      ? [...subExps]
+                                      : subItems.map((lbl, i) => ({ label: lbl, date: subExps[i]?.date || '' }));
+                                    newSubExps[idx] = { label: subLabel, date: e.target.value };
+                                    const combined = newSubExps
+                                      .map((s) => (s.label ? `${s.label.trim()}: ${s.date}` : s.date))
+                                      .filter(Boolean)
+                                      .join(', ');
+                                    onUpdateNote(item.itemKey, `EXP:${combined}`);
+                                  }}
+                                  className="flex-1 bg-white border border-slate-300 rounded px-1 py-0.5 text-[10px] text-rose-700 font-bold outline-none h-6"
+                                />
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Master Actions for Multi-Item */}
+                    <div className="flex items-center gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={handleMasterAllOk}
+                        className={`flex-1 py-1.5 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer active:scale-95 ${
+                          isOk
+                            ? 'bg-emerald-600 text-white shadow-xs'
+                            : 'bg-slate-100 text-slate-700 hover:bg-emerald-50 hover:text-emerald-700 border border-slate-200/80'
+                        }`}
+                      >
+                        <Check size={14} strokeWidth={2.5} />
+                        <span>ปกติทั้งหมด ({subItems.length} ชิ้น)</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleMasterAllBad}
+                        className={`flex-1 py-1.5 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer active:scale-95 ${
+                          isBad
+                            ? 'bg-rose-600 text-white shadow-xs'
+                            : 'bg-slate-100 text-slate-700 hover:bg-rose-50 hover:text-rose-700 border border-slate-200/80'
+                        }`}
+                      >
+                        <X size={14} strokeWidth={2.5} />
+                        <span>มีปัญหาทั้งหมด</span>
+                      </button>
+                    </div>
                   </div>
+                ) : (
+                  /* Standard Touch Check Buttons for Single Items */
+                  <div className="space-y-1.5 pt-1.5 border-t border-slate-100">
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => onToggleCheck(item.itemKey, 'ปกติ', item.name, selectedWeek)}
+                        className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer active:scale-95 ${
+                          isOk
+                            ? 'bg-emerald-500 text-white shadow-xs'
+                            : 'bg-slate-100 text-slate-700 hover:bg-emerald-50 hover:text-emerald-700 border border-slate-200/80'
+                        }`}
+                      >
+                        <Check size={16} strokeWidth={2.5} />
+                        <span>ปกติ (พร้อมใช้)</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => onToggleCheck(item.itemKey, 'ผิดปกติ', item.name, selectedWeek)}
+                        className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer active:scale-95 ${
+                          isBad
+                            ? 'bg-rose-500 text-white shadow-xs'
+                            : 'bg-slate-100 text-slate-700 hover:bg-rose-50 hover:text-rose-700 border border-slate-200/80'
+                        }`}
+                      >
+                        <X size={16} strokeWidth={2.5} />
+                        <span>มีปัญหา</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                   {/* O2 Tank PSI Input (Special handling) */}
                   {((item.name.toLowerCase().includes('o2') || item.name.toLowerCase().includes('oxygen') || item.name.includes('ออกซิเจน')) && (item.name.toLowerCase().includes('tank') || item.name.includes('ถัง'))) && (
@@ -729,7 +934,6 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
                     />
                   )}
                 </div>
-              </div>
             );
           })
         )}
@@ -802,8 +1006,23 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
                 </div>
 
                 <div>
-                  <label className="block text-slate-700 font-bold mb-1">วันหมดอายุ (EXP)</label>
-                  {modalSizes.length > 1 ? (
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-slate-700 font-bold">วันหมดอายุ (EXP)</label>
+                    <label className="flex items-center gap-1.5 text-[11px] text-slate-600 font-bold cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={newItemNoExp}
+                        onChange={(e) => setNewItemNoExp(e.target.checked)}
+                        className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span>ไม่มีวันหมดอายุ</span>
+                    </label>
+                  </div>
+                  {newItemNoExp ? (
+                    <div className="px-3 py-2 rounded-xl bg-slate-100 border border-slate-200 text-slate-500 text-xs font-semibold text-center">
+                      ไม่มีวันหมดอายุ (แสดงเป็น "-")
+                    </div>
+                  ) : modalSizes.length > 1 ? (
                     <div className="space-y-1.5 p-2 bg-slate-50 rounded-xl border border-slate-200">
                       <p className="text-[10px] text-slate-500 font-bold mb-1 italic">ระบุวันหมดอายุแยกตามชิ้น/ไซส์:</p>
                       <div className="grid grid-cols-1 gap-1.5">
