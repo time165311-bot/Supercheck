@@ -134,8 +134,20 @@ export default function App() {
     return getStored<InspectionHistoryRecord[]>(STORAGE_KEYS.HISTORY, []);
   });
 
+  const [emergencyWeekDates, setEmergencyWeekDates] = useState<Record<string, Record<number, string>>>(() => {
+    const today = new Date().toISOString().split('T')[0];
+    const initial = {
+      bag: { 1: today, 2: today, 3: today, 4: today, 5: today },
+      cart: { 1: today, 2: today, 3: today, 4: today, 5: today },
+    };
+    return getStored<Record<string, Record<number, string>>>(STORAGE_KEYS.EMER_WEEK_DATES, initial);
+  });
+
   // Modals
   const [isOfficialReportOpen, setIsOfficialReportOpen] = useState(false);
+  const [reportInitialWeek, setReportInitialWeek] = useState<number | undefined>(undefined);
+  const [reportInitialWeekDates, setReportInitialWeekDates] = useState<Record<number, string> | undefined>(undefined);
+  const [reportInitialRoundId, setReportInitialRoundId] = useState<string | undefined>(undefined);
   const [isBarcodeScannerOpen, setIsBarcodeScannerOpen] = useState(false);
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
@@ -249,18 +261,44 @@ export default function App() {
     categoryOrRoomId: string,
     itemKey: string,
     result: 'ปกติ' | 'ผิดปกติ',
-    _itemName: string
+    _itemName: string,
+    week?: number,
+    isMassAction?: boolean,
+    customValue?: string
   ) => {
     setGlobalChecks((prev) => {
       const currentCategory = prev[categoryOrRoomId] || {};
-      const existing = currentCategory[itemKey];
-      const nextResult: 'ปกติ' | 'ผิดปกติ' | '' = (existing?.result === result ? '' : result) as 'ปกติ' | 'ผิดปกติ' | '';
+      const existing = currentCategory[itemKey] || { result: '', weekVals: {} };
+      
+      let nextResult: 'ปกติ' | 'ผิดปกติ' | '';
+      if (isMassAction) {
+        nextResult = result;
+      } else {
+        nextResult = (existing?.result === result ? '' : result) as 'ปกติ' | 'ผิดปกติ' | '';
+      }
+
+      let nextWeekVals = { ...(existing.weekVals || {}) };
+      if (week !== undefined) {
+        if (customValue !== undefined) {
+          nextWeekVals[week] = customValue;
+        } else {
+          const targetVal = result === 'ปกติ' ? '1' : '0';
+          if (isMassAction) {
+            nextWeekVals[week] = targetVal;
+          } else {
+            // Toggle logic for single clicks
+            const newVal = (existing.weekVals?.[week] === targetVal) ? '' : targetVal;
+            nextWeekVals[week] = newVal;
+          }
+        }
+      }
 
       const updatedCategory = {
         ...currentCategory,
         [itemKey]: {
           ...existing,
           result: nextResult,
+          weekVals: nextWeekVals,
         },
       };
 
@@ -278,14 +316,24 @@ export default function App() {
   const handleUpdateNote = (categoryOrRoomId: string, itemKey: string, note: string) => {
     setGlobalChecks((prev) => {
       const currentCategory = prev[categoryOrRoomId] || {};
-      const existing = currentCategory[itemKey] || { result: 'ผิดปกติ' };
+      const existing = currentCategory[itemKey] || { result: '', weekVals: {} };
+
+      let updatedItem = { ...existing };
+
+      if (note.startsWith('EXP:')) {
+        updatedItem.exp = note.replace('EXP:', '');
+      } else if (note.startsWith('PSI:')) {
+        const psiVal = note.replace('PSI:', '');
+        updatedItem.val = psiVal;
+        // Also update weekVals if we know which week is active (this is a bit tricky since week isn't passed here)
+        // For simplicity, we'll let the checklist view handle the weekVals update via onToggleCheck
+      } else {
+        updatedItem.note = note;
+      }
 
       const updatedCategory = {
         ...currentCategory,
-        [itemKey]: {
-          ...existing,
-          note,
-        },
+        [itemKey]: updatedItem,
       };
 
       const updatedGlobal = {
@@ -335,6 +383,59 @@ export default function App() {
 
       setStored(STORAGE_KEYS.CUSTOM_LISTS, updatedLists);
       return updatedLists;
+    });
+  };
+
+  // Delete Item from Emergency Bag or Crash Cart Checklist
+  const handleDeleteItem = (type: 'bag' | 'cart', itemKey: string) => {
+    setLists((prev) => {
+      const currentList = prev[type];
+      if (!currentList || !currentList.groups) return prev;
+
+      const newGroups: Record<string, EquipmentItem[]> = {};
+      let itemFound = false;
+
+      Object.entries(currentList.groups).forEach(([groupName, items]) => {
+        const filteredItems = items.filter((it) => (it.id || it.name) !== itemKey);
+        if (filteredItems.length !== items.length) {
+          itemFound = true;
+        }
+        // Re-numbering the items in the group after deletion
+        newGroups[groupName] = filteredItems.map((it, idx) => ({
+          ...it,
+          no: String(idx + 1),
+        }));
+      });
+
+      if (!itemFound) return prev;
+
+      const updatedLists = {
+        ...prev,
+        [type]: {
+          ...currentList,
+          groups: newGroups,
+        },
+      };
+
+      setStored(STORAGE_KEYS.CUSTOM_LISTS, updatedLists);
+      return updatedLists;
+    });
+
+    // Also clean up checks for this item
+    setGlobalChecks((prev) => {
+      const categoryChecks = prev[type];
+      if (!categoryChecks || !categoryChecks[itemKey]) return prev;
+
+      const newCategoryChecks = { ...categoryChecks };
+      delete newCategoryChecks[itemKey];
+
+      const updatedGlobal = {
+        ...prev,
+        [type]: newCategoryChecks,
+      };
+
+      setStored(STORAGE_KEYS.GLOBAL_CHECKS, updatedGlobal);
+      return updatedGlobal;
     });
   };
 
@@ -583,11 +684,13 @@ export default function App() {
           no: count++,
           name: it.name,
           qty: it.qty || 1,
-          exp: it.exp || '-',
+          exp: st?.exp || it.exp || '-',
           group: groupName,
           location: `กระเป๋าฉุกเฉิน (${groupName})`,
           res: isBad ? 'ใช้งานไม่ได้' : 'ใช้งานได้',
           note: st?.note || '',
+          val: st?.val || '',
+          weekVals: st?.weekVals || {},
         });
       });
     });
@@ -609,79 +712,121 @@ export default function App() {
           no: count++,
           name: it.name,
           qty: it.qty || 1,
-          exp: it.exp || '-',
+          exp: st?.exp || it.exp || '-',
           group: groupName,
           location: `รถฉุกเฉิน (${groupName})`,
           res: isBad ? 'ใช้งานไม่ได้' : 'ใช้งานได้',
           note: st?.note || '',
+          val: st?.val || '',
+          weekVals: st?.weekVals || {},
         });
       });
     });
     return rows;
   }, [lists.cart, globalChecks]);
 
-  // Submit equipment inspection to Google Apps Script and immediately open OfficialReportModal
-  const handleSaveEquipmentAndPreview = async () => {
-    const now = new Date();
-    const thaiYear = String(now.getFullYear() + 543);
-    const day = ('0' + now.getDate()).slice(-2);
-    const month = ('0' + (now.getMonth() + 1)).slice(-2);
-    const dateFormatted = `${day}${month}${thaiYear}`;
-    const uniqueSheet = `ครุภัณฑ์_ทุกห้อง_${dateFormatted}`;
+    // Submit equipment inspection to Google Apps Script and immediately open OfficialReportModal
+    const handleSaveEquipmentAndPreview = async () => {
+      const now = new Date();
+      const thaiYear = String(now.getFullYear() + 543);
+      const day = ('0' + now.getDate()).slice(-2);
+      const month = ('0' + (now.getMonth() + 1)).slice(-2);
+      const dateFormatted = `${day}${month}${thaiYear}`;
+      const uniqueSheet = `ครุภัณฑ์_ทุกห้อง_${dateFormatted}`;
 
-    // 1. Send data to Google Apps Script Web App URL if configured
-    if (apiUrl && apiUrl.trim()) {
-      try {
-        await sendInspectionToGas(apiUrl, {
-          type: 'equipment',
-          sheet: 'ครุภัณฑ์',
-          sheetName: uniqueSheet,
-          title: 'ทะเบียนรายการครุภัณฑ์และอุปกรณ์',
-          location: 'ทุกห้อง',
-          date: now.toISOString().split('T')[0],
-          who: currentUser?.name || 'ผู้ดูแลระบบ (Admin)',
-          user: currentUser?.username || 'admin',
-          tax: '7',
-          startNo: 1,
-          rows: formattedEqItems.map((item, idx) => ({
-            no: String(item.no || idx + 1),
-            code: item.code || '-',
-            sap: item.sap || '-',
-            name: item.name,
-            spec: item.spec || '-',
-            source: item.source || '-',
-            date: item.date || '-',
-            qty: String(item.qty || '1'),
-            tax: String(item.tax || '7'),
-            price: String(item.price || '-'),
-            location: item.location || '-',
-            res: item.res,
-            note: item.note || '',
-          })),
-        });
-      } catch (err) {
-        console.error('Failed to submit equipment inspection to GAS:', err);
+      // 1. Send data to Google Apps Script Web App URL if configured
+      if (apiUrl && apiUrl.trim()) {
+        try {
+          await sendInspectionToGas(apiUrl, {
+            type: 'equipment',
+            sheet: 'ครุภัณฑ์',
+            sheetName: uniqueSheet,
+            title: 'ทะเบียนรายการครุภัณฑ์และอุปกรณ์',
+            location: 'ทุกห้อง',
+            date: now.toISOString().split('T')[0],
+            who: currentUser?.name || 'ผู้ดูแลระบบ (Admin)',
+            user: currentUser?.username || 'admin',
+            tax: '7',
+            startNo: 1,
+            rows: formattedEqItems.map((item, idx) => ({
+              no: String(item.no || idx + 1),
+              code: item.code || '-',
+              sap: item.sap || '-',
+              name: item.name,
+              spec: item.spec || '-',
+              source: item.source || '-',
+              date: item.date || '-',
+              qty: String(item.qty || '1'),
+              tax: String(item.tax || '7'),
+              price: String(item.price || '-'),
+              location: item.location || '-',
+              res: item.res,
+              note: item.note || '',
+            })),
+          });
+        } catch (err) {
+          console.error('Failed to submit equipment inspection to GAS:', err);
+        }
       }
-    }
 
-    // 2. Save snapshot into inspection history
-    const newRecord: InspectionHistoryRecord = {
-      id: `eq_${Date.now()}`,
-      timestamp: new Date().toLocaleString('th-TH'),
-      date: now.toISOString().split('T')[0],
-      type: 'eq',
-      title: 'ทะเบียนรายการครุภัณฑ์และอุปกรณ์ (ภาพรวมทุกห้อง)',
-      who: currentUser?.name || 'ผู้ดูแลระบบ (Admin)',
-      rows: formattedEqItems,
+      // 2. Save snapshot into inspection history
+      const newRecord: InspectionHistoryRecord = {
+        id: `eq_${Date.now()}`,
+        timestamp: new Date().toLocaleString('th-TH'),
+        date: now.toISOString().split('T')[0],
+        type: 'eq',
+        title: 'ทะเบียนรายการครุภัณฑ์และอุปกรณ์ (ภาพรวมทุกห้อง)',
+        who: currentUser?.name || 'ผู้ดูแลระบบ (Admin)',
+        rows: formattedEqItems,
+      };
+      const nextHist = [newRecord, ...historyRecords.filter((r) => r.id !== newRecord.id)].slice(0, 50);
+      setHistoryRecords(nextHist);
+      setStored(STORAGE_KEYS.HISTORY, nextHist);
+
+      // 3. Open OfficialReportModal with 'eq' tab active and eqItems populated
+      setReportInitialRoundId(newRecord.id);
+      setReportCategory('eq');
+      setIsOfficialReportOpen(true);
     };
-    const nextHist = [newRecord, ...historyRecords.filter((r) => r.id !== newRecord.id)].slice(0, 50);
-    setHistoryRecords(nextHist);
-    setStored(STORAGE_KEYS.HISTORY, nextHist);
 
-    // 3. Open OfficialReportModal with 'eq' tab active and eqItems populated
-    setReportCategory('eq');
-    setIsOfficialReportOpen(true);
-  };
+    const handleSaveEmergencyAndPreview = async (
+      type: 'bag' | 'cart',
+      week: number,
+      weekDatesFromComponent: Record<number, string>
+    ) => {
+      const now = new Date();
+      // Use the latest dates from the component (which should be synced to global anyway)
+      const finalWeekDates = weekDatesFromComponent || emergencyWeekDates[type];
+      const items = type === 'bag' ? formattedBagItems : formattedCartItems;
+      const title = type === 'bag' ? 'แบบฟอร์มตรวจสอบความพร้อม กระเป๋า Emergency' : 'แบบฟอร์มตรวจสอบความพร้อม รถ Emergency';
+
+      // 1. Save to History
+      const newRecord: InspectionHistoryRecord = {
+        id: `${type}_wk${week}_${Date.now()}`,
+        timestamp: new Date().toLocaleString('th-TH'),
+        date: now.toISOString().split('T')[0],
+        type: type,
+        title: `${title} (สัปดาห์ที่ ${week})`,
+        who: currentUser?.name || 'ผู้ดูแลระบบ (Admin)',
+        rows: items.map(it => ({
+          ...it,
+          val: it.res === 'ใช้งานได้' ? '✓' : '-',
+          weekVals: it.weekVals || {} // Snapshot ALL weeks' values
+        })),
+        weekDates: finalWeekDates,
+      };
+
+      const nextHist = [newRecord, ...historyRecords].slice(0, 50);
+      setHistoryRecords(nextHist);
+      setStored(STORAGE_KEYS.HISTORY, nextHist);
+
+      // 2. Open Modal
+      setReportInitialRoundId(newRecord.id);
+      setReportInitialWeek(week);
+      setReportInitialWeekDates(finalWeekDates);
+      setReportCategory(type);
+      setIsOfficialReportOpen(true);
+    };
 
   // Bottom Sheet Drawer States for Google Sheets Config
   const [drawerActiveTab, setDrawerActiveTab] = useState<'sheets' | 'menu'>('sheets');
@@ -881,14 +1026,22 @@ export default function App() {
             subtitle="ตรวจสอบอุปกรณ์และยาฉุกเฉินประจำกระเป๋า"
             listConfig={lists.bag}
             checks={globalChecks['bag'] || {}}
-            onToggleCheck={(itemKey, result, itemName) =>
-              handleToggleCheck('bag', itemKey, result, itemName)
+            onToggleCheck={(itemKey, result, itemName, week, isMass, custom) =>
+              handleToggleCheck('bag', itemKey, result, itemName, week, isMass, custom)
             }
             onUpdateNote={(itemKey, note) => handleUpdateNote('bag', itemKey, note)}
             onOpenBarcodeScan={() => setIsBarcodeScannerOpen(true)}
             onZoomImage={(imgUrl) => setZoomedImgUrl(imgUrl)}
             onBack={() => setCurrentView('home')}
             onAddItem={(newItem) => handleAddItem('bag', newItem)}
+            onDeleteItem={handleDeleteItem}
+            weekDates={emergencyWeekDates.bag}
+            onWeekDatesChange={(dates) => {
+              const updated = { ...emergencyWeekDates, bag: dates };
+              setEmergencyWeekDates(updated);
+              setStored(STORAGE_KEYS.EMER_WEEK_DATES, updated);
+            }}
+            onSaveByWeek={(week, dates) => handleSaveEmergencyAndPreview('bag', week, dates)}
           />
         )}
 
@@ -900,14 +1053,22 @@ export default function App() {
             subtitle="ตรวจสอบอุปกรณ์และยาประจำรถเข็นฉุกเฉินแต่ละชั้น"
             listConfig={lists.cart}
             checks={globalChecks['cart'] || {}}
-            onToggleCheck={(itemKey, result, itemName) =>
-              handleToggleCheck('cart', itemKey, result, itemName)
+            onToggleCheck={(itemKey, result, itemName, week, isMass, custom) =>
+              handleToggleCheck('cart', itemKey, result, itemName, week, isMass, custom)
             }
             onUpdateNote={(itemKey, note) => handleUpdateNote('cart', itemKey, note)}
             onOpenBarcodeScan={() => setIsBarcodeScannerOpen(true)}
             onZoomImage={(imgUrl) => setZoomedImgUrl(imgUrl)}
             onBack={() => setCurrentView('home')}
             onAddItem={(newItem) => handleAddItem('cart', newItem)}
+            onDeleteItem={handleDeleteItem}
+            weekDates={emergencyWeekDates.cart}
+            onWeekDatesChange={(dates) => {
+              const updated = { ...emergencyWeekDates, cart: dates };
+              setEmergencyWeekDates(updated);
+              setStored(STORAGE_KEYS.EMER_WEEK_DATES, updated);
+            }}
+            onSaveByWeek={(week, dates) => handleSaveEmergencyAndPreview('cart', week, dates)}
           />
         )}
 
@@ -1184,8 +1345,16 @@ export default function App() {
       {isOfficialReportOpen && (
         <OfficialReportModal
           isOpen={isOfficialReportOpen}
-          onClose={() => setIsOfficialReportOpen(false)}
+          onClose={() => {
+            setIsOfficialReportOpen(false);
+            setReportInitialWeek(undefined);
+            setReportInitialWeekDates(undefined);
+            setReportInitialRoundId(undefined);
+          }}
           initialCategory={reportCategory}
+          initialRoundId={reportInitialRoundId}
+          initialWeek={reportInitialWeek}
+          initialWeekDates={reportInitialWeekDates}
           eqItems={formattedEqItems}
           bagItems={formattedBagItems}
           cartItems={formattedCartItems}

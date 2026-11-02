@@ -21,6 +21,7 @@ export const STORAGE_KEYS = {
   INSPECTOR: 'anesthesia_inspector',
   CUSTOM_LISTS: 'anesthesia_custom_lists',
   EQ: 'anesthesia_eq',
+  EMER_WEEK_DATES: 'anesthesia_emer_week_dates',
   GLOBAL_CHECKS: 'anesthesia_global_checks',
   LAST_SUBMITTED: 'anesthesia_last_submitted',
   AUDIT_LOGS: 'anesthesia_audit_logs',

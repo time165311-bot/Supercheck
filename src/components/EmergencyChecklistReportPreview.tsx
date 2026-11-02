@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   OfficialReportItemRow,
   formatAcquiredDate,
@@ -122,7 +122,14 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
     5: currentWeek === 5 ? shortDate : '',
   });
 
-  const resolvedWeekDates = propWeekDates || internalWeekDates;
+  const resolvedWeekDates = useMemo(() => {
+    const dates = propWeekDates || internalWeekDates;
+    const formatted: Record<number, string> = {};
+    for (const [wk, d] of Object.entries(dates)) {
+      formatted[Number(wk)] = formatShortDmy(d);
+    }
+    return formatted;
+  }, [propWeekDates, internalWeekDates]);
 
   const handleDateChange = (wk: number, val: string) => {
     const updated = { ...resolvedWeekDates, [wk]: val };
@@ -179,7 +186,7 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
       style={{
         width: '100%',
         margin: '0 auto',
-        padding: '16px',
+        padding: '8px 16px',
         boxSizing: 'border-box',
         overflow: 'visible',
         background: '#ffffff',
@@ -356,7 +363,7 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
             <th
               rowSpan={2}
               className="border border-slate-400"
-              style={{ width: '120px', minWidth: '120px', textAlign: 'center', verticalAlign: 'middle', whiteSpace: 'nowrap', lineHeight: '1.4 !important', padding: '6px 4px !important' }}
+              style={{ width: '120px', minWidth: '120px', textAlign: 'center', verticalAlign: 'middle', lineHeight: '1.4 !important', padding: '6px 4px !important' }}
             >
               วันหมดอายุ (EXP)
             </th>
@@ -426,7 +433,7 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
                       className="border border-slate-300"
                       style={{ textAlign: 'center', whiteSpace: 'nowrap', lineHeight: '1.4 !important', padding: '6px 4px !important' }}
                     >
-                      {formatStrictCountableNumbers(item.qty || '1')}
+                      {item.qty || '1'}
                     </td>
                     {/* Col 3-7: ผลการตรวจเช็คในสัปดาห์ที่ 1 ถึง 5 */}
                     {[1, 2, 3, 4, 5].map((w) => {
@@ -450,7 +457,7 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
                         }
                       }
 
-                      const isValBad = displayVal === '✗' || displayVal.toLowerCase() === 'fail';
+                      const isValBad = displayVal === '✗' || displayVal.toLowerCase() === 'fail' || (displayVal.toLowerCase().includes('psi') && parseInt(displayVal.replace(/\D/g, ''), 10) < 500);
                       const isValEmpty = displayVal === '-' || displayVal === '';
 
                       return (
@@ -486,12 +493,13 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
                         width: '120px',
                         minWidth: '120px',
                         textAlign: 'center',
-                        whiteSpace: 'nowrap',
                         fontSize: '11pt',
                         ...(isCurrentYear ? { color: '#DC2626 !important', fontWeight: 'bold !important' } : {}),
                       }}
                     >
-                      {formattedExp}
+                      {(item.name?.toLowerCase().includes('tank') || item.name?.includes('ถัง')) && (item.name?.toLowerCase().includes('o2') || item.name?.toLowerCase().includes('oxygen') || item.name?.includes('ออกซิเจน'))
+                        ? 'ปริมาณแรงดันไม่ต่ำกว่า 500 psi'
+                        : formattedExp}
                     </td>
                   </tr>
                 );
@@ -620,7 +628,7 @@ export function generateEmergencyPrintHtml(
                 }
               }
 
-              const isValBad = displayVal === '✗' || displayVal.toLowerCase() === 'fail';
+              const isValBad = displayVal === '✗' || displayVal.toLowerCase() === 'fail' || (displayVal.toLowerCase().includes('psi') && parseInt(displayVal.replace(/\D/g, ''), 10) < 500);
               const isValEmpty = displayVal === '-' || displayVal === '';
 
               const cellStyle = isValBad
@@ -636,9 +644,13 @@ export function generateEmergencyPrintHtml(
           return `
             <tr>
               <td style="text-align: left; padding-left: 8px; border: 1px solid #000;">${item.name || '-'}</td>
-              <td style="text-align: center; border: 1px solid #000; white-space: nowrap;">${formatStrictCountableNumbers(item.qty || '1')}</td>
+              <td style="text-align: center; border: 1px solid #000;">${item.qty || '1'}</td>
               ${weekCells}
-              <td style="text-align: center; border: 1px solid #000; white-space: nowrap; font-size: 9.5pt; ${expStyle}">${formattedExp}</td>
+              <td style="text-align: center; border: 1px solid #000; font-size: 9pt; line-height: 1.2; ${expStyle}">
+                ${(item.name?.toLowerCase().includes('tank') || item.name?.includes('ถัง')) && (item.name?.toLowerCase().includes('o2') || item.name?.toLowerCase().includes('oxygen') || item.name?.includes('ออกซิเจน'))
+                  ? 'ปริมาณแรงดันไม่ต่ำกว่า 500 psi'
+                  : formattedExp}
+              </td>
             </tr>
           `;
         })
@@ -650,7 +662,7 @@ export function generateEmergencyPrintHtml(
 
   const weekHeadersHtml = [1, 2, 3, 4, 5]
     .map((w) => {
-      const wkDate = weekDates[w] || (activeWeek === w ? shortDate : 'DD/MM/YY');
+      const wkDate = weekDates[w] ? formatShortDmy(weekDates[w]) : (activeWeek === w ? shortDate : 'ว/ด/ป');
       return `<th style="width: 75px; text-align: center; border: 1px solid #000; font-size: 9.5pt; font-weight: normal;">${wkDate}</th>`;
     })
     .join('');
@@ -766,7 +778,7 @@ export function generateEmergencyPrintHtml(
               <th rowspan="2" style="width: 280px; text-align: center;">รายการ</th>
               <th rowspan="2" style="width: 60px; text-align: center; white-space: nowrap;">จำนวน</th>
               <th colspan="5" style="text-align: center;">สัปดาห์ที่ 1 - 5</th>
-              <th rowspan="2" style="width: 100px; text-align: center; white-space: nowrap;">วันหมดอายุ (EXP)</th>
+              <th rowspan="2" style="width: 100px; text-align: center;">วันหมดอายุ (EXP)</th>
             </tr>
             <tr>
               ${weekHeadersHtml}

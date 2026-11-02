@@ -40,6 +40,7 @@ export interface CheckItemState {
   note?: string;
   val?: string; // numeric count or custom reading, e.g. "1400/1700 PSI", "2"
   weekVals?: { [week: number]: string };
+  exp?: string;
 }
 
 export interface CheckItemRow extends EquipmentItem {
@@ -126,6 +127,7 @@ export interface InspectionHistoryRecord {
     weekVals?: { [week: number]: string };
     [key: string]: any;
   }>;
+  weekDates?: { [week: number]: string };
 }
 
 export type DrugCategory = 'monthly' | 'quarterly' | 'adhoc';

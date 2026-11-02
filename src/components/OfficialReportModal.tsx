@@ -63,6 +63,9 @@ export interface OfficialReportModalProps {
   historyRecords?: InspectionHistoryRecord[];
   currentUser?: User | null;
   onDeleteHistoryRecord?: (recordId: string) => void;
+  initialWeek?: number;
+  initialWeekDates?: { [week: number]: string };
+  initialRoundId?: string;
 }
 
 export function formatThaiDate(dateStr?: string): string {
@@ -116,6 +119,20 @@ export function formatAcquiredDate(dateVal?: string | null): string {
     }
   }
 
+  // Handle multiple dates "Label: date, Label: date" or "date, date"
+  if (str.includes(',') || str.includes(':')) {
+    return str.split(',').map(p => {
+      const parts = p.split(':');
+      if (parts.length === 2) {
+        return `${parts[0].trim()}: ${formatAcquiredDate(parts[1].trim())}`;
+      }
+      // If it's just a comma-separated list of dates
+      const trimmed = p.trim();
+      if (!trimmed) return '';
+      return formatAcquiredDate(trimmed);
+    }).filter(Boolean).join(', ');
+  }
+
   const isoMatch = str.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
   if (isoMatch) {
     let y = parseInt(isoMatch[1], 10);
@@ -152,6 +169,13 @@ export function isCurrentYearExp(expVal?: string | null): boolean {
   const shortAD = String(currentYearAD).slice(-2);
   const shortBE = String(currentYearBE).slice(-2);
 
+  if (str.includes(',') || str.includes(':')) {
+    return str.split(',').some(p => {
+      const lastPart = p.split(':').pop()?.trim();
+      return isCurrentYearExp(lastPart);
+    });
+  }
+
   if (str.includes(String(currentYearAD)) || str.includes(String(currentYearBE))) {
     return true;
   }
@@ -166,11 +190,21 @@ export function cleanQuantityUnit(valStr?: string | number): string {
   let str = String(valStr).trim();
   if (!str || str === '-') return '1';
 
-  // [เงื่อนไขเด็ดขาด]: แสดงเฉพาะ "ตัวเลขจำนวนนับ" เท่านั้น ห้ามใส่คำลักษณนาม/สรรพนามต่อท้ายเด็ดขาด!
-  // Strip all Thai characters, English letters, and units (e.g. amp, vial, อัน, หลอด, ขวด, etc.)
-  str = str.replace(/[ก-๙a-zA-Z]+/g, '').trim();
+  // [เงื่อนไขผ่อนปรน]: อนุญาตให้ใส่ "PSI" และรักษารูปแบบตัวเลขคั่นด้วย comma (สำหรับหลายชิ้น)
+  // ห้ามลบภาษาอังกฤษถ้าเป็น "PSI" หรือหน่วยวัดแรงดัน
+  const isPsi = /psi/i.test(str);
+  
+  if (isPsi) {
+    // Keep numbers and PSI, remove Thai
+    str = str.replace(/[ก-๙]+/g, '').trim();
+    return str;
+  }
+
+  // Strip all Thai characters, English letters (except PSI handled above), and units
+  str = str.replace(/[ก-๙a-zA-RT-Z]+/g, '').trim(); // Keep 'S' for PSI check above or just strip all except numbers and common separators
   str = str.replace(/[()]/g, '').trim();
   str = str.replace(/\s+/g, ' ').trim();
+  
   if (/^\d+\s+\d+$/.test(str)) {
     str = str.replace(/\s+/g, ', ');
   }
@@ -220,6 +254,9 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
   historyRecords = [],
   currentUser = null,
   onDeleteHistoryRecord,
+  initialWeek,
+  initialWeekDates,
+  initialRoundId,
 }) => {
   const [isPrinting, setIsPrinting] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<'eq' | 'bag' | 'cart' | 'drug'>('eq');
@@ -233,6 +270,8 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
   const [isFitToScreen, setIsFitToScreen] = useState<boolean>(true);
   const [orientation] = useState<'landscape' | 'portrait'>('landscape');
 
+  const [activeWeek, setActiveWeek] = useState<number>(1);
+  const [weekDates, setWeekDates] = useState<{ [wk: number]: string }>({});
   const [weekItemValues] = useState<{ [itemKey: string]: { [week: number]: string } }>({});
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -254,7 +293,17 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
       if (initialDrugSubCategory) {
         setDrugSubCategory(initialDrugSubCategory);
       }
-      setSelectedRoundId('current');
+      if (initialWeek) {
+        setActiveWeek(initialWeek);
+      }
+      if (initialWeekDates) {
+        setWeekDates(initialWeekDates);
+      }
+      if (initialRoundId) {
+        setSelectedRoundId(initialRoundId);
+      } else {
+        setSelectedRoundId('current');
+      }
       setFeedback(null);
       setIsFitToScreen(true);
       if (scrollContainerRef.current) {
@@ -262,7 +311,7 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
         scrollContainerRef.current.scrollLeft = 0;
       }
     }
-  }, [initialCategory, initialDrugSubCategory, isOpen]);
+  }, [initialCategory, initialDrugSubCategory, initialWeek, initialWeekDates, initialRoundId, isOpen]);
 
   // Reset scroll position to top-left corner whenever switching to 100% actual size
   useEffect(() => {
@@ -428,7 +477,7 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
   const handlePrintPdf = () => {
     setIsPrinting(true);
     let printHtml = '';
-    const printOptions = {
+    const printOptions: any = {
       date: displayDate,
       inspector: displayInspector,
       signature: userSignature,
@@ -445,10 +494,26 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
         headerNote: drugHeaderNote,
       });
     } else if (selectedCategory === 'bag' || selectedCategory === 'cart') {
+      const wkVals = selectedRecord ? activeItems.reduce((acc, it) => {
+        if (it.name) {
+          acc[`${it.name}|${it.code || ''}`] = it.weekVals || {};
+        }
+        return acc;
+      }, {} as any) : activeItems.reduce((acc, it) => {
+        if (it.name) {
+          acc[`${it.name}|${it.code || ''}`] = {
+            [activeWeek]: it.res === 'ใช้งานได้' ? '1' : (it.res === 'ใช้งานไม่ได้' ? '0' : '')
+          };
+        }
+        return acc;
+      }, {} as any);
+
       printHtml = generateEmergencyPrintHtml(selectedCategory, activeItems, {
         ...printOptions,
         agencyName: cleanClinicName,
-        weekItemValues,
+        weekItemValues: wkVals,
+        weekDates: selectedRecord ? selectedRecord.weekDates : weekDates,
+        activeWeek: selectedRecord ? (Object.keys(selectedRecord.rows[0]?.weekVals || {}).map(Number)[0] || 1) : activeWeek,
       });
     } else {
       printHtml = generateEquipmentPrintHtml(activeItems, printOptions);
@@ -1000,7 +1065,22 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
                   inspector={displayInspector}
                   signature={userSignature}
                   agencyName={cleanClinicName}
-                  weekItemValues={weekItemValues}
+                  weekItemValues={selectedRecord ? activeItems.reduce((acc, it) => {
+                    if (it.name) {
+                      acc[`${it.name}|${it.code || ''}`] = it.weekVals || {};
+                    }
+                    return acc;
+                  }, {} as any) : activeItems.reduce((acc, it) => {
+                    if (it.name) {
+                      // Prefer multi-week live data (it.weekVals) if available
+                      acc[`${it.name}|${it.code || ''}`] = it.weekVals && Object.keys(it.weekVals).length > 0
+                        ? it.weekVals
+                        : { [activeWeek]: it.res === 'ใช้งานได้' ? '1' : (it.res === 'ใช้งานไม่ได้' ? '0' : '') };
+                    }
+                    return acc;
+                  }, {} as any)}
+                  weekDates={selectedRecord ? selectedRecord.weekDates : weekDates}
+                  activeWeek={selectedRecord ? (Object.keys(selectedRecord.rows[0]?.weekVals || {}).map(Number)[0] || 1) : activeWeek}
                   currentUser={currentUser}
                 />
               ) : (

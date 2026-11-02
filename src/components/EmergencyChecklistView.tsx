@@ -17,6 +17,24 @@ import {
   CheckCircle2,
 } from 'lucide-react';
 import { CheckItemState, ListConfig } from '../types';
+import { formatAcquiredDate } from './OfficialReportModal';
+
+export function getItemSizes(item: { name: string; spec?: string; qty?: string }): string[] {
+  const combined = `${item.name} ${item.spec || ''} ${item.qty || ''}`;
+  const sizePattern = /(?:No\.|no\.|เบอร์|ขนาด)\s*([0-9.,\s/&]+)/i;
+  const match = combined.match(sizePattern);
+  if (match && match[1]) {
+    return match[1].split(/[,/&]/).map((s) => s.trim()).filter((s) => s.length > 0).map(s => `No.${s}`);
+  }
+  
+  // Check if qty is a simple number > 1
+  const qtyNum = parseInt(String(item.qty || '').replace(/\D/g, ''), 10);
+  if (!isNaN(qtyNum) && qtyNum > 1 && !item.qty?.includes(',')) {
+    return Array.from({ length: qtyNum }, (_, i) => `ชิ้นที่ ${i + 1}`);
+  }
+  
+  return [];
+}
 
 export interface EmergencyChecklistProps {
   type: 'bag' | 'cart';
@@ -24,7 +42,7 @@ export interface EmergencyChecklistProps {
   subtitle: string;
   listConfig: ListConfig;
   checks: Record<string, CheckItemState>;
-  onToggleCheck: (itemKey: string, result: 'ปกติ' | 'ผิดปกติ', itemName: string) => void;
+  onToggleCheck: (itemKey: string, result: 'ปกติ' | 'ผิดปกติ', itemName: string, week?: number, isMassAction?: boolean, customValue?: string) => void;
   onUpdateNote: (itemKey: string, note: string) => void;
   onOpenBarcodeScan?: () => void;
   onZoomImage?: (imgUrl: string) => void;
@@ -37,6 +55,10 @@ export interface EmergencyChecklistProps {
     exp?: string;
     img?: string;
   }) => void;
+  onDeleteItem?: (type: 'bag' | 'cart', itemKey: string) => void;
+  weekDates: Record<number, string>;
+  onWeekDatesChange: (dates: Record<number, string>) => void;
+  onSaveByWeek?: (week: number, weekDates: Record<number, string>) => void;
 }
 
 export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
@@ -51,13 +73,26 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
   onZoomImage,
   onBack,
   onAddItem,
+  onDeleteItem,
+  weekDates,
+  onWeekDatesChange,
+  onSaveByWeek,
 }) => {
   const [selectedGroup, setSelectedGroup] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [activeMenuKey, setActiveMenuKey] = useState<string | null>(null);
 
-  // Week Selection State (สัปดาห์ที่ 1 - 4)
   const [selectedWeek, setSelectedWeek] = useState<number>(1);
+
+  const handleDateChange = (wk: number, dateVal: string) => {
+    onWeekDatesChange({ ...weekDates, [wk]: dateVal });
+  };
+
+  const handleSaveAndPreview = () => {
+    if (onSaveByWeek) {
+      onSaveByWeek(selectedWeek, weekDates);
+    }
+  };
 
   // Add Item Modal State
   const [isAddItemModalOpen, setIsAddItemModalOpen] = useState<boolean>(false);
@@ -67,6 +102,7 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
   const [newItemSpec, setNewItemSpec] = useState<string>('');
   const [newItemQty, setNewItemQty] = useState<string>('1');
   const [newItemExp, setNewItemExp] = useState<string>('');
+  const [newItemExpParts, setNewItemExpParts] = useState<Record<string, string>>({});
   const [newItemImgUrl, setNewItemImgUrl] = useState<string>('');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -141,7 +177,7 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
   // Mark all items in active view as Normal for selected week
   const handleMarkAllNormal = () => {
     filteredItems.forEach((item) => {
-      onToggleCheck(item.itemKey, 'ปกติ', item.name);
+      onToggleCheck(item.itemKey, 'ปกติ', item.name, selectedWeek, true);
     });
   };
 
@@ -178,13 +214,17 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
       return;
     }
 
+    const combinedExp = modalSizes.length > 1
+      ? modalSizes.filter(s => newItemExpParts[s]).map(s => `${s}:${newItemExpParts[s]}`).join(', ')
+      : newItemExp.trim();
+
     if (onAddItem) {
       onAddItem({
         name: newItemName.trim(),
         groupName: finalGroup,
         spec: newItemSpec.trim(),
         qty: newItemQty.trim() || '1',
-        exp: newItemExp.trim(),
+        exp: combinedExp,
         img: newItemImgUrl.trim(),
       });
     }
@@ -194,9 +234,14 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
     setNewItemSpec('');
     setNewItemQty('1');
     setNewItemExp('');
+    setNewItemExpParts({});
     setNewItemImgUrl('');
     setIsAddItemModalOpen(false);
   };
+
+  const modalSizes = useMemo(() => {
+    return getItemSizes({ name: newItemName, spec: newItemSpec, qty: newItemQty });
+  }, [newItemName, newItemSpec, newItemQty]);
 
   return (
     <div className="space-y-3.5 font-['TH_Sarabun_New','Sarabun',sans-serif] pb-28 animate-in fade-in duration-300 text-slate-800">
@@ -248,32 +293,89 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
             <CheckCheck size={15} />
             <span>ตรวจผ่านทั้งหมด (สัปดาห์ที่ {selectedWeek})</span>
           </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              if (confirm('คุณต้องการทำเครื่องหมาย "ปกติ" ให้กับทุกรายการในทุกสัปดาห์ (1-5) ใช่หรือไม่?')) {
+                [1, 2, 3, 4, 5].forEach((wk) => {
+                  allItems.forEach((item) => {
+                    onToggleCheck(item.itemKey, 'ปกติ', item.name, wk, true);
+                  });
+                });
+              }
+            }}
+            className="px-3 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-xs transition flex items-center gap-1 cursor-pointer active:scale-95"
+            title="กดตรวจผ่านปกติทุกรายการ ครบทั้ง 5 สัปดาห์ในครั้งเดียว"
+          >
+            <CheckCheck size={15} />
+            <span>ตรวจผ่าน 5 สัปดาห์</span>
+          </button>
         </div>
       </div>
 
-      {/* 📅 Week Selector Bar (สัปดาห์ที่ 1 - 4) */}
-      <div className="p-3 rounded-2xl bg-white border border-slate-200/90 shadow-xs flex items-center justify-between flex-wrap gap-2 text-xs">
-        <div className="flex items-center gap-1.5 font-bold text-slate-800">
-          <Calendar size={16} className="text-blue-600" />
-          <span>รอบสัปดาห์ที่ตรวจ:</span>
+      {/* 📅 Week Selector Bar (สัปดาห์ที่ 1 - 5) */}
+      <div className="p-3.5 rounded-2xl bg-white border border-slate-200/90 shadow-xs flex flex-col gap-3">
+        <div className="flex items-center justify-between flex-wrap gap-2 text-xs">
+          <div className="flex items-center gap-1.5 font-bold text-slate-800">
+            <Calendar size={16} className="text-blue-600" />
+            <span>เลือกสัปดาห์ที่ตรวจ:</span>
+          </div>
+
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {[1, 2, 3, 4, 5].map((wk) => (
+              <button
+                key={wk}
+                type="button"
+                onClick={() => setSelectedWeek(wk)}
+                className={`px-3 py-1.5 rounded-xl font-bold text-xs transition cursor-pointer active:scale-95 flex items-center gap-1 ${
+                  selectedWeek === wk
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200/80'
+                }`}
+              >
+                <span>สัปดาห์ที่ {wk}</span>
+                {selectedWeek === wk && <CheckCircle2 size={12} className="text-white" />}
+              </button>
+            ))}
+          </div>
         </div>
 
-        <div className="flex items-center gap-1.5 flex-wrap">
-          {[1, 2, 3, 4].map((wk) => (
+        <div className="flex items-center justify-between gap-3 border-t border-slate-100 pt-3 flex-wrap">
+          <div className="flex items-center gap-2 flex-1 min-w-[200px]">
+            <span className="text-xs font-bold text-slate-500 whitespace-nowrap">วันที่ตรวจเช็ค (สัปดาห์ที่ {selectedWeek}):</span>
+            <input
+              type="date"
+              value={weekDates[selectedWeek] || ''}
+              onChange={(e) => handleDateChange(selectedWeek, e.target.value)}
+              className="flex-1 min-w-[120px] px-3 py-1.5 rounded-xl border border-slate-200 text-xs font-bold text-blue-700 focus:border-blue-500 focus:ring-1 focus:ring-blue-100 outline-none"
+            />
             <button
-              key={wk}
               type="button"
-              onClick={() => setSelectedWeek(wk)}
-              className={`px-3 py-1.5 rounded-xl font-bold text-xs transition cursor-pointer active:scale-95 flex items-center gap-1 ${
-                selectedWeek === wk
-                  ? 'bg-blue-600 text-white shadow-xs'
-                  : 'bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200/80'
-              }`}
+              onClick={() => {
+                const dateVal = weekDates[selectedWeek];
+                if (!dateVal) {
+                  alert('กรุณาเลือกวันที่ก่อนกดใช้กับทุกสัปดาห์');
+                  return;
+                }
+                onWeekDatesChange({ 1: dateVal, 2: dateVal, 3: dateVal, 4: dateVal, 5: dateVal });
+              }}
+              className="px-2 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 text-[10px] font-bold border border-slate-200 transition active:scale-95 whitespace-nowrap"
+              title="ใช้วันที่นี้กับทุกสัปดาห์ (1-5)"
             >
-              <span>สัปดาห์ที่ {wk}</span>
-              {selectedWeek === wk && <CheckCircle2 size={12} className="text-white" />}
+              ใช้กับทุกสัปดาห์
             </button>
-          ))}
+          </div>
+
+          <button
+            type="button"
+            onClick={handleSaveAndPreview}
+            className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-md transition flex items-center gap-1.5 cursor-pointer active:scale-95 group"
+            title="บันทึกข้อมูลและเข้าสู่หน้าพรีวิวเพื่อพิมพ์ PDF"
+          >
+            <CheckCircle2 size={15} className="group-hover:scale-110 transition-transform" />
+            <span>บันทึก & พรีวิว PDF</span>
+          </button>
         </div>
       </div>
 
@@ -368,8 +470,9 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
         ) : (
           filteredItems.map((item) => {
             const check = checks[item.itemKey];
-            const isOk = check?.result === 'ปกติ';
-            const isBad = check?.result === 'ผิดปกติ';
+            const weekVal = check?.weekVals?.[selectedWeek];
+            const isOk = weekVal === '1';
+            const isBad = weekVal === '0';
 
             return (
               <div
@@ -422,10 +525,61 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
                     )}
 
                     {item.exp && (
-                      <p className="text-xs text-rose-600 font-bold flex items-center gap-1">
-                        <span>⏳ EXP:</span>
-                        <span>{item.exp}</span>
-                      </p>
+                      <div className="mt-1 space-y-1.5 border-l-2 border-rose-200 pl-2">
+                        {(() => {
+                          const sizes = getItemSizes(item);
+                          const currentExp = check?.exp || item.exp || '';
+                          
+                          if (sizes.length > 1) {
+                            // Split currentExp into parts. Format: "No.4: date, No.5: date"
+                            const expParts: Record<string, string> = {};
+                            currentExp.split(',').forEach(p => {
+                              const [sz, dt] = p.split(':').map(s => s.trim());
+                              if (sz && dt) expParts[sz] = dt;
+                            });
+
+                            return (
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                                {sizes.map(sz => (
+                                  <div key={sz} className="flex items-center gap-1.5">
+                                    <span className="text-[9px] font-bold text-slate-500 whitespace-nowrap min-w-[35px]">{sz}:</span>
+                                    <input
+                                      type="text"
+                                      value={expParts[sz] || ''}
+                                      onChange={(e) => {
+                                        const newParts = { ...expParts, [sz]: e.target.value };
+                                        const combined = sizes
+                                          .filter(s => newParts[s])
+                                          .map(s => `${s}:${newParts[s]}`)
+                                          .join(', ');
+                                        onUpdateNote(item.itemKey, `EXP:${combined}`);
+                                      }}
+                                      className="text-[10px] bg-white border border-rose-200 rounded px-1.5 py-0.5 text-rose-700 font-bold outline-none flex-1"
+                                      placeholder="ว/ด/ป"
+                                    />
+                                  </div>
+                                ))}
+                              </div>
+                            );
+                          }
+
+                          return (
+                            <div className="flex items-center gap-2">
+                              <p className="text-xs text-rose-600 font-bold flex items-center gap-1">
+                                <span>⏳ EXP:</span>
+                              </p>
+                              <input
+                                type="text"
+                                value={currentExp}
+                                onChange={(e) => onUpdateNote(item.itemKey, `EXP:${e.target.value}`)}
+                                className="text-[10px] bg-white border border-rose-200 rounded px-1.5 py-0.5 text-rose-700 font-bold outline-none w-32"
+                                placeholder="ว/ด/ป"
+                                title="ใส่วันหมดอายุ"
+                              />
+                            </div>
+                          );
+                        })()}
+                      </div>
                     )}
                   </div>
 
@@ -461,6 +615,23 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
                     {item.spec && <p className="text-slate-700"><b>คุณลักษณะ:</b> {item.spec}</p>}
                     {item.location && <p className="text-slate-700"><b>ตำแหน่ง:</b> {item.location}</p>}
                     {item.exp && <p className="text-rose-600 font-bold"><b>วันหมดอายุ:</b> {item.exp}</p>}
+                    
+                    {/* Delete Item Button in Menu */}
+                    <div className="pt-2 border-t border-slate-200 mt-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (onDeleteItem && confirm(`คุณต้องการลบรายการ "${item.name}" ออกจากระบบใช่หรือไม่?`)) {
+                            onDeleteItem(type, item.itemKey);
+                            setActiveMenuKey(null);
+                          }
+                        }}
+                        className="w-full flex items-center gap-2 px-3 py-2 rounded-lg bg-rose-50 text-rose-700 hover:bg-rose-100 font-bold transition-colors cursor-pointer"
+                      >
+                        <X size={14} className="stroke-[3]" />
+                        <span>ลบรายการนี้</span>
+                      </button>
+                    </div>
                   </div>
                 )}
 
@@ -469,7 +640,7 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
-                      onClick={() => onToggleCheck(item.itemKey, 'ปกติ', item.name)}
+                      onClick={() => onToggleCheck(item.itemKey, 'ปกติ', item.name, selectedWeek)}
                       className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer active:scale-95 ${
                         isOk
                           ? 'bg-emerald-500 text-white shadow-xs'
@@ -482,7 +653,7 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
 
                     <button
                       type="button"
-                      onClick={() => onToggleCheck(item.itemKey, 'ผิดปกติ', item.name)}
+                      onClick={() => onToggleCheck(item.itemKey, 'ผิดปกติ', item.name, selectedWeek)}
                       className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer active:scale-95 ${
                         isBad
                           ? 'bg-rose-500 text-white shadow-xs'
@@ -494,11 +665,37 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
                     </button>
                   </div>
 
+                  {/* O2 Tank PSI Input (Special handling) */}
+                  {((item.name.toLowerCase().includes('o2') || item.name.toLowerCase().includes('oxygen') || item.name.includes('ออกซิเจน')) && (item.name.toLowerCase().includes('tank') || item.name.includes('ถัง'))) && (
+                    <div className="flex items-center gap-2 bg-blue-50 p-2 rounded-xl border border-blue-200">
+                      <span className="text-[10px] font-bold text-blue-800 shrink-0">ความดัน (PSI):</span>
+                      <input
+                        type="text"
+                        value={check?.weekVals?.[selectedWeek] || ''}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          const num = parseInt(val.replace(/\D/g, ''), 10);
+                          const result = !isNaN(num) && num >= 500 ? 'ปกติ' : (val ? 'ผิดปกติ' : '');
+                          // Pass PSI string as customValue to be stored in weekVals
+                          onToggleCheck(item.itemKey, result === 'ปกติ' ? 'ปกติ' : 'ผิดปกติ', item.name, selectedWeek, true, val.toLowerCase().includes('psi') ? val : `${val} PSI`);
+                          onUpdateNote(item.itemKey, `PSI:${val}`);
+                        }}
+                        placeholder="ระบุ PSI เช่น 1350"
+                        className="flex-1 bg-white border border-blue-300 rounded-lg px-2 py-1 text-xs font-bold text-blue-900 outline-none"
+                      />
+                      {check?.weekVals?.[selectedWeek] && (
+                        <span className={`text-[10px] font-bold ${parseInt(String(check?.weekVals?.[selectedWeek]).replace(/\D/g, ''), 10) >= 500 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                          {parseInt(String(check?.weekVals?.[selectedWeek]).replace(/\D/g, ''), 10) >= 500 ? '✓ ผ่าน' : '✗ ต่ำ'}
+                        </span>
+                      )}
+                    </div>
+                  )}
+
                   {/* Defect note input when marked defective */}
                   {isBad && (
                     <input
                       type="text"
-                      value={check?.note || ''}
+                      value={check?.note && check.note.startsWith('PSI:') ? '' : (check?.note || '')}
                       onChange={(e) => onUpdateNote(item.itemKey, e.target.value)}
                       placeholder="ระบุอาการเสีย หรือปัญหาที่พบ..."
                       className="w-full px-3 py-1.5 text-xs rounded-xl bg-rose-50 border border-rose-300 outline-none text-rose-900 placeholder:text-rose-400 focus:ring-1 focus:ring-rose-300 font-sans"
@@ -579,13 +776,33 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
 
                 <div>
                   <label className="block text-slate-700 font-bold mb-1">วันหมดอายุ (EXP)</label>
-                  <input
-                    type="text"
-                    value={newItemExp}
-                    onChange={(e) => setNewItemExp(e.target.value)}
-                    placeholder="เช่น 31/12/2026"
-                    className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-slate-900 outline-none focus:border-blue-500"
-                  />
+                  {modalSizes.length > 1 ? (
+                    <div className="space-y-1.5 p-2 bg-slate-50 rounded-xl border border-slate-200">
+                      <p className="text-[10px] text-slate-500 font-bold mb-1 italic">ระบุวันหมดอายุแยกตามชิ้น/ไซส์:</p>
+                      <div className="grid grid-cols-1 gap-1.5">
+                        {modalSizes.map(sz => (
+                          <div key={sz} className="flex items-center gap-2">
+                            <span className="text-[10px] font-bold text-slate-600 min-w-[45px]">{sz}:</span>
+                            <input
+                              type="text"
+                              value={newItemExpParts[sz] || ''}
+                              onChange={(e) => setNewItemExpParts({ ...newItemExpParts, [sz]: e.target.value })}
+                              placeholder="ว/ด/ป"
+                              className="flex-1 px-2 py-1 rounded-lg border border-slate-300 text-[11px] outline-none focus:border-blue-500"
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <input
+                      type="text"
+                      value={newItemExp}
+                      onChange={(e) => setNewItemExp(e.target.value)}
+                      placeholder="เช่น 31/12/2026"
+                      className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-slate-900 outline-none focus:border-blue-500"
+                    />
+                  )}
                 </div>
               </div>
 

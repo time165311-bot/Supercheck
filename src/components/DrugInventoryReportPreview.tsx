@@ -106,7 +106,7 @@ export const DrugInventoryReportPreview: React.FC<DrugInventoryReportPreviewProp
       style={{
         width: '100%',
         margin: '0 auto',
-        padding: '8px 16px',
+        padding: '4px 16px',
         boxSizing: 'border-box',
         overflow: 'visible',
         background: '#ffffff',
@@ -240,7 +240,7 @@ export const DrugInventoryReportPreview: React.FC<DrugInventoryReportPreviewProp
       )}
 
       {/* 1. Header Layout */}
-      <div className="text-center mb-4" style={{ backgroundColor: '#ffffff !important', background: '#ffffff !important', overflow: 'visible', textAlign: 'center', width: '100%', margin: '0 auto 12px auto' }}>
+      <div className="text-center mb-2" style={{ backgroundColor: '#ffffff !important', background: '#ffffff !important', overflow: 'visible', textAlign: 'center', width: '100%', margin: '0 auto 6px auto' }}>
         <h2 className="text-2xl font-bold tracking-wide" style={{ fontSize: '18pt', color: '#000000 !important', lineHeight: '1.4', overflow: 'visible', fontWeight: 'bold' }}>
           {mainHeading}
         </h2>
