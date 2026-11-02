@@ -1850,6 +1850,7 @@ export default function App() {
         onAddItem={(type, newItem) => handleAddItem(type, newItem)}
         onDeleteItem={(type, key) => handleDeleteItem(type, key)}
         isDarkMode={isDark}
+        isBottomBarVisible={isBottomBarVisible}
       />
 
       {/* 📍 Floating Quick Controls (Scroll to Top, Scroll to Bottom, Back to Dashboard) */}
