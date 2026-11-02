@@ -20,6 +20,29 @@ import { CheckItemState, ListConfig } from '../types';
 import { formatAcquiredDate } from './OfficialReportModal';
 
 export function getItemSizes(item: { name: string; spec?: string; qty?: string }): string[] {
+  const name = (item.name || '').toLowerCase();
+  
+  // [NEW RULES]: Specific EXP slot counts per user request
+  if (name.includes('syringe')) {
+    if (name.includes('3cc') || name.includes('5cc') || name.includes('10cc')) {
+      return ['ชิ้นที่ 1', 'ชิ้นที่ 2', 'ชิ้นที่ 3'];
+    }
+  }
+  if (name.includes('5% d/w/2')) return ['ชิ้นที่ 1'];
+  if (name.includes('0.9% nss')) {
+    if (name.includes('100 cc') || name.includes('500cc') || name.includes('10cc')) {
+      return ['ชิ้นที่ 1', 'ชิ้นที่ 2', 'ชิ้นที่ 3'];
+    }
+  }
+  if (name.includes('betadine') || name.includes('ammonia')) return ['ชิ้นที่ 1', 'ชิ้นที่ 2'];
+  if (name.includes('สำลีก้อน') || name.includes('ถุงมือ')) {
+    const qtyNum = parseInt(String(item.qty || '').replace(/\D/g, ''), 10);
+    if (!isNaN(qtyNum) && qtyNum > 0) {
+      return Array.from({ length: Math.min(qtyNum, 20) }, (_, i) => `ชิ้นที่ ${i + 1}`);
+    }
+  }
+
+  // Fallback 1: Pattern matching for No./Size
   const combined = `${item.name} ${item.spec || ''} ${item.qty || ''}`;
   const sizePattern = /(?:No\.|no\.|เบอร์|ขนาด)\s*([0-9.,\s/&]+)/i;
   const match = combined.match(sizePattern);
@@ -27,10 +50,10 @@ export function getItemSizes(item: { name: string; spec?: string; qty?: string }
     return match[1].split(/[,/&]/).map((s) => s.trim()).filter((s) => s.length > 0).map(s => `No.${s}`);
   }
   
-  // Check if qty is a simple number > 1
+  // Fallback 2: Numeric quantity > 1
   const qtyNum = parseInt(String(item.qty || '').replace(/\D/g, ''), 10);
   if (!isNaN(qtyNum) && qtyNum > 1 && !item.qty?.includes(',')) {
-    return Array.from({ length: qtyNum }, (_, i) => `ชิ้นที่ ${i + 1}`);
+    return Array.from({ length: Math.min(qtyNum, 10) }, (_, i) => `ชิ้นที่ ${i + 1}`);
   }
   
   return [];
@@ -544,7 +567,7 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
                                   <div key={sz} className="flex items-center gap-1.5">
                                     <span className="text-[9px] font-bold text-slate-500 whitespace-nowrap min-w-[35px]">{sz}:</span>
                                     <input
-                                      type="text"
+                                      type="date"
                                       value={expParts[sz] || ''}
                                       onChange={(e) => {
                                         const newParts = { ...expParts, [sz]: e.target.value };
@@ -554,8 +577,7 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
                                           .join(', ');
                                         onUpdateNote(item.itemKey, `EXP:${combined}`);
                                       }}
-                                      className="text-[10px] bg-white border border-rose-200 rounded px-1.5 py-0.5 text-rose-700 font-bold outline-none flex-1"
-                                      placeholder="ว/ด/ป"
+                                      className="text-[10px] bg-white border border-rose-200 rounded px-1 py-0.5 text-rose-700 font-bold outline-none flex-1 h-7"
                                     />
                                   </div>
                                 ))}
@@ -569,11 +591,10 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
                                 <span>⏳ EXP:</span>
                               </p>
                               <input
-                                type="text"
+                                type="date"
                                 value={currentExp}
                                 onChange={(e) => onUpdateNote(item.itemKey, `EXP:${e.target.value}`)}
-                                className="text-[10px] bg-white border border-rose-200 rounded px-1.5 py-0.5 text-rose-700 font-bold outline-none w-32"
-                                placeholder="ว/ด/ป"
+                                className="text-[10px] bg-white border border-rose-200 rounded px-1 py-0.5 text-rose-700 font-bold outline-none w-32 h-7"
                                 title="ใส่วันหมดอายุ"
                               />
                             </div>
@@ -784,11 +805,10 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
                           <div key={sz} className="flex items-center gap-2">
                             <span className="text-[10px] font-bold text-slate-600 min-w-[45px]">{sz}:</span>
                             <input
-                              type="text"
+                              type="date"
                               value={newItemExpParts[sz] || ''}
                               onChange={(e) => setNewItemExpParts({ ...newItemExpParts, [sz]: e.target.value })}
-                              placeholder="ว/ด/ป"
-                              className="flex-1 px-2 py-1 rounded-lg border border-slate-300 text-[11px] outline-none focus:border-blue-500"
+                              className="flex-1 px-2 py-1 rounded-lg border border-slate-300 text-[11px] outline-none focus:border-blue-500 h-8"
                             />
                           </div>
                         ))}
@@ -796,11 +816,10 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
                     </div>
                   ) : (
                     <input
-                      type="text"
+                      type="date"
                       value={newItemExp}
                       onChange={(e) => setNewItemExp(e.target.value)}
-                      placeholder="เช่น 31/12/2026"
-                      className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-slate-900 outline-none focus:border-blue-500"
+                      className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-slate-900 outline-none focus:border-blue-500 h-10"
                     />
                   )}
                 </div>
