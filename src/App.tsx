@@ -1369,6 +1369,7 @@ export default function App() {
               setStored(STORAGE_KEYS.EMER_WEEK_DATES, updated);
             }}
             onSaveByWeek={(week, dates) => handleSaveEmergencyAndPreview('bag', week, dates)}
+            isVisible={isBottomBarVisible}
           />
         )}
 
@@ -1397,6 +1398,7 @@ export default function App() {
               setStored(STORAGE_KEYS.EMER_WEEK_DATES, updated);
             }}
             onSaveByWeek={(week, dates) => handleSaveEmergencyAndPreview('cart', week, dates)}
+            isVisible={isBottomBarVisible}
           />
         )}
 

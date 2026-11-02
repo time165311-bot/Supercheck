@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   BriefcaseMedical,
   Truck,
@@ -175,6 +175,7 @@ export interface EmergencyChecklistProps {
   weekDates: Record<number, string>;
   onWeekDatesChange: (dates: Record<number, string>) => void;
   onSaveByWeek?: (week: number, weekDates: Record<number, string>) => void;
+  isVisible?: boolean;
 }
 
 export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
@@ -194,36 +195,61 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
   weekDates,
   onWeekDatesChange,
   onSaveByWeek,
+  isVisible = true,
 }) => {
   const [selectedGroup, setSelectedGroup] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
-  
-  // Edit Item Modal State
-  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-  const [itemToEdit, setItemToEdit] = useState<EquipmentItem | null>(null);
 
-  const handleOpenEditModal = (item: EquipmentItem) => {
-    setItemToEdit(item);
-    setIsEditModalOpen(true);
-  };
+  // 1. Dynamic Weeks Per Month (4 or 5 weeks)
+  const totalWeeksInMonth = useMemo(() => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth();
+    const firstDay = new Date(year, month, 1);
+    const lastDay = new Date(year, month + 1, 0);
+    const numDays = lastDay.getDate();
+    const firstDayOfWeek = firstDay.getDay(); // 0-6
+    const weeks = Math.ceil((numDays + firstDayOfWeek) / 7);
+    return weeks === 4 ? 4 : 5;
+  }, []);
 
-  const handleSaveEdit = (updatedItem: EquipmentItem) => {
-    if (onEditItem) {
-      onEditItem(updatedItem);
-    }
-    setIsEditModalOpen(false);
-    setItemToEdit(null);
-  };
-
-  const handleDeleteItemInEdit = (itemId: string) => {
-    if (onDeleteItem) {
-      onDeleteItem(type, itemId);
-    }
-    setIsEditModalOpen(false);
-    setItemToEdit(null);
-  };
+  const availableWeeks = useMemo(() => {
+    return totalWeeksInMonth === 4 ? [1, 2, 3, 4] : [1, 2, 3, 4, 5];
+  }, [totalWeeksInMonth]);
 
   const [selectedWeek, setSelectedWeek] = useState<number>(1);
+
+  // Ensure selectedWeek is within availableWeeks
+  useEffect(() => {
+    if (selectedWeek > totalWeeksInMonth) {
+      setSelectedWeek(totalWeeksInMonth);
+    }
+  }, [totalWeeksInMonth, selectedWeek]);
+
+  // Default Wednesday for each week automatically if not set
+  useEffect(() => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth();
+    const newDates = { ...weekDates };
+    let updated = false;
+    for (let wk = 1; wk <= totalWeeksInMonth; wk++) {
+      if (!newDates[wk]) {
+        const firstDay = new Date(year, month, 1);
+        const firstDayOfWeek = firstDay.getDay();
+        const firstWedDate = 1 + ((3 - firstDayOfWeek + 7) % 7);
+        const targetDate = firstWedDate + (wk - 1) * 7;
+        const d = new Date(year, month, targetDate);
+        const lastDay = new Date(year, month + 1, 0).getDate();
+        const actualD = d.getDate() > lastDay || d.getMonth() !== month ? new Date(year, month, lastDay) : d;
+        newDates[wk] = actualD.toISOString().split('T')[0];
+        updated = true;
+      }
+    }
+    if (updated) {
+      onWeekDatesChange(newDates);
+    }
+  }, [totalWeeksInMonth]);
 
   const handleDateChange = (wk: number, dateVal: string) => {
     onWeekDatesChange({ ...weekDates, [wk]: dateVal });
@@ -248,6 +274,31 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
   const [newItemImgUrl, setNewItemImgUrl] = useState<string>('');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Edit Item Modal State
+  const [isEditModalOpen, setIsEditModalOpen] = useState<boolean>(false);
+  const [itemToEdit, setItemToEdit] = useState<EquipmentItem | null>(null);
+
+  const handleOpenEditModal = (item: EquipmentItem) => {
+    setItemToEdit(item);
+    setIsEditModalOpen(true);
+  };
+
+  const handleSaveEdit = (updatedItem: EquipmentItem) => {
+    if (onEditItem) {
+      onEditItem(updatedItem);
+    }
+    setIsEditModalOpen(false);
+    setItemToEdit(null);
+  };
+
+  const handleDeleteItemInEdit = (itemId: string) => {
+    if (onDeleteItem) {
+      onDeleteItem(type, itemId);
+    }
+    setIsEditModalOpen(false);
+    setItemToEdit(null);
+  };
 
   const groups = useMemo(() => {
     if (!listConfig || !listConfig.groups) return [];
@@ -316,11 +367,31 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
   const normalCount = allItems.filter((i) => checks[i.itemKey]?.result === 'ปกติ').length;
   const defectiveCount = allItems.filter((i) => checks[i.itemKey]?.result === 'ผิดปกติ').length;
 
-  // Mark all items in active view as Normal for selected week
-  const handleMarkAllNormal = () => {
-    filteredItems.forEach((item) => {
-      onToggleCheck(item.itemKey, 'ปกติ', item.name, selectedWeek, true);
+  // 2. Toggle Pass All 3-State Logic
+  const areAllPassed = useMemo(() => {
+    if (filteredItems.length === 0) return false;
+    return filteredItems.every((item) => {
+      const c = checks[item.itemKey];
+      const wkVal = c?.weekVals?.[selectedWeek];
+      const subItems = getItemSizes(item);
+      if (subItems.length > 1) {
+        const subStat = parseSubItemStatuses(wkVal, subItems.length);
+        return subStat.every((s) => s === '1');
+      }
+      return wkVal === '1' || c?.result === 'ปกติ';
     });
+  }, [filteredItems, checks, selectedWeek]);
+
+  const handleTogglePassAll = () => {
+    if (areAllPassed) {
+      filteredItems.forEach((item) => {
+        onToggleCheck(item.itemKey, 'ปกติ', item.name, selectedWeek, true, '');
+      });
+    } else {
+      filteredItems.forEach((item) => {
+        onToggleCheck(item.itemKey, 'ปกติ', item.name, selectedWeek, true, '1');
+      });
+    }
   };
 
   // Local File Upload Handler
@@ -394,136 +465,156 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
   return (
     <div className="space-y-3.5 font-['TH_Sarabun_New','Sarabun',sans-serif] pb-28 animate-in fade-in duration-300 text-slate-800">
       
-      {/* 🌟 Clean One UI Royal Blue Header Banner */}
-      <div className="bg-gradient-to-r from-blue-600 via-blue-500 to-cyan-500 text-white p-3.5 sm:p-4 rounded-[1.8rem] border border-blue-400/30 shadow-md flex justify-between items-center flex-wrap gap-2.5">
-        <div className="flex items-center gap-2.5">
-          <button
-            type="button"
-            onClick={onBack}
-            className="p-2 rounded-xl bg-white/20 hover:bg-white/30 text-white font-bold transition cursor-pointer active:scale-95 border border-white/20 flex items-center justify-center"
-            title="ย้อนกลับ"
-          >
-            <ArrowLeft size={16} />
-          </button>
-          <div>
-            <h2 className="text-base sm:text-lg font-bold text-white flex items-center gap-2 leading-tight">
-              {type === 'bag' ? (
-                <BriefcaseMedical size={20} className="text-amber-200 shrink-0" />
-              ) : (
-                <Truck size={20} className="text-cyan-200 shrink-0" />
-              )}
-              <span>{title}</span>
-            </h2>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2">
-          {/* ปุ่ม + เพิ่มรายการ (ถอดไอคอนปุ่มกล้องสแกนซ้ำซ้อนออกถาวร) */}
-          <button
-            type="button"
-            onClick={() => {
-              setNewItemGroup(groups[0] || 'ทั่วไป');
-              setIsAddItemModalOpen(true);
-            }}
-            className="px-3 py-2 rounded-xl bg-white text-blue-700 hover:bg-blue-50 font-bold text-xs shadow-xs transition flex items-center gap-1 cursor-pointer active:scale-95"
-            title="เพิ่มรายการอุปกรณ์ใหม่"
-          >
-            <Plus size={15} className="stroke-[2.5]" />
-            <span>+ เพิ่มรายการ</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={handleMarkAllNormal}
-            className="px-3 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs shadow-xs transition flex items-center gap-1 cursor-pointer active:scale-95"
-            title={`กดตรวจผ่านปกติทุกรายการประจำสัปดาห์ที่ ${selectedWeek}`}
-          >
-            <CheckCheck size={15} />
-            <span>ตรวจผ่านทั้งหมด (สัปดาห์ที่ {selectedWeek})</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              if (confirm('คุณต้องการทำเครื่องหมาย "ปกติ" ให้กับทุกรายการในทุกสัปดาห์ (1-5) ใช่หรือไม่?')) {
-                [1, 2, 3, 4, 5].forEach((wk) => {
-                  allItems.forEach((item) => {
-                    onToggleCheck(item.itemKey, 'ปกติ', item.name, wk, true);
-                  });
-                });
-              }
-            }}
-            className="px-3 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-xs transition flex items-center gap-1 cursor-pointer active:scale-95"
-            title="กดตรวจผ่านปกติทุกรายการ ครบทั้ง 5 สัปดาห์ในครั้งเดียว"
-          >
-            <CheckCheck size={15} />
-            <span>ตรวจผ่าน 5 สัปดาห์</span>
-          </button>
-        </div>
-      </div>
-
-      {/* 📅 Week Selector Bar (สัปดาห์ที่ 1 - 5) */}
-      <div className="p-3.5 rounded-2xl bg-white border border-slate-200/90 shadow-xs flex flex-col gap-3">
-        <div className="flex items-center justify-between flex-wrap gap-2 text-xs">
-          <div className="flex items-center gap-1.5 font-bold text-slate-800">
-            <Calendar size={16} className="text-blue-600" />
-            <span>เลือกสัปดาห์ที่ตรวจ:</span>
+      {/* Scroll-based Auto-Hide Sticky Container */}
+      <div
+        style={{
+          transform: isVisible ? 'translateY(0)' : 'translateY(-100%)',
+          opacity: isVisible ? 1 : 0,
+          transition: 'transform 0.3s ease, opacity 0.3s ease',
+        }}
+        className="sticky top-2 z-30 space-y-2.5 backdrop-blur-md bg-white/95 dark:bg-[#0E0F12]/95 p-1 rounded-[2rem] shadow-sm"
+      >
+        {/* 🌟 Clean One UI Royal Blue Header Banner */}
+        <div className="bg-gradient-to-r from-blue-600 via-blue-500 to-cyan-500 text-white p-3.5 sm:p-4 rounded-[1.8rem] border border-blue-400/30 shadow-md flex justify-between items-center flex-wrap gap-2.5">
+          <div className="flex items-center gap-2.5">
+            <button
+              type="button"
+              onClick={onBack}
+              className="p-2 rounded-xl bg-white/20 hover:bg-white/30 text-white font-bold transition cursor-pointer active:scale-95 border border-white/20 flex items-center justify-center"
+              title="ย้อนกลับ"
+            >
+              <ArrowLeft size={16} />
+            </button>
+            <div>
+              <h2 className="text-base sm:text-lg font-bold text-white flex items-center gap-2 leading-tight">
+                {type === 'bag' ? (
+                  <BriefcaseMedical size={20} className="text-amber-200 shrink-0" />
+                ) : (
+                  <Truck size={20} className="text-cyan-200 shrink-0" />
+                )}
+                <span>{title}</span>
+              </h2>
+            </div>
           </div>
 
-          <div className="flex items-center gap-1.5 flex-wrap">
-            {[1, 2, 3, 4, 5].map((wk) => (
-              <button
-                key={wk}
-                type="button"
-                onClick={() => setSelectedWeek(wk)}
-                className={`px-3 py-1.5 rounded-xl font-bold text-xs transition cursor-pointer active:scale-95 flex items-center gap-1 ${
-                  selectedWeek === wk
-                    ? 'bg-blue-600 text-white shadow-xs'
-                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200/80'
-                }`}
-              >
-                <span>สัปดาห์ที่ {wk}</span>
-                {selectedWeek === wk && <CheckCircle2 size={12} className="text-white" />}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="flex items-center justify-between gap-3 border-t border-slate-100 pt-3 flex-wrap">
-          <div className="flex items-center gap-2 flex-1 min-w-[200px]">
-            <span className="text-xs font-bold text-slate-500 whitespace-nowrap">วันที่ตรวจเช็ค (สัปดาห์ที่ {selectedWeek}):</span>
-            <input
-              type="date"
-              value={weekDates[selectedWeek] || ''}
-              onChange={(e) => handleDateChange(selectedWeek, e.target.value)}
-              className="flex-1 min-w-[120px] px-3 py-1.5 rounded-xl border border-slate-200 text-xs font-bold text-blue-700 focus:border-blue-500 focus:ring-1 focus:ring-blue-100 outline-none"
-            />
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* ปุ่ม + เพิ่มรายการ */}
             <button
               type="button"
               onClick={() => {
-                const dateVal = weekDates[selectedWeek];
-                if (!dateVal) {
-                  alert('กรุณาเลือกวันที่ก่อนกดใช้กับทุกสัปดาห์');
-                  return;
-                }
-                onWeekDatesChange({ 1: dateVal, 2: dateVal, 3: dateVal, 4: dateVal, 5: dateVal });
+                setNewItemGroup(groups[0] || 'ทั่วไป');
+                setIsAddItemModalOpen(true);
               }}
-              className="px-2 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 text-[10px] font-bold border border-slate-200 transition active:scale-95 whitespace-nowrap"
-              title="ใช้วันที่นี้กับทุกสัปดาห์ (1-5)"
+              className="px-3 py-2 rounded-xl bg-white text-blue-700 hover:bg-blue-50 font-bold text-xs shadow-xs transition flex items-center gap-1 cursor-pointer active:scale-95"
+              title="เพิ่มรายการอุปกรณ์ใหม่"
             >
-              ใช้กับทุกสัปดาห์
+              <Plus size={15} className="stroke-[2.5]" />
+              <span>+ เพิ่มรายการ</span>
             </button>
+
+            {/* 3-State Toggle Pass All Button */}
+            <button
+              type="button"
+              onClick={handleTogglePassAll}
+              className={`px-3 py-2 rounded-xl text-white font-bold text-xs shadow-xs transition flex items-center gap-1 cursor-pointer active:scale-95 ${
+                areAllPassed ? 'bg-amber-600 hover:bg-amber-700' : 'bg-emerald-500 hover:bg-emerald-600'
+              }`}
+              title={areAllPassed ? `ยกเลิกการตรวจทั้งหมด (สัปดาห์ที่ ${selectedWeek})` : `กดตรวจผ่านปกติทุกรายการประจำสัปดาห์ที่ ${selectedWeek}`}
+            >
+              <CheckCheck size={15} />
+              <span>{areAllPassed ? `ยกเลิกตรวจ (W${selectedWeek})` : `ตรวจผ่านทั้งหมด (W${selectedWeek})`}</span>
+            </button>
+
+            {/* Render 5-Week Pass Button ONLY if totalWeeksInMonth === 5 */}
+            {totalWeeksInMonth === 5 && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (confirm('คุณต้องการทำเครื่องหมาย "ปกติ" ให้กับทุกรายการในทุกสัปดาห์ (1-5) ใช่หรือไม่?')) {
+                    [1, 2, 3, 4, 5].forEach((wk) => {
+                      allItems.forEach((item) => {
+                        onToggleCheck(item.itemKey, 'ปกติ', item.name, wk, true);
+                      });
+                    });
+                  }
+                }}
+                className="px-3 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-xs transition flex items-center gap-1 cursor-pointer active:scale-95"
+                title="กดตรวจผ่านปกติทุกรายการ ครบทั้ง 5 สัปดาห์ในครั้งเดียว"
+              >
+                <CheckCheck size={15} />
+                <span>ตรวจผ่าน 5 สัปดาห์</span>
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* 📅 Week Selector Bar (Dynamic 4 or 5 Weeks) */}
+        <div className="p-3.5 rounded-2xl bg-white border border-slate-200/90 shadow-xs flex flex-col gap-3">
+          <div className="flex items-center justify-between flex-wrap gap-2 text-xs">
+            <div className="flex items-center gap-1.5 font-bold text-slate-800">
+              <Calendar size={16} className="text-blue-600" />
+              <span>เลือกสัปดาห์ที่ตรวจ (เดือนนี้มี {totalWeeksInMonth} สัปดาห์):</span>
+            </div>
+
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {availableWeeks.map((wk) => (
+                <button
+                  key={wk}
+                  type="button"
+                  onClick={() => setSelectedWeek(wk)}
+                  className={`px-3.5 py-1.5 rounded-xl font-bold text-xs transition cursor-pointer active:scale-95 flex items-center gap-1 ${
+                    selectedWeek === wk
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200/80'
+                  }`}
+                >
+                  <span>สัปดาห์ที่ {wk}</span>
+                  {selectedWeek === wk && <CheckCircle2 size={12} className="text-white" />}
+                </button>
+              ))}
+            </div>
           </div>
 
-          <button
-            type="button"
-            onClick={handleSaveAndPreview}
-            className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-md transition flex items-center gap-1.5 cursor-pointer active:scale-95 group"
-            title="บันทึกข้อมูลและเข้าสู่หน้าพรีวิวเพื่อพิมพ์ PDF"
-          >
-            <CheckCircle2 size={15} className="group-hover:scale-110 transition-transform" />
-            <span>บันทึก & พรีวิว PDF</span>
-          </button>
+          <div className="flex items-center justify-between gap-3 border-t border-slate-100 pt-3 flex-wrap">
+            <div className="flex items-center gap-2 flex-1 min-w-[200px]">
+              <span className="text-xs font-bold text-slate-500 whitespace-nowrap">วันที่ตรวจเช็ค (สัปดาห์ที่ {selectedWeek}):</span>
+              <input
+                type="date"
+                value={weekDates[selectedWeek] || ''}
+                onChange={(e) => handleDateChange(selectedWeek, e.target.value)}
+                className="flex-1 min-w-[120px] px-3 py-1.5 rounded-xl border border-slate-200 text-xs font-bold text-blue-700 focus:border-blue-500 focus:ring-1 focus:ring-blue-100 outline-none"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  const dateVal = weekDates[selectedWeek];
+                  if (!dateVal) {
+                    alert('กรุณาเลือกวันที่ก่อนกดใช้กับทุกสัปดาห์');
+                    return;
+                  }
+                  const updated: Record<number, string> = {};
+                  availableWeeks.forEach((wk) => {
+                    updated[wk] = dateVal;
+                  });
+                  onWeekDatesChange(updated);
+                }}
+                className="px-2 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 text-[10px] font-bold border border-slate-200 transition active:scale-95 whitespace-nowrap"
+                title="ใช้วันที่นี้กับทุกสัปดาห์"
+              >
+                ใช้กับทุกสัปดาห์
+              </button>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleSaveAndPreview}
+              className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-md transition flex items-center gap-1.5 cursor-pointer active:scale-95 group"
+              title="บันทึกข้อมูลและเข้าสู่หน้าพรีวิวเพื่อพิมพ์ PDF"
+            >
+              <CheckCircle2 size={15} className="group-hover:scale-110 transition-transform" />
+              <span>บันทึก & พรีวิว PDF</span>
+            </button>
+          </div>
         </div>
       </div>
 
