@@ -36,7 +36,8 @@ export interface EquipmentItem {
   type?: string;
   category?: string;
   roomId?: string;
-  subExps?: Array<{ label?: string; exp?: string }>;
+  subExps?: Array<{ label?: string; exp?: string; qty?: number }>;
+  subItemQuantities?: number[];
 }
 
 export interface CheckItemState {

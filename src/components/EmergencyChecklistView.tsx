@@ -19,6 +19,7 @@ import {
 import { CheckItemState, ListConfig, EquipmentItem } from '../types';
 import { formatAcquiredDate } from './OfficialReportModal';
 import { EditItemModal } from './EditItemModal';
+import { getWednesdaysInfoForMonth } from '../utils/wednesdayUtils';
 
 export interface SubExpItem {
   label: string;
@@ -200,22 +201,13 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
   const [selectedGroup, setSelectedGroup] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
 
-  // 1. Dynamic Weeks Per Month (4 or 5 weeks)
-  const totalWeeksInMonth = useMemo(() => {
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = now.getMonth();
-    const firstDay = new Date(year, month, 1);
-    const lastDay = new Date(year, month + 1, 0);
-    const numDays = lastDay.getDate();
-    const firstDayOfWeek = firstDay.getDay(); // 0-6
-    const weeks = Math.ceil((numDays + firstDayOfWeek) / 7);
-    return weeks === 4 ? 4 : 5;
+  // 1. Dynamic Wednesdays Per Current Month (4 or 5 Wednesdays)
+  const wedInfo = useMemo(() => {
+    return getWednesdaysInfoForMonth(new Date());
   }, []);
 
-  const availableWeeks = useMemo(() => {
-    return totalWeeksInMonth === 4 ? [1, 2, 3, 4] : [1, 2, 3, 4, 5];
-  }, [totalWeeksInMonth]);
+  const totalWeeksInMonth = wedInfo.totalWednesdays;
+  const availableWeeks = wedInfo.weeks;
 
   const [selectedWeek, setSelectedWeek] = useState<number>(1);
 
@@ -228,28 +220,29 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
 
   // Default Wednesday for each week automatically if not set
   useEffect(() => {
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = now.getMonth();
     const newDates = { ...weekDates };
     let updated = false;
-    for (let wk = 1; wk <= totalWeeksInMonth; wk++) {
+    wedInfo.weeks.forEach((wk) => {
       if (!newDates[wk]) {
-        const firstDay = new Date(year, month, 1);
-        const firstDayOfWeek = firstDay.getDay();
-        const firstWedDate = 1 + ((3 - firstDayOfWeek + 7) % 7);
-        const targetDate = firstWedDate + (wk - 1) * 7;
-        const d = new Date(year, month, targetDate);
-        const lastDay = new Date(year, month + 1, 0).getDate();
-        const actualD = d.getDate() > lastDay || d.getMonth() !== month ? new Date(year, month, lastDay) : d;
-        newDates[wk] = actualD.toISOString().split('T')[0];
+        const dStr = wedInfo.dates[wk];
+        if (dStr) {
+          const parts = dStr.split('/');
+          if (parts.length === 3) {
+            let y = parseInt(parts[2], 10);
+            if (y < 100) y += 2000 - 543; // convert short BE year to AD
+            else if (y > 2400) y -= 543;
+            newDates[wk] = `${y}-${parts[1]}-${parts[0]}`;
+          } else {
+            newDates[wk] = dStr;
+          }
+        }
         updated = true;
       }
-    }
+    });
     if (updated) {
       onWeekDatesChange(newDates);
     }
-  }, [totalWeeksInMonth]);
+  }, [wedInfo]);
 
   const handleDateChange = (wk: number, dateVal: string) => {
     onWeekDatesChange({ ...weekDates, [wk]: dateVal });

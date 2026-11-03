@@ -6,6 +6,7 @@ interface SubExpField {
   id: string;
   label: string;
   date: string;
+  qty: string | number;
 }
 
 interface EditItemModalProps {
@@ -56,15 +57,31 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
   const [img, setImg] = useState(item.img || '');
   const [noExp, setNoExp] = useState<boolean>(item.exp === '-' || !item.exp);
 
-  // Dynamic Sub-EXP State
+  // Dynamic Sub-EXP State with individual quantities
   const [subExps, setSubExps] = useState<SubExpField[]>(() => {
     const fields: SubExpField[] = [];
     const expStr = item.exp || '';
+    const storedSubQuantities = item.subItemQuantities || [];
+
+    if (item.subExps && item.subExps.length > 0) {
+      item.subExps.forEach((se, idx) => {
+        fields.push({
+          id: `sub_${idx}_${Date.now()}`,
+          label: se.label || `ชิ้นที่ ${idx + 1}`,
+          date: toIsoDate(se.exp),
+          qty: se.qty || storedSubQuantities[idx] || 1,
+        });
+      });
+      return fields;
+    }
+
     if (expStr && expStr.trim() && expStr !== '-') {
       const parts = expStr.includes(',') ? expStr.split(',') : [expStr];
       parts.forEach((p, idx) => {
         const trimmed = p.trim();
         if (!trimmed) return;
+        const initialQty = storedSubQuantities[idx] !== undefined ? storedSubQuantities[idx] : 1;
+
         if (trimmed.includes(':')) {
           const colonIdx = trimmed.indexOf(':');
           const l = trimmed.substring(0, colonIdx).trim();
@@ -73,16 +90,31 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
             id: `sub_${idx}_${Date.now()}`,
             label: l,
             date: toIsoDate(d),
+            qty: initialQty,
           });
         } else {
           fields.push({
             id: `sub_${idx}_${Date.now()}`,
             label: parts.length > 1 ? `ชิ้นที่ ${idx + 1}` : '',
             date: toIsoDate(trimmed),
+            qty: initialQty,
           });
         }
       });
     }
+
+    // Fallback if item has subItemQuantities array without explicit subExps string
+    if (fields.length === 0 && storedSubQuantities.length > 1) {
+      storedSubQuantities.forEach((q, idx) => {
+        fields.push({
+          id: `sub_${idx}_${Date.now()}`,
+          label: `รายการย่อยที่ ${idx + 1}`,
+          date: '',
+          qty: q,
+        });
+      });
+    }
+
     return fields;
   });
 
@@ -98,19 +130,19 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
     if (subExps.length === 0) {
       if (singleExp) {
         setSubExps([
-          { id: `sub_${Date.now()}_1`, label: 'ชิ้นที่ 1', date: singleExp },
-          { id: `sub_${Date.now()}_2`, label: 'ชิ้นที่ 2', date: '' },
+          { id: `sub_${Date.now()}_1`, label: 'ชิ้นที่ 1', date: singleExp, qty: 1 },
+          { id: `sub_${Date.now()}_2`, label: 'ชิ้นที่ 2', date: '', qty: 1 },
         ]);
       } else {
         setSubExps([
-          { id: `sub_${Date.now()}_1`, label: 'ชิ้นที่ 1', date: '' },
-          { id: `sub_${Date.now()}_2`, label: 'ชิ้นที่ 2', date: '' },
+          { id: `sub_${Date.now()}_1`, label: 'ชิ้นที่ 1', date: '', qty: 1 },
+          { id: `sub_${Date.now()}_2`, label: 'ชิ้นที่ 2', date: '', qty: 1 },
         ]);
       }
     } else {
       setSubExps((prev) => [
         ...prev,
-        { id: `sub_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`, label: `ชิ้นที่ ${prev.length + 1}`, date: '' },
+        { id: `sub_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`, label: `ชิ้นที่ ${prev.length + 1}`, date: '', qty: 1 },
       ]);
     }
   };
@@ -119,7 +151,7 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
     setSubExps((prev) => prev.filter((s) => s.id !== id));
   };
 
-  const handleSubExpChange = (id: string, field: 'label' | 'date', val: string) => {
+  const handleSubExpChange = (id: string, field: 'label' | 'date' | 'qty', val: string | number) => {
     setSubExps((prev) =>
       prev.map((s) => (s.id === id ? { ...s, [field]: val } : s))
     );
@@ -151,6 +183,8 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
     const finalCategory = category === '__custom__' ? customCategory.trim() : category;
 
     let finalExp = '';
+    let finalSubQuantities: number[] = [];
+
     if (noExp) {
       finalExp = '-';
     } else if (subExps.length > 0) {
@@ -158,8 +192,17 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
         .filter((s) => s.date || s.label)
         .map((s) => (s.label ? `${s.label.trim()}: ${s.date}` : s.date))
         .join(', ');
+      finalSubQuantities = subExps.map((s) => {
+        const parsed = parseInt(String(s.qty || '1').replace(/\D/g, ''), 10);
+        return isNaN(parsed) || parsed <= 0 ? 1 : parsed;
+      });
     } else {
       finalExp = singleExp;
+    }
+
+    let finalQtyString = qty.trim();
+    if (finalSubQuantities.length > 1) {
+      finalQtyString = finalSubQuantities.join(', ');
     }
 
     onSave({
@@ -168,9 +211,15 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
       location: finalCategory,
       category: finalCategory,
       spec: spec.trim(),
-      qty: qty.trim(),
+      qty: finalQtyString,
       exp: finalExp,
       img: img.trim(),
+      subItemQuantities: finalSubQuantities.length > 0 ? finalSubQuantities : undefined,
+      subExps: subExps.map((s) => ({
+        label: s.label.trim(),
+        exp: s.date,
+        qty: parseInt(String(s.qty || '1').replace(/\D/g, ''), 10) || 1,
+      })),
     });
   };
 
@@ -291,7 +340,7 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
                 {subExps.length > 0 ? (
                   <div className="space-y-2 pt-1">
                     <p className="text-[10px] text-slate-500 dark:text-slate-400 font-bold italic">
-                      แก้ไขชื่อกำกับและวันหมดอายุย่อย (กด - ลบ เพื่อนำออก):
+                      ระบุชื่อกำกับ, วันหมดอายุ และจำนวนตั้งต้นของแต่ละรายการย่อย:
                     </p>
                     {subExps.map((sub) => (
                       <div key={sub.id} className="flex items-center gap-1.5 bg-white dark:bg-black/30 p-1.5 rounded-xl border border-slate-200 dark:border-white/10 shadow-2xs">
@@ -299,20 +348,32 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
                           type="text"
                           value={sub.label}
                           onChange={(e) => handleSubExpChange(sub.id, 'label', e.target.value)}
-                          placeholder="ชื่อกำกับ (เช่น No.4.5, ชิ้นที่ 1)"
-                          className="w-28 sm:w-32 px-2 py-1.5 rounded-lg border border-slate-300 dark:border-white/10 bg-white dark:bg-black/20 text-[11px] text-slate-900 dark:text-white outline-none focus:border-blue-500 font-bold shrink-0"
+                          placeholder="ชื่อกำกับ (เช่น No.18, 100 cc)"
+                          className="w-24 sm:w-28 px-2 py-1.5 rounded-lg border border-slate-300 dark:border-white/10 bg-white dark:bg-black/20 text-[11px] text-slate-900 dark:text-white outline-none focus:border-blue-500 font-bold shrink-0"
                         />
                         <input
                           type="date"
                           value={sub.date}
                           onChange={(e) => handleSubExpChange(sub.id, 'date', e.target.value)}
-                          className="flex-1 px-2 py-1.5 rounded-lg border border-slate-300 dark:border-white/10 bg-white dark:bg-black/20 text-[11px] text-slate-900 dark:text-white outline-none focus:border-blue-500 h-8 font-bold"
+                          className="flex-1 min-w-[100px] px-2 py-1.5 rounded-lg border border-slate-300 dark:border-white/10 bg-white dark:bg-black/20 text-[11px] text-slate-900 dark:text-white outline-none focus:border-blue-500 h-8 font-bold"
                         />
+                        <div className="flex items-center gap-1 bg-slate-100 dark:bg-white/10 px-1.5 py-1 rounded-lg border border-slate-200 dark:border-white/10 shrink-0">
+                          <span className="text-[10px] text-slate-500 dark:text-slate-400 font-bold">จำนวณ:</span>
+                          <input
+                            type="number"
+                            min="1"
+                            max="99"
+                            value={sub.qty || 1}
+                            onChange={(e) => handleSubExpChange(sub.id, 'qty', e.target.value)}
+                            className="w-10 text-center bg-transparent border-0 font-bold text-xs text-blue-600 dark:text-blue-400 outline-none"
+                            title="จำนวนตั้งต้นของรายการย่อยนี้"
+                          />
+                        </div>
                         <button
                           type="button"
                           onClick={() => handleRemoveSubExp(sub.id)}
                           className="p-1.5 rounded-lg bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-500/20 transition cursor-pointer shrink-0"
-                          title="- ลบวันหมดอายุย่อยนี้"
+                          title="- ลบรายการย่อยนี้"
                         >
                           <Minus size={14} className="stroke-[2.5]" />
                         </button>

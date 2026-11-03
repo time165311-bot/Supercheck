@@ -265,9 +265,22 @@ export function cleanQuantityUnit(valStr?: string | number): string {
 
 export const formatStrictCountableNumbers = cleanQuantityUnit;
 
-export function formatRealQuantity(qtyVal?: string | number, nameStr?: string, specStr?: string, expVal?: string): string {
-  const combined = `${nameStr || ''} ${specStr || ''} ${qtyVal || ''}`;
+export function formatRealQuantity(qtyVal?: string | number, nameStr?: string, specStr?: string, expVal?: string, subQuantities?: number[]): string {
+  if (subQuantities && subQuantities.length > 0) {
+    return subQuantities.join(', ');
+  }
   const strQty = String(qtyVal || '').trim();
+  if (strQty.includes(',')) {
+    const parts = strQty.split(',').map((p) => p.trim()).filter(Boolean);
+    if (parts.length > 1) {
+      return parts.map((p) => {
+        const cleaned = p.replace(/\D/g, '');
+        return cleaned || '1';
+      }).join(', ');
+    }
+  }
+
+  const combined = `${nameStr || ''} ${specStr || ''} ${qtyVal || ''}`;
   const lowerName = (nameStr || '').toLowerCase();
   const lowerSpec = (specStr || '').toLowerCase();
 
@@ -575,8 +588,8 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
   const mainDocHeading = useMemo(() => {
     const { month, year } = getMonthAndYearThai(displayDate);
     if (selectedCategory === 'eq') return 'ทะเบียนรายการครุภัณฑ์และอุปกรณ์';
-    if (selectedCategory === 'bag') return `ตารางตรวจเช็คกระเป๋ายา Emergency ประจำเดือน ${month} / ปี ${year}`;
-    if (selectedCategory === 'cart') return `ตารางตรวจเช็ครถ Emergency ประจำเดือน ${month} / ปี ${year}`;
+    if (selectedCategory === 'bag') return `ตารางตรวจเช็คกระเป๋า Emergency ประจำเดือน ${month} พ.ศ. ${year}`;
+    if (selectedCategory === 'cart') return `ตารางตรวจเช็ครถ Emergency ประจำเดือน ${month} พ.ศ. ${year}`;
     if (selectedCategory === 'drug') return getDrugCategoryTitle(drugSubCategory, displayDate);
     return 'ทะเบียนรายการครุภัณฑ์และอุปกรณ์';
   }, [selectedCategory, drugSubCategory, displayDate]);
