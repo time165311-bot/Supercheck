@@ -10,6 +10,7 @@ interface AuraAssistantProps {
   onDeleteItem?: (type: 'bag' | 'cart', itemKey: string) => void | Promise<void>;
   isDarkMode?: boolean;
   isBottomBarVisible?: boolean;
+  isAnyModalOpen?: boolean;
 }
 
 type StepType = 'idle' | 'category' | 'quantity' | 'exp' | 'confirm_delete';
@@ -34,6 +35,7 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
   onDeleteItem,
   isDarkMode = false,
   isBottomBarVisible = true,
+  isAnyModalOpen = false,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [isAnimating, setIsAnimating] = useState(false);
@@ -476,7 +478,7 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
 
   return (
     <>
-      {!isOpen && (
+      {!isOpen && !isAnyModalOpen && (
         <div
           className="fixed right-6 z-[999] transition-all duration-300"
           style={{ bottom: isBottomBarVisible ? '85px' : '20px' }}

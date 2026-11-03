@@ -8,15 +8,19 @@ export function getMonthAndYearThai(dateStr?: string): { month: string; year: st
     'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
     'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'
   ];
-  if (!dateStr || String(dateStr).trim() === '') {
-    return { month: '................', year: '................' };
+  const now = new Date();
+  const currentMonth = thaiMonths[now.getMonth()];
+  const currentYear = String(now.getFullYear() + 543);
+
+  if (!dateStr || String(dateStr).trim() === '' || String(dateStr).includes('....')) {
+    return { month: currentMonth, year: currentYear };
   }
   const str = String(dateStr).trim();
 
   for (let i = 0; i < 12; i++) {
     if (str.includes(thaiMonths[i])) {
       const yearMatch = str.match(/\b(25\d{2}|20\d{2})\b/);
-      let year = '................';
+      let year = currentYear;
       if (yearMatch) {
         const y = parseInt(yearMatch[1], 10);
         year = String(y < 2400 ? y + 543 : y);
@@ -31,7 +35,7 @@ export function getMonthAndYearThai(dateStr?: string): { month: string; year: st
     const y = parseInt(isoMatch[1], 10);
     const m = parseInt(isoMatch[2], 10);
     return {
-      month: thaiMonths[m - 1] || '................',
+      month: thaiMonths[m - 1] || currentMonth,
       year: String(y < 2400 ? y + 543 : y),
     };
   }
@@ -42,12 +46,12 @@ export function getMonthAndYearThai(dateStr?: string): { month: string; year: st
     const m = parseInt(dmyMatch[2], 10);
     const y = parseInt(dmyMatch[3], 10);
     return {
-      month: thaiMonths[m - 1] || '................',
+      month: thaiMonths[m - 1] || currentMonth,
       year: String(y < 2400 ? y + 543 : y),
     };
   }
 
-  return { month: '................', year: '................' };
+  return { month: currentMonth, year: currentYear };
 }
 
 export function getDrugCategoryTitle(

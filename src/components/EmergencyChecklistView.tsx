@@ -485,14 +485,14 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
             >
               <ArrowLeft size={16} />
             </button>
-            <div>
+            <div className="flex-1">
               <h2 className="text-base sm:text-lg font-bold text-white flex items-center gap-2 leading-tight">
                 {type === 'bag' ? (
                   <BriefcaseMedical size={20} className="text-amber-200 shrink-0" />
                 ) : (
                   <Truck size={20} className="text-cyan-200 shrink-0" />
                 )}
-                <span>{title}</span>
+                <span>{title} (ประจำเดือน {new Date().toLocaleDateString('th-TH', { month: 'long', year: 'numeric' })})</span>
               </h2>
             </div>
           </div>

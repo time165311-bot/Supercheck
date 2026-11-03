@@ -58,6 +58,47 @@ export function formatShortDmy(dateStr?: string): string {
   return dateStr;
 }
 
+export function calculateWednesdaysForMonth(dateInput?: string): Record<number, string> {
+  let refDate = new Date();
+  if (dateInput && dateInput.trim()) {
+    const isoMatch = String(dateInput).match(/^(\d{4})[-/.](\d{1,2})/);
+    if (isoMatch) {
+      refDate = new Date(parseInt(isoMatch[1], 10), parseInt(isoMatch[2], 10) - 1, 1);
+    } else {
+      const dmyMatch = String(dateInput).match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})/);
+      if (dmyMatch) {
+        let y = parseInt(dmyMatch[3], 10);
+        if (y > 2400) y -= 543;
+        refDate = new Date(y, parseInt(dmyMatch[2], 10) - 1, 1);
+      } else {
+        const parsed = new Date(dateInput);
+        if (!isNaN(parsed.getTime())) {
+          refDate = parsed;
+        }
+      }
+    }
+  }
+
+  const year = refDate.getFullYear();
+  const month = refDate.getMonth();
+  const firstDay = new Date(year, month, 1);
+  const firstDayOfWeek = firstDay.getDay(); // 0 (Sun) - 6 (Sat)
+  const firstWedDate = 1 + ((3 - firstDayOfWeek + 7) % 7);
+  const lastDay = new Date(year, month + 1, 0).getDate();
+
+  const shortYear = String(year + 543).slice(-2);
+  const mStr = String(month + 1).padStart(2, '0');
+
+  const result: Record<number, string> = {};
+  for (let wk = 1; wk <= 5; wk++) {
+    const targetDate = firstWedDate + (wk - 1) * 7;
+    const actualDay = targetDate > lastDay ? lastDay : targetDate;
+    const dStr = String(actualDay).padStart(2, '0');
+    result[wk] = `${dStr}/${mStr}/${shortYear}`;
+  }
+  return result;
+}
+
 export interface EmergencyChecklistReportPreviewProps {
   type: 'bag' | 'cart';
   title?: string;
@@ -115,6 +156,10 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
   const { month, year } = getMonthAndYearThai(surveyDate);
   const shortDate = formatShortDmy(surveyDate);
 
+  const defaultWednesdays = useMemo(() => {
+    return calculateWednesdaysForMonth(surveyDate);
+  }, [surveyDate]);
+
   const [internalWeekDates, setInternalWeekDates] = useState<{ [key: number]: string }>({
     1: currentWeek === 1 ? shortDate : '',
     2: currentWeek === 2 ? shortDate : '',
@@ -126,11 +171,16 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
   const resolvedWeekDates = useMemo(() => {
     const dates = propWeekDates || internalWeekDates;
     const formatted: Record<number, string> = {};
-    for (const [wk, d] of Object.entries(dates)) {
-      formatted[Number(wk)] = formatShortDmy(d);
+    for (let wk = 1; wk <= 5; wk++) {
+      const d = dates[wk];
+      if (d && d.trim() && d !== '-' && !d.includes('....')) {
+        formatted[wk] = formatShortDmy(d);
+      } else {
+        formatted[wk] = defaultWednesdays[wk] || '';
+      }
     }
     return formatted;
-  }, [propWeekDates, internalWeekDates]);
+  }, [propWeekDates, internalWeekDates, defaultWednesdays]);
 
   const handleDateChange = (wk: number, val: string) => {
     const updated = { ...resolvedWeekDates, [wk]: val };
@@ -193,8 +243,8 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
   // 1. Header Layout
   const headingTitle =
     type === 'cart'
-      ? `ตารางตรวจเช็ครถ Emergency ประจำเดือน..................... พ.ศ. ............`
-      : `ตารางตรวจเช็คกระเป๋า Emergency ประจำเดือน..................... พ.ศ. ............`;
+      ? `ตารางตรวจเช็ครถ Emergency ประจำเดือน ${month} พ.ศ. ${year}`
+      : `ตารางตรวจเช็คกระเป๋า Emergency ประจำเดือน ${month} พ.ศ. ${year}`;
 
   // Group items by their section/group
   const groupedItems = React.useMemo(() => {
@@ -689,13 +739,12 @@ export function generateEmergencyPrintHtml(
     return a;
   })();
 
-  const { month, year } = getMonthAndYearThai(date);
-  const shortDate = formatShortDmy(date);
-
+  const { month, year } = getMonthAndYearThai(date || new Date().toISOString());
   const headingTitle =
     type === 'cart'
-      ? `ตารางตรวจเช็ครถ Emergency ประจำเดือน..................... พ.ศ. ............`
-      : `ตารางตรวจเช็คกระเป๋า Emergency ประจำเดือน..................... พ.ศ. ............`;
+      ? `ตารางตรวจเช็ครถ Emergency ประจำเดือน ${month} พ.ศ. ${year}`
+      : `ตารางตรวจเช็คกระเป๋า Emergency ประจำเดือน ${month} พ.ศ. ${year}`;
+  const shortDate = formatShortDmy(date);
 
   // Group items by section
   const groups: { [g: string]: OfficialReportItemRow[] } = {};
@@ -822,6 +871,17 @@ export function generateEmergencyPrintHtml(
     </tr>
   `;
 
+  const defaultPrintWednesdays = calculateWednesdaysForMonth(date || new Date().toISOString());
+  const resolvedPrintWeekDates: Record<number, string> = {};
+  for (let w = 1; w <= 5; w++) {
+    const rawVal = weekDates[w];
+    if (rawVal && rawVal.trim() && rawVal !== '-' && !rawVal.includes('....')) {
+      resolvedPrintWeekDates[w] = formatShortDmy(rawVal);
+    } else {
+      resolvedPrintWeekDates[w] = defaultPrintWednesdays[w] || '';
+    }
+  }
+
   return `
     <!DOCTYPE html>
     <html>
@@ -855,7 +915,7 @@ export function generateEmergencyPrintHtml(
               <th rowspan="2" style="width: 100px;">วันหมดอายุ (EXP)</th>
             </tr>
             <tr>
-              ${[1, 2, 3, 4, 5].map(w => `<th style="width: 75px;">สัปดาห์ที่ ${w}<br><small style="font-size:8pt; font-weight:normal;">วัน,เดือน,ปี</small></th>`).join('')}
+              ${[1, 2, 3, 4, 5].map(w => `<th style="width: 75px;">สัปดาห์ที่ ${w}<br><small style="font-size:8.5pt; font-weight:normal;">${resolvedPrintWeekDates[w] || 'วัน,เดือน,ปี'}</small></th>`).join('')}
             </tr>
           </thead>
           <tbody>

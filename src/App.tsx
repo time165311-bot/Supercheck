@@ -1856,6 +1856,7 @@ export default function App() {
         onDeleteItem={(type, key) => handleDeleteItem(type, key)}
         isDarkMode={isDark}
         isBottomBarVisible={isBottomBarVisible}
+        isAnyModalOpen={isNotificationOpen || isProfileOpen || isPasswordOpen || isOfficialReportOpen || isBarcodeScannerOpen || isSheetsAccordionOpen}
       />
 
       {/* 📍 Floating Quick Controls (Scroll to Top, Scroll to Bottom, Back to Dashboard) */}
