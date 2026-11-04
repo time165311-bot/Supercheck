@@ -84,7 +84,7 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
 
   // Single Count fields (แบบที่ 1)
   const [qty, setQty] = useState<string>(() => {
-    if (item?.qty) return String(item.qty);
+    if (item?.qty !== undefined && item?.qty !== null) return String(item.qty);
     return '1';
   });
   const [noExp, setNoExp] = useState<boolean>(() => {
@@ -188,7 +188,7 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
       setCategory(item.location || item.category || (groups[0] || 'ทั่วไป'));
       setSpec(item.spec || '');
       setImg(item.img || '');
-      setQty(String(item.qty || '1'));
+      setQty(item.qty !== undefined && item.qty !== null ? String(item.qty) : '1');
       setNoExp(item.exp === '-' || !item.exp || item.exp.toLowerCase() === 'no exp');
       if (item.exp && !item.exp.includes(',') && !item.exp.includes(':')) {
         setSingleExp(toIsoDate(item.exp));
@@ -278,8 +278,8 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
     }
 
     if (checkType === 'single') {
-      // แบบที่ 1: ตรวจเช็กรวมตามจำนวนตั้งต้นปกติ (Single Count)
-      const parsedQty = parseInt(qty.replace(/\D/g, ''), 10) || 1;
+      // แบบที่ 1: ตรวจเช็กรวมตามจำนวนตั้งต้นปกติ (Single Count) - บันทึกสตริงข้อความเต็มตามที่ผู้ใช้พิมพ์โดยตรง
+      const finalQty = qty.trim() || '1';
       const finalExp = noExp ? (singleExp.trim() || '-') : (singleExp ? singleExp.trim() : '-');
 
       onSave({
@@ -288,7 +288,7 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
         location: finalCategory,
         category: finalCategory,
         spec: spec.trim(),
-        qty: String(parsedQty),
+        qty: finalQty,
         exp: finalExp,
         img: img.trim(),
         checkType: 'single',
@@ -494,7 +494,7 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
                         type="text"
                         value={qty}
                         onChange={(e) => setQty(e.target.value)}
-                        placeholder="เช่น 1, 2, 4 หรือ 10"
+                        placeholder="เช่น 1 ห่อ 1 คู่, 1, 1, 2 ขวด, 3 อัน"
                         className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-white/10 bg-white dark:bg-black/20 text-slate-900 dark:text-white outline-none focus:border-blue-500 font-bold text-sm"
                       />
                       {/* Presets */}

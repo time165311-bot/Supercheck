@@ -161,7 +161,8 @@ export function getItemQuantityClassification(item: {
   // 1. If explicitly checkType === 'single', strictly enforce Type 1 (if qty > 1) or single item (if qty === 1)
   if (item.checkType === 'single') {
     const rawQty = String(item.qty || '').trim();
-    const parsedQty = parseInt(rawQty.replace(/\D/g, ''), 10);
+    const leadingNumMatch = rawQty.match(/^(\d+)/);
+    const parsedQty = leadingNumMatch ? parseInt(leadingNumMatch[1], 10) : 1;
     if (!isNaN(parsedQty) && parsedQty > 1) {
       return {
         isType1: true,
