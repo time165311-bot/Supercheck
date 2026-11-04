@@ -20,10 +20,8 @@ import {
   EmergencyChecklistReportPreview,
   generateEmergencyPrintHtml,
 } from './EmergencyChecklistReportPreview';
-import {
-  EquipmentReportPreview,
-  generateEquipmentPrintHtml,
-} from './EquipmentReportPreview';
+import { EquipmentReportPreview, generateEquipmentPrintHtml } from './EquipmentReportPreview';
+import { extractQuantityNumbers, getItemQuantityClassification } from '../utils/itemUtils';
 
 export interface OfficialReportItemRow {
   no?: string | number;
@@ -43,6 +41,8 @@ export interface OfficialReportItemRow {
   group?: string;
   val?: string;
   weekVals?: { [week: number]: string };
+  subItemQuantities?: number[];
+  subExps?: Array<{ label?: string; exp?: string; qty?: number; hasNoExp?: boolean }>;
 }
 
 export interface OfficialReportModalProps {
@@ -190,6 +190,17 @@ export function parseSubExpItems(expVal?: string | null): SubExpItem[] {
       datePart = trimmed.substring(colonIdx + 1).trim();
     }
 
+    const isNoExp = !datePart || datePart === '-' || datePart.toLowerCase() === 'no exp';
+    if (isNoExp) {
+      items.push({
+        label,
+        dateStr: '-',
+        formattedDate: '-',
+        isRed: false,
+      });
+      return;
+    }
+
     const formattedDate = formatAcquiredDate(datePart);
 
     let isRed = false;
@@ -266,8 +277,34 @@ export function cleanQuantityUnit(valStr?: string | number): string {
 export const formatStrictCountableNumbers = cleanQuantityUnit;
 
 export function formatRealQuantity(qtyVal?: string | number, nameStr?: string, specStr?: string, expVal?: string, subQuantities?: number[]): string {
+  const classification = getItemQuantityClassification({
+    name: nameStr || '',
+    spec: specStr,
+    qty: qtyVal,
+    exp: expVal,
+    subItemQuantities: subQuantities,
+  });
+
+  // Type 1 (homogeneous multiple items e.g. Tape 4 เส้น, Syringe blow cuff 2 อัน, Sterile water 3 ขวด):
+  // ALWAYS return single total count string e.g. "4", "2", "3"! NEVER "1, 1, 1, 1" or "1, 1"
+  if (classification.isType1) {
+    return String(classification.totalQty);
+  }
+
+  // Type 2 (distinct sub-items / sizes):
+  if (classification.isType2) {
+    if (subQuantities && subQuantities.length > 1) {
+      return subQuantities.join(', ');
+    }
+    return classification.subItems.map(() => '1').join(', ');
+  }
+
   if (subQuantities && subQuantities.length > 0) {
     return subQuantities.join(', ');
+  }
+  const extracted = extractQuantityNumbers(qtyVal, subQuantities);
+  if (extracted.length > 1) {
+    return extracted.join(', ');
   }
   const strQty = String(qtyVal || '').trim();
   if (strQty.includes(',')) {
@@ -277,90 +314,6 @@ export function formatRealQuantity(qtyVal?: string | number, nameStr?: string, s
         const cleaned = p.replace(/\D/g, '');
         return cleaned || '1';
       }).join(', ');
-    }
-  }
-
-  const combined = `${nameStr || ''} ${specStr || ''} ${qtyVal || ''}`;
-  const lowerName = (nameStr || '').toLowerCase();
-  const lowerSpec = (specStr || '').toLowerCase();
-
-  // 1. Sub-items from explicit expiration list
-  const subItems = parseSubExpItems(expVal);
-  if (subItems.length > 1) {
-    return subItems.map(() => '1').join(', ');
-  }
-
-  // 2. Specific known dual / multi medical supply items
-  if (lowerName.includes('สำลีก้อน') || lowerName.includes('ถุงมือ')) {
-    return '1, 1';
-  }
-  if (lowerName.includes('betadine') || lowerName.includes('ammonia')) {
-    return '1, 1';
-  }
-  if (lowerName.includes('micropore') || lowerName.includes('transpore')) {
-    return '1, 1';
-  }
-  if (lowerName.includes('syringe blow cuff')) {
-    return '1, 1';
-  }
-  if (lowerName.includes('ambu bag') && (lowerName.includes('เด็ก') || lowerSpec.includes('เด็ก'))) {
-    return '1, 1';
-  }
-  if (lowerName.includes('o2 mask') && (lowerName.includes('เด็ก') || lowerSpec.includes('เด็ก'))) {
-    return '1, 1';
-  }
-  if (lowerName.includes('stylet')) {
-    if (lowerName.includes('กลาง') || lowerSpec.includes('กลาง')) return '1, 1, 1';
-    return '1, 1';
-  }
-  if (lowerName.includes('extension tube') && (lowerName.includes('t-way') || lowerName.includes('t') || lowerSpec.includes('t'))) {
-    return '1, 1, 1';
-  }
-  if (lowerName.includes('extension tube') && (lowerName.includes('เด็ก') || lowerSpec.includes('เด็ก'))) {
-    return '1, 1';
-  }
-  if (lowerName.includes('iv set') && (lowerName.includes('ใหญ่') || lowerSpec.includes('ใหญ่'))) {
-    return '1, 1';
-  }
-  if (lowerName.includes('0.9% nss') && (lowerName.includes('100 cc') || lowerName.includes('500cc') || lowerName.includes('10cc') || lowerName.includes('100cc'))) {
-    return '1, 1, 1';
-  }
-  if (lowerName.includes('syringe') && (lowerName.includes('3cc') || lowerName.includes('5cc') || lowerName.includes('10cc') || lowerName.includes('ขนาด 3, 5, 10'))) {
-    return '1, 1, 1';
-  }
-
-  // 3. Multi-size equipment (e.g., Endotracheal tube No. 4, 5, 5.5, 6.5, 7, 7.5 or Oral airway No. 2, 3, 4)
-  const sizePattern = /(?:No\.|no\.|เบอร์|ขนาด)\s*([0-9.,\s/&]+)/i;
-  const match = combined.match(sizePattern);
-  if (match && match[1]) {
-    const sizes = match[1].split(/[,/&]/).map((s) => s.trim()).filter((s) => /^\d+(\.\d+)?$/.test(s));
-    if (sizes.length > 1) {
-      return sizes.map(() => '1').join(', ');
-    }
-  }
-
-  if (strQty.includes('อย่างละ') || strQty.includes('เหมา')) {
-    const numbers = combined.match(/(\d+(\.\d+)?)/g);
-    if (numbers && numbers.length > 1) {
-      return Array(numbers.length).fill('1').join(', ');
-    }
-    return '1';
-  }
-
-  // 4. Comma-separated quantities
-  if (strQty.includes(',')) {
-    const parts = strQty.split(',').map((p) => p.trim()).filter(Boolean);
-    if (parts.length > 1) {
-      return parts.map(() => '1').join(', ');
-    }
-  }
-
-  // 5. Quantity count > 1 (e.g., "2 อัน", "3 อัน", "4 เส้น") excluding fluids and pressure units
-  const isExcluded = lowerName.includes('o2') || lowerName.includes('oxygen') || lowerName.includes('ถัง') || lowerName.includes('psi') || lowerName.includes('5% d/w') || lowerName.includes('nss') || lowerName.includes('water') || lowerName.includes('alcohol');
-  if (!isExcluded) {
-    const qtyNum = parseInt(strQty.replace(/\D/g, ''), 10);
-    if (!isNaN(qtyNum) && qtyNum > 1 && qtyNum <= 10) {
-      return Array(qtyNum).fill('1').join(', ');
     }
   }
 
@@ -637,7 +590,7 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
         return acc;
       }, {} as any) : activeItems.reduce((acc, it) => {
         if (it.name) {
-          const realVal = formatRealQuantity(it.qty, it.name, it.spec, it.exp);
+          const realVal = formatRealQuantity(it.qty, it.name, it.spec, it.exp, it.subItemQuantities);
           acc[`${it.name}|${it.code || ''}`] = it.weekVals && Object.keys(it.weekVals).length > 0
             ? it.weekVals
             : {
@@ -1211,7 +1164,7 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
                     return acc;
                   }, {} as any) : activeItems.reduce((acc, it) => {
                     if (it.name) {
-                      const realVal = formatRealQuantity(it.qty, it.name, it.spec, it.exp);
+                      const realVal = formatRealQuantity(it.qty, it.name, it.spec, it.exp, it.subItemQuantities);
                       // Prefer multi-week live data (it.weekVals) if available
                       acc[`${it.name}|${it.code || ''}`] = it.weekVals && Object.keys(it.weekVals).length > 0
                         ? it.weekVals

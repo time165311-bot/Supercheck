@@ -35,8 +35,9 @@ export const BottomBar: React.FC<BottomBarProps> = ({
       }`}
       style={{
         paddingBottom: 'calc(10px + env(safe-area-inset-bottom, 0px))',
-        transform: isVisible ? 'translateY(0)' : 'translateY(100%)',
-        transition: 'transform 0.3s ease, opacity 0.3s ease',
+        transform: isVisible ? 'translateY(0)' : 'translateY(150%)',
+        transition: 'transform 0.3s ease, opacity 0.3s ease, visibility 0.3s ease',
+        visibility: isVisible ? 'visible' : 'hidden',
       }}
     >
       <div

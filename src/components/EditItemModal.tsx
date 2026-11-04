@@ -1,12 +1,14 @@
 import React, { useState, useRef } from 'react';
 import { X, Save, Trash2, Upload, Image as ImageIcon, Plus, Minus } from 'lucide-react';
 import { EquipmentItem } from '../types';
+import { getItemSubItemsInfo } from '../utils/itemUtils';
 
 interface SubExpField {
   id: string;
   label: string;
   date: string;
   qty: string | number;
+  hasNoExp?: boolean;
 }
 
 interface EditItemModalProps {
@@ -57,62 +59,68 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
   const [img, setImg] = useState(item.img || '');
   const [noExp, setNoExp] = useState<boolean>(item.exp === '-' || !item.exp);
 
-  // Dynamic Sub-EXP State with individual quantities
+  // Notify system when modal opens/closes to hide bottom bar and floating button
+  React.useEffect(() => {
+    if (isOpen) {
+      window.dispatchEvent(new CustomEvent('modal_state_change', { detail: { open: true } }));
+    } else {
+      window.dispatchEvent(new CustomEvent('modal_state_change', { detail: { open: false } }));
+    }
+    return () => {
+      window.dispatchEvent(new CustomEvent('modal_state_change', { detail: { open: false } }));
+    };
+  }, [isOpen]);
+
+  // Dynamic Sub-EXP State with individual quantities and individual No-EXP
   const [subExps, setSubExps] = useState<SubExpField[]>(() => {
     const fields: SubExpField[] = [];
-    const expStr = item.exp || '';
-    const storedSubQuantities = item.subItemQuantities || [];
+    const info = getItemSubItemsInfo(item);
 
-    if (item.subExps && item.subExps.length > 0) {
-      item.subExps.forEach((se, idx) => {
+    if (info.isMulti) {
+      info.subItems.forEach((se, idx) => {
+        const isNoExp = se.hasNoExp ?? (!se.date || se.date === '-' || se.date.toLowerCase() === 'no exp');
         fields.push({
-          id: `sub_${idx}_${Date.now()}`,
-          label: se.label || `ชิ้นที่ ${idx + 1}`,
-          date: toIsoDate(se.exp),
-          qty: se.qty || storedSubQuantities[idx] || 1,
+          id: `sub_${idx}_${Date.now()}_${Math.random().toString(36).substring(2, 5)}`,
+          label: se.label,
+          date: isNoExp ? '' : toIsoDate(se.date),
+          qty: se.qty,
+          hasNoExp: isNoExp,
         });
       });
       return fields;
     }
 
+    const expStr = item.exp || '';
     if (expStr && expStr.trim() && expStr !== '-') {
       const parts = expStr.includes(',') ? expStr.split(',') : [expStr];
-      parts.forEach((p, idx) => {
-        const trimmed = p.trim();
-        if (!trimmed) return;
-        const initialQty = storedSubQuantities[idx] !== undefined ? storedSubQuantities[idx] : 1;
-
-        if (trimmed.includes(':')) {
-          const colonIdx = trimmed.indexOf(':');
-          const l = trimmed.substring(0, colonIdx).trim();
-          const d = trimmed.substring(colonIdx + 1).trim();
-          fields.push({
-            id: `sub_${idx}_${Date.now()}`,
-            label: l,
-            date: toIsoDate(d),
-            qty: initialQty,
-          });
-        } else {
-          fields.push({
-            id: `sub_${idx}_${Date.now()}`,
-            label: parts.length > 1 ? `ชิ้นที่ ${idx + 1}` : '',
-            date: toIsoDate(trimmed),
-            qty: initialQty,
-          });
-        }
-      });
-    }
-
-    // Fallback if item has subItemQuantities array without explicit subExps string
-    if (fields.length === 0 && storedSubQuantities.length > 1) {
-      storedSubQuantities.forEach((q, idx) => {
-        fields.push({
-          id: `sub_${idx}_${Date.now()}`,
-          label: `รายการย่อยที่ ${idx + 1}`,
-          date: '',
-          qty: q,
+      if (parts.length > 1) {
+        parts.forEach((p, idx) => {
+          const trimmed = p.trim();
+          if (!trimmed) return;
+          if (trimmed.includes(':')) {
+            const colonIdx = trimmed.indexOf(':');
+            const rawDate = trimmed.substring(colonIdx + 1).trim();
+            const isNoExp = !rawDate || rawDate === '-' || rawDate.toLowerCase() === 'no exp';
+            fields.push({
+              id: `sub_${idx}_${Date.now()}_${idx}`,
+              label: trimmed.substring(0, colonIdx).trim(),
+              date: isNoExp ? '' : toIsoDate(rawDate),
+              qty: info.quantities[idx] || 1,
+              hasNoExp: isNoExp,
+            });
+          } else {
+            const isNoExp = !trimmed || trimmed === '-' || trimmed.toLowerCase() === 'no exp';
+            fields.push({
+              id: `sub_${idx}_${Date.now()}_${idx}`,
+              label: `ชิ้นที่ ${idx + 1}`,
+              date: isNoExp ? '' : toIsoDate(trimmed),
+              qty: info.quantities[idx] || 1,
+              hasNoExp: isNoExp,
+            });
+          }
         });
-      });
+        return fields;
+      }
     }
 
     return fields;
@@ -130,19 +138,25 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
     if (subExps.length === 0) {
       if (singleExp) {
         setSubExps([
-          { id: `sub_${Date.now()}_1`, label: 'ชิ้นที่ 1', date: singleExp, qty: 1 },
-          { id: `sub_${Date.now()}_2`, label: 'ชิ้นที่ 2', date: '', qty: 1 },
+          { id: `sub_${Date.now()}_1`, label: 'ชิ้นที่ 1', date: singleExp, qty: 1, hasNoExp: false },
+          { id: `sub_${Date.now()}_2`, label: 'ชิ้นที่ 2', date: '', qty: 1, hasNoExp: false },
         ]);
       } else {
         setSubExps([
-          { id: `sub_${Date.now()}_1`, label: 'ชิ้นที่ 1', date: '', qty: 1 },
-          { id: `sub_${Date.now()}_2`, label: 'ชิ้นที่ 2', date: '', qty: 1 },
+          { id: `sub_${Date.now()}_1`, label: 'ชิ้นที่ 1', date: '', qty: 1, hasNoExp: false },
+          { id: `sub_${Date.now()}_2`, label: 'ชิ้นที่ 2', date: '', qty: 1, hasNoExp: false },
         ]);
       }
     } else {
       setSubExps((prev) => [
         ...prev,
-        { id: `sub_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`, label: `ชิ้นที่ ${prev.length + 1}`, date: '', qty: 1 },
+        {
+          id: `sub_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+          label: `ชิ้นที่ ${prev.length + 1}`,
+          date: '',
+          qty: 1,
+          hasNoExp: false,
+        },
       ]);
     }
   };
@@ -154,6 +168,20 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
   const handleSubExpChange = (id: string, field: 'label' | 'date' | 'qty', val: string | number) => {
     setSubExps((prev) =>
       prev.map((s) => (s.id === id ? { ...s, [field]: val } : s))
+    );
+  };
+
+  const handleSubExpNoExpToggle = (id: string, checked: boolean) => {
+    setSubExps((prev) =>
+      prev.map((s) =>
+        s.id === id
+          ? {
+              ...s,
+              hasNoExp: checked,
+              date: checked ? '' : s.date,
+            }
+          : s
+      )
     );
   };
 
@@ -188,21 +216,29 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
     if (noExp) {
       finalExp = '-';
     } else if (subExps.length > 0) {
+      // Sub-items individual EXP logic:
+      // Sub-item marked with hasNoExp: "-"
+      // Sub-item with date: "date"
       finalExp = subExps
-        .filter((s) => s.date || s.label)
-        .map((s) => (s.label ? `${s.label.trim()}: ${s.date}` : s.date))
+        .map((s) => {
+          const expVal = s.hasNoExp || !s.date ? '-' : s.date;
+          return s.label ? `${s.label.trim()}: ${expVal}` : expVal;
+        })
         .join(', ');
+
       finalSubQuantities = subExps.map((s) => {
         const parsed = parseInt(String(s.qty || '1').replace(/\D/g, ''), 10);
         return isNaN(parsed) || parsed <= 0 ? 1 : parsed;
       });
     } else {
-      finalExp = singleExp;
+      finalExp = singleExp || '-';
     }
 
     let finalQtyString = qty.trim();
     if (finalSubQuantities.length > 1) {
-      finalQtyString = finalSubQuantities.join(', ');
+      if (!qty.includes('(') && !qty.includes('อย่างละ') && !qty.includes('set')) {
+        finalQtyString = finalSubQuantities.join(', ');
+      }
     }
 
     onSave({
@@ -217,8 +253,9 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
       subItemQuantities: finalSubQuantities.length > 0 ? finalSubQuantities : undefined,
       subExps: subExps.map((s) => ({
         label: s.label.trim(),
-        exp: s.date,
+        exp: s.hasNoExp || !s.date ? '-' : s.date,
         qty: parseInt(String(s.qty || '1').replace(/\D/g, ''), 10) || 1,
+        hasNoExp: !!s.hasNoExp || !s.date || s.date === '-',
       })),
     });
   };
@@ -226,9 +263,12 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
-      <div className="bg-white dark:bg-[#181A20] rounded-3xl border border-slate-200 dark:border-white/10 shadow-2xl w-full max-w-md p-5 space-y-4 max-h-[90vh] overflow-y-auto font-sans">
-        <div className="flex justify-between items-center pb-2.5 border-b border-slate-100 dark:border-white/5">
+    <div className="fixed inset-0 top-0 left-0 right-0 bottom-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
+      <div className="bg-white dark:bg-[#181A20] rounded-t-[2.5rem] sm:rounded-3xl border border-slate-200 dark:border-white/10 shadow-2xl w-full max-w-md max-h-[85vh] sm:max-h-[88vh] flex flex-col font-sans overflow-hidden">
+        {/* Pull Bar for Mobile */}
+        <div className="sm:hidden w-12 h-1.5 bg-slate-200 dark:bg-white/10 rounded-full mx-auto mt-3 shrink-0" />
+        
+        <div className="flex justify-between items-center px-5 pt-3 sm:pt-4 pb-3 border-b border-slate-100 dark:border-white/5 shrink-0 bg-white dark:bg-[#181A20] z-10">
           <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
             <span className="text-blue-500">✏️</span>
             <span>แก้ไขรายการอุปกรณ์</span>
@@ -242,198 +282,226 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-3.5 text-xs">
-          <div>
-            <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1">
-              ชื่อรายการอุปกรณ์ <span className="text-rose-500">*</span>
-            </label>
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-white/10 bg-white dark:bg-black/20 text-slate-900 dark:text-white outline-none focus:border-blue-500 transition font-bold"
-              required
-            />
-          </div>
-
-          <div>
-            <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1">
-              หมวดหมู่ / ชั้นวาง <span className="text-rose-500">*</span>
-            </label>
-            <select
-              value={category}
-              onChange={(e) => setCategory(e.target.value)}
-              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-white/10 bg-white dark:bg-black/20 text-slate-900 dark:text-white outline-none focus:border-blue-500 transition font-bold"
-            >
-              {groups.map((g) => (
-                <option key={g} value={g}>{g}</option>
-              ))}
-              <option value="__custom__">+ สร้างหมวดหมู่ใหม่...</option>
-            </select>
-            {category === '__custom__' && (
-              <input
-                type="text"
-                value={customCategory}
-                onChange={(e) => setCustomCategory(e.target.value)}
-                placeholder="พิมพ์ชื่อหมวดหมู่ใหม่..."
-                className="w-full mt-2 px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-white/10 bg-white dark:bg-black/20 text-slate-900 dark:text-white outline-none focus:border-blue-500 font-bold"
-              />
-            )}
-          </div>
-
-          <div className="grid grid-cols-2 gap-2.5">
+        <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0 overflow-hidden">
+          <div className="flex-1 overflow-y-auto p-5 space-y-3.5 text-xs min-h-0">
             <div>
               <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1">
-                จำนวนตั้งต้น
+                ชื่อรายการอุปกรณ์ <span className="text-rose-500">*</span>
               </label>
               <input
                 type="text"
-                value={qty}
-                onChange={(e) => setQty(e.target.value)}
-                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-white/10 bg-white dark:bg-black/20 text-slate-900 dark:text-white outline-none focus:border-blue-500 font-bold"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-white/10 bg-white dark:bg-black/20 text-slate-900 dark:text-white outline-none focus:border-blue-500 transition font-bold"
+                required
               />
             </div>
 
             <div>
               <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1">
-                คุณลักษณะ / สเปกเพิ่มเติม
+                หมวดหมู่ / ชั้นวาง <span className="text-rose-500">*</span>
               </label>
-              <input
-                type="text"
-                value={spec}
-                onChange={(e) => setSpec(e.target.value)}
-                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-white/10 bg-white dark:bg-black/20 text-slate-900 dark:text-white outline-none focus:border-blue-500"
-              />
-            </div>
-          </div>
-
-          {/* Dynamic Sub-EXP Section */}
-          <div className="space-y-2 p-3 bg-slate-50 dark:bg-white/5 rounded-2xl border border-slate-200 dark:border-white/10">
-            <div className="flex items-center justify-between flex-wrap gap-2">
-              <label className="block text-slate-700 dark:text-slate-300 font-bold">
-                วันหมดอายุ (EXP)
-              </label>
-              <label className="flex items-center gap-1.5 cursor-pointer select-none text-[11px] font-bold text-blue-600 dark:text-blue-400">
-                <input
-                  type="checkbox"
-                  checked={noExp}
-                  onChange={(e) => setNoExp(e.target.checked)}
-                  className="w-3.5 h-3.5 rounded text-blue-600"
-                />
-                <span>ไม่มีวันหมดอายุ (No EXP)</span>
-              </label>
-            </div>
-
-            {!noExp && (
-              <>
-                <div className="flex justify-end pt-1">
-                  <button
-                    type="button"
-                    onClick={handleAddSubExp}
-                    className="px-2.5 py-1 rounded-lg bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-500/20 font-bold text-[11px] flex items-center gap-1 transition cursor-pointer border border-blue-200 dark:border-blue-500/20"
-                  >
-                    <Plus size={13} className="stroke-[2.5]" />
-                    <span>+ เพิ่มวันหมดอายุย่อย</span>
-                  </button>
-                </div>
-
-                {subExps.length > 0 ? (
-                  <div className="space-y-2 pt-1">
-                    <p className="text-[10px] text-slate-500 dark:text-slate-400 font-bold italic">
-                      ระบุชื่อกำกับ, วันหมดอายุ และจำนวนตั้งต้นของแต่ละรายการย่อย:
-                    </p>
-                    {subExps.map((sub) => (
-                      <div key={sub.id} className="flex items-center gap-1.5 bg-white dark:bg-black/30 p-1.5 rounded-xl border border-slate-200 dark:border-white/10 shadow-2xs">
-                        <input
-                          type="text"
-                          value={sub.label}
-                          onChange={(e) => handleSubExpChange(sub.id, 'label', e.target.value)}
-                          placeholder="ชื่อกำกับ (เช่น No.18, 100 cc)"
-                          className="w-24 sm:w-28 px-2 py-1.5 rounded-lg border border-slate-300 dark:border-white/10 bg-white dark:bg-black/20 text-[11px] text-slate-900 dark:text-white outline-none focus:border-blue-500 font-bold shrink-0"
-                        />
-                        <input
-                          type="date"
-                          value={sub.date}
-                          onChange={(e) => handleSubExpChange(sub.id, 'date', e.target.value)}
-                          className="flex-1 min-w-[100px] px-2 py-1.5 rounded-lg border border-slate-300 dark:border-white/10 bg-white dark:bg-black/20 text-[11px] text-slate-900 dark:text-white outline-none focus:border-blue-500 h-8 font-bold"
-                        />
-                        <div className="flex items-center gap-1 bg-slate-100 dark:bg-white/10 px-1.5 py-1 rounded-lg border border-slate-200 dark:border-white/10 shrink-0">
-                          <span className="text-[10px] text-slate-500 dark:text-slate-400 font-bold">จำนวณ:</span>
-                          <input
-                            type="number"
-                            min="1"
-                            max="99"
-                            value={sub.qty || 1}
-                            onChange={(e) => handleSubExpChange(sub.id, 'qty', e.target.value)}
-                            className="w-10 text-center bg-transparent border-0 font-bold text-xs text-blue-600 dark:text-blue-400 outline-none"
-                            title="จำนวนตั้งต้นของรายการย่อยนี้"
-                          />
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveSubExp(sub.id)}
-                          className="p-1.5 rounded-lg bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-500/20 transition cursor-pointer shrink-0"
-                          title="- ลบรายการย่อยนี้"
-                        >
-                          <Minus size={14} className="stroke-[2.5]" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-2 pt-1">
-                    <input
-                      type="date"
-                      value={singleExp}
-                      onChange={(e) => setSingleExp(e.target.value)}
-                      className="w-full px-3.5 py-2 rounded-xl border border-slate-300 dark:border-white/10 bg-white dark:bg-black/20 text-slate-900 dark:text-white outline-none focus:border-blue-500 h-9 font-bold text-xs"
-                    />
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-
-          <div className="space-y-1">
-            <label className="block text-slate-700 dark:text-slate-300 font-bold">รูปภาพอุปกรณ์</label>
-            <div className="flex gap-2 items-center">
-              <div className="relative flex-1">
+              <select
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-white/10 bg-white dark:bg-black/20 text-slate-900 dark:text-white outline-none focus:border-blue-500 transition font-bold"
+              >
+                {groups.map((g) => (
+                  <option key={g} value={g}>{g}</option>
+                ))}
+                <option value="__custom__">+ สร้างหมวดหมู่ใหม่...</option>
+              </select>
+              {category === '__custom__' && (
                 <input
                   type="text"
-                  value={img}
-                  onChange={(e) => setImg(e.target.value)}
-                  placeholder="วาง URL รูปภาพ..."
-                  className="w-full pl-8 pr-3 py-2.5 rounded-xl border border-slate-300 dark:border-white/10 bg-white dark:bg-black/20 text-slate-900 dark:text-white text-[11px] outline-none focus:border-blue-500"
+                  value={customCategory}
+                  onChange={(e) => setCustomCategory(e.target.value)}
+                  placeholder="พิมพ์ชื่อหมวดหมู่ใหม่..."
+                  className="w-full mt-2 px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-white/10 bg-white dark:bg-black/20 text-slate-900 dark:text-white outline-none focus:border-blue-500 font-bold"
                 />
-                <ImageIcon size={14} className="absolute left-2.5 top-3 text-slate-400" />
-              </div>
-
-              <input
-                type="file"
-                ref={fileInputRef}
-                accept="image/*"
-                onChange={handleFileChange}
-                className="hidden"
-              />
-
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="px-3 py-2.5 rounded-xl bg-slate-100 dark:bg-white/10 hover:bg-slate-200 dark:hover:bg-white/20 text-slate-700 dark:text-white font-bold text-[11px] border border-slate-200 dark:border-white/10 flex items-center gap-1 shrink-0 transition cursor-pointer"
-              >
-                <Upload size={14} />
-                <span>อัปโหลด</span>
-              </button>
+              )}
             </div>
-            {img && (
-              <div className="mt-2 flex items-center gap-2.5 p-2 bg-slate-50 dark:bg-white/5 rounded-xl border border-slate-200 dark:border-white/10">
-                <img src={img} alt="Preview" className="w-10 h-10 rounded-lg object-cover border border-slate-300 dark:border-white/20" />
-                <span className="text-[10px] text-emerald-600 font-bold">✓ พรีวิวรูปภาพสำเร็จ</span>
+
+            <div className="grid grid-cols-2 gap-2.5">
+              <div>
+                <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1">
+                  จำนวนตั้งต้น
+                </label>
+                <input
+                  type="text"
+                  value={qty}
+                  onChange={(e) => setQty(e.target.value)}
+                  placeholder="เช่น 1 set (1, 1, 2 อัน) หรือ 2, 2, 2, 2"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-white/10 bg-white dark:bg-black/20 text-slate-900 dark:text-white outline-none focus:border-blue-500 font-bold"
+                />
               </div>
-            )}
+
+              <div>
+                <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1">
+                  คุณลักษณะ / สเปกเพิ่มเติม
+                </label>
+                <input
+                  type="text"
+                  value={spec}
+                  onChange={(e) => setSpec(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-white/10 bg-white dark:bg-black/20 text-slate-900 dark:text-white outline-none focus:border-blue-500"
+                />
+              </div>
+            </div>
+
+            {/* Dynamic Sub-EXP Section */}
+            <div className="space-y-2 p-3 bg-slate-50 dark:bg-white/5 rounded-2xl border border-slate-200 dark:border-white/10">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <label className="block text-slate-700 dark:text-slate-300 font-bold">
+                  วันหมดอายุ (EXP) & จำนวนตั้งต้นย่อย
+                </label>
+                <label className="flex items-center gap-1.5 cursor-pointer select-none text-[11px] font-bold text-blue-600 dark:text-blue-400">
+                  <input
+                    type="checkbox"
+                    checked={noExp}
+                    onChange={(e) => setNoExp(e.target.checked)}
+                    className="w-3.5 h-3.5 rounded text-blue-600"
+                  />
+                  <span>ไม่มีวันหมดอายุ (No EXP)</span>
+                </label>
+              </div>
+
+              {!noExp && (
+                <>
+                  <div className="flex justify-end pt-1">
+                    <button
+                      type="button"
+                      onClick={handleAddSubExp}
+                      className="px-2.5 py-1 rounded-lg bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-500/20 font-bold text-[11px] flex items-center gap-1 transition cursor-pointer border border-blue-200 dark:border-blue-500/20"
+                    >
+                      <Plus size={13} className="stroke-[2.5]" />
+                      <span>+ เพิ่มรายการย่อย</span>
+                    </button>
+                  </div>
+
+                  {subExps.length > 0 ? (
+                    <div className="space-y-2 pt-1">
+                      <p className="text-[10px] text-slate-500 dark:text-slate-400 font-bold italic">
+                        ระบุชื่อกำกับ, วันหมดอายุ และจำนวนตั้งต้นของแต่ละรายการย่อย:
+                      </p>
+                      {subExps.map((sub) => (
+                        <div key={sub.id} className="p-2.5 bg-white dark:bg-black/30 rounded-xl border border-slate-200 dark:border-white/10 shadow-2xs space-y-2">
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="text"
+                              value={sub.label}
+                              onChange={(e) => handleSubExpChange(sub.id, 'label', e.target.value)}
+                              placeholder="ชื่อกำกับ (เช่น ผู้ใหญ่, 100 cc)"
+                              className="flex-1 min-w-[100px] px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-white/10 bg-white dark:bg-black/20 text-[11px] text-slate-900 dark:text-white outline-none focus:border-blue-500 font-bold"
+                            />
+
+                            <div className="flex items-center gap-1 bg-slate-100 dark:bg-white/10 px-2 py-1 rounded-lg border border-slate-200 dark:border-white/10 shrink-0">
+                              <span className="text-[10px] text-slate-500 dark:text-slate-400 font-bold">จำนวน:</span>
+                              <input
+                                type="number"
+                                min="1"
+                                max="99"
+                                value={sub.qty || 1}
+                                onChange={(e) => handleSubExpChange(sub.id, 'qty', e.target.value)}
+                                className="w-8 text-center bg-transparent border-0 font-bold text-xs text-blue-600 dark:text-blue-400 outline-none"
+                                title="จำนวนตั้งต้นของรายการย่อยนี้"
+                              />
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveSubExp(sub.id)}
+                              className="p-1.5 rounded-lg bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-500/20 transition cursor-pointer shrink-0"
+                              title="- ลบรายการย่อยนี้"
+                            >
+                              <Minus size={14} className="stroke-[2.5]" />
+                            </button>
+                          </div>
+
+                          {/* Row 2: Date Picker + No EXP Checkbox */}
+                          <div className="flex items-center gap-2">
+                            {sub.hasNoExp ? (
+                              <div className="flex-1 h-8 px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-white/5 border border-dashed border-slate-300 dark:border-white/10 flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400 font-bold">
+                                <span>ไม่มีวันหมดอายุ (-)</span>
+                                <span className="text-[10px] text-slate-400 font-normal">No EXP</span>
+                              </div>
+                            ) : (
+                              <input
+                                type="date"
+                                value={sub.date}
+                                onChange={(e) => handleSubExpChange(sub.id, 'date', e.target.value)}
+                                className="flex-1 min-w-[120px] px-2.5 py-1 rounded-lg border border-slate-300 dark:border-white/10 bg-white dark:bg-black/20 text-[11px] text-slate-900 dark:text-white outline-none focus:border-blue-500 h-8 font-bold"
+                              />
+                            )}
+
+                            <label className="flex items-center gap-1.5 cursor-pointer select-none text-[10.5px] font-bold text-slate-700 dark:text-slate-300 shrink-0 bg-slate-50 dark:bg-white/5 px-2 py-1.5 rounded-lg border border-slate-200 dark:border-white/10 hover:bg-slate-100 transition">
+                              <input
+                                type="checkbox"
+                                checked={!!sub.hasNoExp}
+                                onChange={(e) => handleSubExpNoExpToggle(sub.id, e.target.checked)}
+                                className="w-3.5 h-3.5 rounded text-blue-600 cursor-pointer"
+                              />
+                              <span>No EXP</span>
+                            </label>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 pt-1">
+                      <input
+                        type="date"
+                        value={singleExp}
+                        onChange={(e) => setSingleExp(e.target.value)}
+                        className="w-full px-3.5 py-2 rounded-xl border border-slate-300 dark:border-white/10 bg-white dark:bg-black/20 text-slate-900 dark:text-white outline-none focus:border-blue-500 h-9 font-bold text-xs"
+                      />
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+
+            <div className="space-y-1">
+              <label className="block text-slate-700 dark:text-slate-300 font-bold">รูปภาพอุปกรณ์</label>
+              <div className="flex gap-2 items-center">
+                <div className="relative flex-1">
+                  <input
+                    type="text"
+                    value={img}
+                    onChange={(e) => setImg(e.target.value)}
+                    placeholder="วาง URL รูปภาพ..."
+                    className="w-full pl-8 pr-3 py-2.5 rounded-xl border border-slate-300 dark:border-white/10 bg-white dark:bg-black/20 text-slate-900 dark:text-white text-[11px] outline-none focus:border-blue-500"
+                  />
+                  <ImageIcon size={14} className="absolute left-2.5 top-3 text-slate-400" />
+                </div>
+
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  accept="image/*"
+                  onChange={handleFileChange}
+                  className="hidden"
+                />
+
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="px-3 py-2.5 rounded-xl bg-slate-100 dark:bg-white/10 hover:bg-slate-200 dark:hover:bg-white/20 text-slate-700 dark:text-white font-bold text-[11px] border border-slate-200 dark:border-white/10 flex items-center gap-1 shrink-0 transition cursor-pointer"
+                >
+                  <Upload size={14} />
+                  <span>อัปโหลด</span>
+                </button>
+              </div>
+              {img && (
+                <div className="mt-2 flex items-center gap-2.5 p-2 bg-slate-50 dark:bg-white/5 rounded-xl border border-slate-200 dark:border-white/10">
+                  <img src={img} alt="Preview" className="w-10 h-10 rounded-lg object-cover border border-slate-300 dark:border-white/20" />
+                  <span className="text-[10px] text-emerald-600 font-bold">✓ พรีวิวรูปภาพสำเร็จ</span>
+                </div>
+              )}
+            </div>
           </div>
 
-          <div className="pt-3.5 flex items-center justify-between border-t border-slate-100 dark:border-white/5">
+          <div className="sticky bottom-0 bg-white dark:bg-[#181A20] z-[100] border-t border-slate-100 dark:border-white/5 px-5 py-3 shadow-md flex items-center justify-between shrink-0">
             <button
               type="button"
               onClick={() => {

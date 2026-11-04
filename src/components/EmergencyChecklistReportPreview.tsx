@@ -14,6 +14,7 @@ import { getMonthAndYearThai } from './DrugInventoryReportPreview';
 import { Calendar, User as UserIcon } from 'lucide-react';
 import { User } from '../types';
 import { getWednesdaysInfoForMonth } from '../utils/wednesdayUtils';
+import { getItemQuantityClassification } from '../utils/itemUtils';
 
 export function getWeekOfMonth(dateStr?: string): number {
   if (!dateStr) return 1;
@@ -452,7 +453,25 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
                 const isBad = item.res ? item.res.includes('ไม่ได้') : false;
                 const isMiss = item.res ? item.res.includes('ไม่พบ') : false;
 
-                const expStr = item.exp || (item as any).expDate || (item.note?.match(/Exp:\s*([^\s|]+)/)?.[1]) || '';
+                const classification = getItemQuantityClassification({
+                  name: item.name,
+                  spec: item.spec,
+                  qty: item.qty,
+                  exp: item.exp,
+                  subExps: (item as any).subExps,
+                  subItemQuantities: (item as any).subItemQuantities,
+                });
+
+                let expStr = item.exp || (item as any).expDate || (item.note?.match(/Exp:\s*([^\s|]+)/)?.[1]) || '';
+                if ((item as any).subExps && (item as any).subExps.length > 0 && (!expStr || !expStr.includes(','))) {
+                  expStr = (item as any).subExps
+                    .map((s: any) => {
+                      const isNo = s.hasNoExp || !s.exp || s.exp === '-' || String(s.exp).toLowerCase() === 'no exp';
+                      const dateVal = isNo ? '-' : s.exp;
+                      return s.label ? `${s.label.trim()}: ${dateVal}` : dateVal;
+                    })
+                    .join(', ');
+                }
 
                 // Real sub-item quantity calculation preserving user configuration
                 const realCheckVal = formatRealQuantity(item.qty, item.name, item.spec, item.exp, (item as any).subItemQuantities);
@@ -465,11 +484,12 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
                     >
                       {item.name || '-'}
                     </td>
+                    {/* Col 2: จำนวนตั้งต้น (ตรงกลาง, nowrap) - Render full unit text */}
                     <td
-                      className="border border-slate-300 nowrap font-bold"
+                      className="border border-slate-300 nowrap font-bold text-center"
                       style={{ textAlign: 'center', whiteSpace: 'nowrap', lineHeight: '1.4 !important', padding: '6px 4px !important' }}
                     >
-                      {realCheckVal || item.qty || '1'}
+                      {(item as any).initialQtyText || (item as any).unitText || (item.qty && String(item.qty).trim() ? String(item.qty).trim() : '1')}
                     </td>
                     {weeks.map((w) => {
                       const customVal = resolvedWeekValues[itemKey]?.[w];
@@ -484,7 +504,7 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
                         if (item.val && item.val !== '✓') {
                           displayVal = formatStrictCountableNumbers(item.val);
                         } else if (isOk) {
-                          displayVal = formatStrictCountableNumbers(realCheckVal || item.qty || '1');
+                          displayVal = classification.isType1 ? String(classification.totalQty) : formatStrictCountableNumbers(realCheckVal || item.qty || '1');
                         } else if (isBad) {
                           displayVal = '✗';
                         } else if (isMiss) {
@@ -492,9 +512,18 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
                         }
                       }
 
-                      if (realCheckVal && realCheckVal.includes(',')) {
+                      // Type 1 vs Type 2 formatting guarantee
+                      if (classification.isType1) {
+                        if (displayVal.includes(',')) {
+                          const parts = displayVal.split(',').map((p) => p.trim());
+                          const validCount = parts.filter((p) => p === '1' || p === '✓' || parseInt(p, 10) > 0).length;
+                          displayVal = String(validCount || classification.totalQty);
+                        } else if ((displayVal === '1' || displayVal === '✓') && isOk) {
+                          displayVal = String(classification.totalQty);
+                        }
+                      } else if (classification.isType2) {
                         if (displayVal === '1' || displayVal === '✓') {
-                          displayVal = realCheckVal;
+                          displayVal = classification.subItems.map(() => '1').join(', ');
                         }
                       }
 
@@ -730,7 +759,25 @@ export function generateEmergencyPrintHtml(
           const isOk = item.res ? item.res.includes('ใช้งานได้') : (item as any).status === 'normal' || (item as any).checked;
           const isBad = item.res ? item.res.includes('ไม่ได้') : false;
           const isMiss = item.res ? item.res.includes('ไม่พบ') : false;
-          const expStr = item.exp || (item as any).expDate || (item.note?.match(/Exp:\s*([^\s|]+)/)?.[1]) || '';
+          const classification = getItemQuantityClassification({
+            name: item.name,
+            spec: item.spec,
+            qty: item.qty,
+            exp: item.exp,
+            subExps: (item as any).subExps,
+            subItemQuantities: (item as any).subItemQuantities,
+          });
+
+          let expStr = item.exp || (item as any).expDate || (item.note?.match(/Exp:\s*([^\s|]+)/)?.[1]) || '';
+          if ((item as any).subExps && (item as any).subExps.length > 0 && (!expStr || !expStr.includes(','))) {
+            expStr = (item as any).subExps
+              .map((s: any) => {
+                const isNo = s.hasNoExp || !s.exp || s.exp === '-' || String(s.exp).toLowerCase() === 'no exp';
+                const dateVal = isNo ? '-' : s.exp;
+                return s.label ? `${s.label.trim()}: ${dateVal}` : dateVal;
+              })
+              .join(', ');
+          }
 
           const expCellHtml = ((item.name?.toLowerCase().includes('tank') || item.name?.includes('ถัง')) && 
             (item.name?.toLowerCase().includes('o2') || item.name?.toLowerCase().includes('oxygen') || item.name?.includes('ออกซิเจน')) &&
@@ -762,7 +809,7 @@ export function generateEmergencyPrintHtml(
                 if (item.val && item.val !== '✓') {
                   displayVal = formatStrictCountableNumbers(item.val);
                 } else if (isOk) {
-                  displayVal = formatStrictCountableNumbers(realCheckVal || item.qty || '1');
+                  displayVal = classification.isType1 ? String(classification.totalQty) : formatStrictCountableNumbers(realCheckVal || item.qty || '1');
                 } else if (isBad) {
                   displayVal = '✗';
                 } else if (isMiss) {
@@ -770,9 +817,18 @@ export function generateEmergencyPrintHtml(
                 }
               }
 
-              if (realCheckVal && realCheckVal.includes(',')) {
+              // Type 1 vs Type 2 formatting guarantee
+              if (classification.isType1) {
+                if (displayVal.includes(',')) {
+                  const parts = displayVal.split(',').map((p) => p.trim());
+                  const validCount = parts.filter((p) => p === '1' || p === '✓' || parseInt(p, 10) > 0).length;
+                  displayVal = String(validCount || classification.totalQty);
+                } else if ((displayVal === '1' || displayVal === '✓') && isOk) {
+                  displayVal = String(classification.totalQty);
+                }
+              } else if (classification.isType2) {
                 if (displayVal === '1' || displayVal === '✓') {
-                  displayVal = realCheckVal;
+                  displayVal = classification.subItems.map(() => '1').join(', ');
                 }
               }
 
@@ -792,7 +848,7 @@ export function generateEmergencyPrintHtml(
           return `
             <tr>
               <td style="text-align: left; padding-left: 8px; border: 1px solid #000;">${item.name || '-'}</td>
-              <td style="text-align: center; border: 1px solid #000; white-space: nowrap !important; font-weight: bold;">${realCheckVal || item.qty || '1'}</td>
+              <td style="text-align: center; border: 1px solid #000; white-space: nowrap !important; font-weight: bold;">${(item as any).initialQtyText || (item as any).unitText || (item.qty && String(item.qty).trim() ? String(item.qty).trim() : '1')}</td>
               ${weekCells}
               <td style="text-align: center; border: 1px solid #000; font-size: 9pt; line-height: 1.3; padding: 4px 2px;">
                 ${expCellHtml}

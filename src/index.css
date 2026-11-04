@@ -8,10 +8,10 @@
     margin: 0 !important;
     padding: 0 !important;
     width: 100% !important;
-    height: 100% !important;
+    min-height: 100% !important;
     max-width: 100% !important;
     overflow-x: hidden !important;
-    background-color: #f1f5f9; /* สีพื้นหลังกลมกลืน */
+    background-color: #f8fafc; /* สีพื้นหลังกลมกลืน */
   }
 
   :root {

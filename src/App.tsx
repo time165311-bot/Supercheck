@@ -172,12 +172,23 @@ export default function App() {
   const [historyRecords, setHistoryRecords] = useState<InspectionHistoryRecord[]>([]);
 
   const [emergencyWeekDates, setEmergencyWeekDates] = useState<Record<string, Record<number, string>>>(() => {
-    const today = new Date().toISOString().split('T')[0];
-    const initial = {
+    const d = new Date();
+    const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const initial: Record<'bag' | 'cart', Record<number, string>> = {
       bag: { 1: today, 2: today, 3: today, 4: today, 5: today },
       cart: { 1: today, 2: today, 3: today, 4: today, 5: today },
     };
-    return getStored<Record<string, Record<number, string>>>(STORAGE_KEYS.EMER_WEEK_DATES, initial);
+    const stored = getStored<Record<string, Record<number, string>>>(STORAGE_KEYS.EMER_WEEK_DATES, initial);
+    const merged: Record<string, Record<number, string>> = { ...initial, ...stored };
+    (['bag', 'cart'] as const).forEach((t) => {
+      if (!merged[t]) merged[t] = { ...initial[t] };
+      for (let w = 1; w <= 5; w++) {
+        if (!merged[t][w] || !merged[t][w].trim()) {
+          merged[t][w] = today;
+        }
+      }
+    });
+    return merged;
   });
 
   const [isLoadingData, setIsLoadingData] = useState(true);
@@ -419,38 +430,103 @@ export default function App() {
   const [isPasswordOpen, setIsPasswordOpen] = useState(false);
   const [isSheetsAccordionOpen, setIsSheetsAccordionOpen] = useState(false);
 
-  // Auto-hiding Bottom Navigation Bar on Scroll
+  // Auto-hiding Bottom Navigation Bar on Scroll & Keyboard
   const [isBottomBarVisible, setIsBottomBarVisible] = useState<boolean>(true);
+  const [isKeyboardOpen, setIsKeyboardOpen] = useState<boolean>(false);
+  const [isExternalModalOpen, setIsExternalModalOpen] = useState<boolean>(false);
   const contentRef = React.useRef<HTMLDivElement>(null);
 
+  // Listen for modal state changes from child components (e.g. EditItemModal)
   useEffect(() => {
-    const container = contentRef.current;
-    if (!container) return;
-    
-    let lastScrollY = container.scrollTop;
-    let ticking = false;
+    const handleModalState = (e: any) => {
+      setIsExternalModalOpen(!!e.detail?.open);
+    };
+    window.addEventListener('modal_state_change', handleModalState);
+    return () => window.removeEventListener('modal_state_change', handleModalState);
+  }, []);
 
-    const handleScroll = () => {
-      if (!ticking) {
-        window.requestAnimationFrame(() => {
-          const currentScrollY = container.scrollTop;
-          if (currentScrollY <= 10) {
-            setIsBottomBarVisible(true);
-          } else if (currentScrollY > lastScrollY && currentScrollY > 50) {
-            setIsBottomBarVisible(false);
-          } else if (currentScrollY < lastScrollY) {
-            setIsBottomBarVisible(true);
-          }
-          lastScrollY = currentScrollY;
-          ticking = false;
-        });
-        ticking = true;
+  useEffect(() => {
+    const handleFocusIn = (e: FocusEvent) => {
+      const target = e.target as HTMLElement;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT')) {
+        setIsKeyboardOpen(true);
+        setIsBottomBarVisible(false);
+      }
+    };
+    const handleFocusOut = (e: FocusEvent) => {
+      const target = e.target as HTMLElement;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT')) {
+        setIsKeyboardOpen(false);
       }
     };
 
-    container.addEventListener('scroll', handleScroll, { passive: true });
-    return () => container.removeEventListener('scroll', handleScroll);
+    window.addEventListener('focusin', handleFocusIn);
+    window.addEventListener('focusout', handleFocusOut);
+
+    return () => {
+      window.removeEventListener('focusin', handleFocusIn);
+      window.removeEventListener('focusout', handleFocusOut);
+    };
   }, []);
+
+  useEffect(() => {
+    let lastY = 0;
+    const threshold = 10;
+
+    const handleScroll = () => {
+      const winY = window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0;
+      const containerY = contentRef.current ? contentRef.current.scrollTop : 0;
+      const currentY = Math.max(winY, containerY);
+
+      // At or near top: always show Header and Bottom Bar
+      if (currentY <= 20) {
+        setIsBottomBarVisible(true);
+        lastY = currentY;
+        return;
+      }
+
+      const diff = currentY - lastY;
+      if (Math.abs(diff) >= threshold) {
+        if (diff > 0) {
+          // Scrolling DOWN -> Hide Header & Bottom Navigation!
+          setIsBottomBarVisible(false);
+        } else {
+          // Scrolling UP -> Show Header & Bottom Navigation!
+          setIsBottomBarVisible(true);
+        }
+        lastY = currentY;
+      }
+    };
+
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    document.addEventListener('scroll', handleScroll, { passive: true });
+    const container = contentRef.current;
+    if (container) {
+      container.addEventListener('scroll', handleScroll, { passive: true });
+    }
+
+    return () => {
+      window.removeEventListener('scroll', handleScroll);
+      document.removeEventListener('scroll', handleScroll);
+      if (container) {
+        container.removeEventListener('scroll', handleScroll);
+      }
+    };
+  }, []);
+
+  const isAnyModalActive = Boolean(
+    isOfficialReportOpen ||
+    isNotificationOpen ||
+    isProfileOpen ||
+    isPasswordOpen ||
+    isBarcodeScannerOpen ||
+    isDrawerOpen ||
+    zoomedImgUrl ||
+    isKeyboardOpen ||
+    isExternalModalOpen
+  );
+
+  const shouldShowBottomBar = isBottomBarVisible && !isAnyModalActive && !isKeyboardOpen;
 
   // Selected Room ID for Room Check
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>('or1');
@@ -689,37 +765,68 @@ export default function App() {
     });
   };
 
-  // Edit Item in Emergency Bag or Crash Cart Checklist
-  const handleEditItem = async (type: 'bag' | 'cart', updatedItem: EquipmentItem) => {
-    const saved = await saveEquipmentItemToFirebase({ ...updatedItem, type });
-    if (!saved) return;
+  // Edit Item in Emergency Bag or Crash Cart Checklist (Instant Optimistic Sync to Lists & PDF)
+  const handleEditItem = (type: 'bag' | 'cart', updatedItem: EquipmentItem) => {
+    const itemId = updatedItem.id || (updatedItem.code ? `${type}_${updatedItem.code}` : `eq_${Date.now()}`);
+    const finalItem: EquipmentItem = {
+      ...updatedItem,
+      id: itemId,
+      type,
+    };
 
+    // 1. Optimistically update local state immediately so PDF and Checklist reflect changes instantly!
     setLists((prev) => {
       const currentList = prev[type];
       if (!currentList || !currentList.groups) return prev;
 
       const newGroups: Record<string, EquipmentItem[]> = {};
+      let itemReplaced = false;
+
       Object.entries(currentList.groups).forEach(([groupName, items]) => {
-        newGroups[groupName] = items.map((it) => 
-          (it.id === saved.id) ? saved : it
-        );
+        newGroups[groupName] = items.map((it, idx) => {
+          const itKey = it.id || `${type}_${groupName}_${idx}`;
+          const isMatch =
+            (it.id && it.id === finalItem.id) ||
+            itKey === finalItem.id ||
+            (it.code && finalItem.code && it.code === finalItem.code) ||
+            (it.name === finalItem.name && (groupName === finalItem.category || !finalItem.category));
+
+          if (isMatch && !itemReplaced) {
+            itemReplaced = true;
+            return finalItem;
+          }
+          return it;
+        });
       });
 
       // If category changed, move item to new group
-      const oldGroup = Object.keys(currentList.groups).find(g => 
-        currentList.groups[g].some(it => it.id === saved.id)
-      );
+      const targetCategory = finalItem.category || finalItem.location;
+      if (targetCategory) {
+        let foundInOldGroup: string | null = null;
+        Object.entries(newGroups).forEach(([g, items]) => {
+          if (g !== targetCategory && items.some(it => it.id === finalItem.id || (it.code && it.code === finalItem.code))) {
+            foundInOldGroup = g;
+          }
+        });
 
-      if (oldGroup && saved.category && oldGroup !== saved.category) {
-        newGroups[oldGroup] = newGroups[oldGroup].filter(it => it.id !== saved.id);
-        const targetGroup = newGroups[saved.category] || [];
-        newGroups[saved.category] = [...targetGroup, saved];
+        if (foundInOldGroup && foundInOldGroup !== targetCategory) {
+          newGroups[foundInOldGroup] = newGroups[foundInOldGroup].filter(
+            it => it.id !== finalItem.id && (!finalItem.code || it.code !== finalItem.code)
+          );
+          if (!newGroups[targetCategory]) newGroups[targetCategory] = [];
+          newGroups[targetCategory] = [...newGroups[targetCategory], finalItem];
+        }
       }
 
       const updatedLists = { ...prev, [type]: { ...currentList, groups: newGroups } };
       setStored(STORAGE_KEYS.CUSTOM_LISTS, updatedLists);
       return updatedLists;
     });
+
+    // 2. Persist to Firebase in background without blocking state
+    saveEquipmentItemToFirebase(finalItem).catch((err) =>
+      console.warn('Firebase saveEquipmentItem error:', err)
+    );
   };
 
   // Calculate Expiry Alerts
@@ -965,8 +1072,12 @@ export default function App() {
         const isBad = st?.result === 'ผิดปกติ';
         rows.push({
           no: count++,
+          code: it.code || '',
+          spec: it.spec || '',
           name: it.name,
           qty: it.qty || 1,
+          subItemQuantities: it.subItemQuantities,
+          subExps: it.subExps,
           exp: st?.exp || it.exp || '-',
           group: groupName,
           location: `กระเป๋าฉุกเฉิน (${groupName})`,
@@ -993,8 +1104,12 @@ export default function App() {
         const isBad = st?.result === 'ผิดปกติ';
         rows.push({
           no: count++,
+          code: it.code || '',
+          spec: it.spec || '',
           name: it.name,
           qty: it.qty || 1,
+          subItemQuantities: it.subItemQuantities,
+          subExps: it.subExps,
           exp: st?.exp || it.exp || '-',
           group: groupName,
           location: `รถฉุกเฉิน (${groupName})`,
@@ -1230,9 +1345,10 @@ export default function App() {
   return (
     <div
       ref={contentRef}
-      className={`min-h-screen w-full font-['TH_Sarabun_New','Sarabun',sans-serif] relative transition-colors duration-500 overflow-x-hidden overflow-y-auto ${
-        isDark ? 'bg-[#0E0F12] text-slate-100' : 'bg-[#F2F4F8] text-slate-900'
+      className={`min-h-screen w-full font-['TH_Sarabun_New','Sarabun',sans-serif] relative transition-colors duration-500 overflow-x-hidden ${
+        isDark ? 'bg-[#0E0F12] text-slate-100' : 'bg-[#f8fafc] text-slate-900'
       }`}
+      style={{ minHeight: '100vh', backgroundColor: isDark ? '#0E0F12' : '#f8fafc' }}
     >
 
       <link
@@ -1283,8 +1399,8 @@ export default function App() {
 
       {/* MAIN VIEW CONTENT CONTAINER (Safe Area + Samsung One UI) */}
       <main 
-        className="relative z-10 w-full max-w-md sm:max-w-2xl md:max-w-4xl lg:max-w-[1400px] mx-auto px-3 sm:px-6 lg:px-8 py-4 lg:py-8 pb-28"
-        style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 16px)' }}
+        className="relative z-10 w-full max-w-md sm:max-w-2xl md:max-w-4xl lg:max-w-[1400px] mx-auto px-3 sm:px-6 lg:px-8 py-4 lg:py-8 pb-28 min-h-screen"
+        style={{ minHeight: '100vh' }}
       >
         {/* 1. HOME DASHBOARD */}
         {currentView === 'home' && (
@@ -1713,7 +1829,7 @@ export default function App() {
         }}
         onOpenBarcodeScanner={() => setIsBarcodeScannerOpen(true)}
         isDrawerOpen={isDrawerOpen}
-        isVisible={isBottomBarVisible}
+        isVisible={shouldShowBottomBar}
       />
 
       {/* ZOOMED IMAGE PREVIEW OVERLAY MODAL */}
@@ -1855,15 +1971,12 @@ export default function App() {
         onAddItem={(type, newItem) => handleAddItem(type, newItem)}
         onDeleteItem={(type, key) => handleDeleteItem(type, key)}
         isDarkMode={isDark}
-        isBottomBarVisible={isBottomBarVisible}
-        isAnyModalOpen={isNotificationOpen || isProfileOpen || isPasswordOpen || isOfficialReportOpen || isBarcodeScannerOpen || isSheetsAccordionOpen}
+        isBottomBarVisible={shouldShowBottomBar}
+        isAnyModalOpen={isAnyModalActive || isKeyboardOpen || !shouldShowBottomBar}
       />
 
-      {/* 📍 Floating Quick Controls (Scroll to Top, Scroll to Bottom, Back to Dashboard) */}
-      <GlobalScrollButtons
-        onNavigateHome={() => setCurrentView('home')}
-        showHomeButton={currentView !== 'home'}
-      />
+      {/* 📍 Floating Quick Controls (Scroll to Top, Scroll to Bottom) */}
+      <GlobalScrollButtons isBottomBarVisible={shouldShowBottomBar} />
     </div>
   );
 }
