@@ -38,6 +38,8 @@ export interface EquipmentItem {
   roomId?: string;
   subExps?: Array<{ label?: string; exp?: string; qty?: number; hasNoExp?: boolean }>;
   subItemQuantities?: number[];
+  checkType?: 'single' | 'sub_items';
+  subItems?: string[];
 }
 
 export interface CheckItemState {

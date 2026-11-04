@@ -72,6 +72,10 @@ export interface EmergencyChecklistProps {
     qty?: string;
     exp?: string;
     img?: string;
+    checkType?: 'single' | 'sub_items';
+    subItems?: string[];
+    subExps?: Array<{ label?: string; exp?: string; qty?: number; hasNoExp?: boolean }>;
+    subItemQuantities?: number[];
   }) => void;
   onDeleteItem?: (type: 'bag' | 'cart', itemKey: string) => void;
   onEditItem?: (item: EquipmentItem) => void;
@@ -184,6 +188,24 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
     }
     setIsEditModalOpen(false);
     setItemToEdit(null);
+  };
+
+  const handleAddNewItemFromModal = (newItem: EquipmentItem) => {
+    if (onAddItem) {
+      onAddItem({
+        name: newItem.name,
+        groupName: newItem.location || newItem.category || (groups[0] || 'ทั่วไป'),
+        spec: newItem.spec,
+        qty: newItem.qty,
+        exp: newItem.exp,
+        img: newItem.img,
+        checkType: newItem.checkType,
+        subItems: newItem.subItems,
+        subItemQuantities: newItem.subItemQuantities,
+        subExps: newItem.subExps,
+      });
+    }
+    setIsAddItemModalOpen(false);
   };
 
   const handleDeleteItemInEdit = (itemId: string) => {
@@ -753,14 +775,11 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
 
                     {/* Non-multi Single Item / Type 1 EXP Display with No EXP toggle */}
                     {!hasMultipleSubItems && (
-                      <div className="mt-1 flex items-center gap-2 border-l-2 border-rose-200 pl-2">
-                        <p className="text-xs text-rose-600 font-bold flex items-center gap-1 shrink-0">
-                          <span>⏳ EXP:</span>
-                        </p>
-                        {currentExp === '-' || !currentExp ? (
+                      <div className="mt-1 flex items-center gap-2 pl-2">
+                        {currentExp === '-' || !currentExp || currentExp.toLowerCase() === 'no exp' || !currentExp.match(/^\d{4}-\d{2}-\d{2}$/) ? (
                           <div className="flex items-center gap-1.5">
-                            <span className="text-[10px] text-slate-500 font-bold bg-slate-100 px-2 py-0.5 rounded">
-                              ไม่มีวันหมดอายุ (-)
+                            <span className="text-[10px] text-slate-600 font-bold bg-slate-100 px-2.5 py-0.5 rounded border border-slate-200">
+                              EXP: {currentExp || '-'}
                             </span>
                             <button
                               type="button"
@@ -771,22 +790,27 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
                             </button>
                           </div>
                         ) : (
-                          <div className="flex items-center gap-1.5">
-                            <input
-                              type="date"
-                              value={currentExp}
-                              onChange={(e) => onUpdateNote(item.itemKey, `EXP:${e.target.value}`)}
-                              className="text-[10px] bg-white border border-rose-200 rounded px-1.5 py-0.5 text-rose-700 font-bold outline-none w-32 h-7"
-                              title="ใส่วันหมดอายุ"
-                            />
-                            <button
-                              type="button"
-                              onClick={() => onUpdateNote(item.itemKey, 'EXP:-')}
-                              className="px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 text-[10px] font-bold transition cursor-pointer"
-                              title="ไม่มีวันหมดอายุ"
-                            >
-                              No EXP
-                            </button>
+                          <div className="flex items-center gap-1.5 border-l-2 border-rose-200 pl-2">
+                            <p className="text-xs text-rose-600 font-bold flex items-center gap-1 shrink-0">
+                              <span>⏳ EXP:</span>
+                            </p>
+                            <div className="flex items-center gap-1.5">
+                              <input
+                                type="date"
+                                value={currentExp}
+                                onChange={(e) => onUpdateNote(item.itemKey, `EXP:${e.target.value}`)}
+                                className="text-[10px] bg-white border border-rose-200 rounded px-1.5 py-0.5 text-rose-700 font-bold outline-none w-32 h-7"
+                                title="ใส่วันหมดอายุ"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => onUpdateNote(item.itemKey, 'EXP:-')}
+                                className="px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 text-[10px] font-bold transition cursor-pointer"
+                                title="ไม่มีวันหมดอายุ"
+                              >
+                                No EXP
+                              </button>
+                            </div>
                           </div>
                         )}
                       </div>
@@ -824,7 +848,7 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
                         const isSubOk = status === '1';
                         const isSubBad = status === '0';
                         const matchedSubExp = subExps[idx]?.date || (subExps.find((s) => s.label?.includes(subLabel))?.date) || '';
-                        const isSubNoExp = !matchedSubExp || matchedSubExp === '-' || matchedSubExp.toLowerCase() === 'no exp';
+                        const isSubNoExp = !matchedSubExp || matchedSubExp === '-' || matchedSubExp.toLowerCase() === 'no exp' || !matchedSubExp.match(/^\d{4}-\d{2}-\d{2}$/);
 
                         return (
                           <div
@@ -876,8 +900,8 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
                               <div className="flex items-center gap-1.5 pt-1 border-t border-slate-200/60 text-[10px]">
                                 <span className="text-slate-500 font-semibold shrink-0">EXP:</span>
                                 {isSubNoExp ? (
-                                  <div className="flex-1 px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 font-bold flex items-center justify-between text-[10px]">
-                                    <span>No EXP (-)</span>
+                                  <div className="flex-1 px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 font-bold flex items-center justify-between text-[10px] border border-slate-200">
+                                    <span>{matchedSubExp || '-'}</span>
                                     <button
                                       type="button"
                                       onClick={() => {
@@ -1063,31 +1087,83 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
                   </div>
                 )}
 
-                  {/* O2 Tank PSI Input (Special handling) */}
-                  {((item.name.toLowerCase().includes('o2') || item.name.toLowerCase().includes('oxygen') || item.name.includes('ออกซิเจน')) && (item.name.toLowerCase().includes('tank') || item.name.includes('ถัง'))) && (
-                    <div className="flex items-center gap-2 bg-blue-50 p-2 rounded-xl border border-blue-200">
-                      <span className="text-[10px] font-bold text-blue-800 shrink-0">ความดัน (PSI):</span>
-                      <input
-                        type="text"
-                        value={check?.weekVals?.[selectedWeek] || ''}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          const num = parseInt(val.replace(/\D/g, ''), 10);
-                          const result = !isNaN(num) && num >= 500 ? 'ปกติ' : (val ? 'ผิดปกติ' : '');
-                          // Pass PSI string as customValue to be stored in weekVals
-                          onToggleCheck(item.itemKey, result === 'ปกติ' ? 'ปกติ' : 'ผิดปกติ', item.name, selectedWeek, true, val.toLowerCase().includes('psi') ? val : `${val} PSI`);
-                          onUpdateNote(item.itemKey, `PSI:${val}`);
-                        }}
-                        placeholder="ระบุ PSI เช่น 1350"
-                        className="flex-1 bg-white border border-blue-300 rounded-lg px-2 py-1 text-xs font-bold text-blue-900 outline-none"
-                      />
-                      {check?.weekVals?.[selectedWeek] && (
-                        <span className={`text-[10px] font-bold ${parseInt(String(check?.weekVals?.[selectedWeek]).replace(/\D/g, ''), 10) >= 500 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                          {parseInt(String(check?.weekVals?.[selectedWeek]).replace(/\D/g, ''), 10) >= 500 ? '✓ ผ่าน' : '✗ ต่ำ'}
-                        </span>
-                      )}
-                    </div>
-                  )}
+                  {/* O2 Tank PSI Input (Special handling - 2 distinct tanks) */}
+                  {((item.name.toLowerCase().includes('o2') || item.name.toLowerCase().includes('oxygen') || item.name.includes('ออกซิเจน')) && (item.name.toLowerCase().includes('tank') || item.name.includes('ถัง'))) && (() => {
+                    const currentWkVal = check?.weekVals?.[selectedWeek] || '';
+                    const parts = currentWkVal.split(',').map((p) => p.replace(/\D/g, ''));
+                    const psi1 = parts[0] || '';
+                    const psi2 = parts[1] || '';
+
+                    const handleUpdateO2 = (p1: string, p2: string) => {
+                      const clean1 = p1.slice(0, 4);
+                      const clean2 = p2.slice(0, 4);
+                      const combined = `${clean1}, ${clean2}`;
+                      const num1 = parseInt(clean1, 10);
+                      const num2 = parseInt(clean2, 10);
+                      const isLow1 = clean1 !== '' && num1 < 500;
+                      const isLow2 = clean2 !== '' && num2 < 500;
+                      const hasProblem = isLow1 || isLow2;
+                      const res: 'ปกติ' | 'ผิดปกติ' = hasProblem ? 'ผิดปกติ' : 'ปกติ';
+                      onToggleCheck(item.itemKey, res, item.name, selectedWeek, true, combined);
+                    };
+
+                    const num1 = psi1 !== '' ? parseInt(psi1, 10) : NaN;
+                    const num2 = psi2 !== '' ? parseInt(psi2, 10) : NaN;
+                    const isLow1 = !isNaN(num1) && num1 < 500;
+                    const isLow2 = !isNaN(num2) && num2 < 500;
+
+                    return (
+                      <div className="pt-2 border-t border-slate-100 space-y-2">
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300 block mb-1">
+                              ถังที่ 1 (PSI)
+                            </label>
+                            <input
+                              type="number"
+                              max="9999"
+                              maxLength={4}
+                              value={psi1}
+                              onChange={(e) => {
+                                const val = e.target.value.replace(/[^0-9]/g, '').slice(0, 4);
+                                handleUpdateO2(val, psi2);
+                              }}
+                              placeholder="เช่น 1950"
+                              className="w-full px-3 py-1.5 rounded-xl border border-slate-300 dark:border-white/10 bg-white dark:bg-black/20 text-xs font-bold text-center text-slate-900 dark:text-white outline-none focus:border-blue-500"
+                            />
+                            {isLow1 && (
+                              <span className="text-[10px] text-rose-500 font-bold block mt-1">
+                                ⚠️ ต่ำกว่า 500 PSI
+                              </span>
+                            )}
+                          </div>
+
+                          <div>
+                            <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300 block mb-1">
+                              ถังที่ 2 (PSI)
+                            </label>
+                            <input
+                              type="number"
+                              max="9999"
+                              maxLength={4}
+                              value={psi2}
+                              onChange={(e) => {
+                                const val = e.target.value.replace(/[^0-9]/g, '').slice(0, 4);
+                                handleUpdateO2(psi1, val);
+                              }}
+                              placeholder="เช่น 1700"
+                              className="w-full px-3 py-1.5 rounded-xl border border-slate-300 dark:border-white/10 bg-white dark:bg-black/20 text-xs font-bold text-center text-slate-900 dark:text-white outline-none focus:border-blue-500"
+                            />
+                            {isLow2 && (
+                              <span className="text-[10px] text-rose-500 font-bold block mt-1">
+                                ⚠️ ต่ำกว่า 500 PSI
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
 
                   {/* Defect note input when marked defective */}
                   {isBad && (
@@ -1107,195 +1183,22 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
 
       {/* ➕ Modal เพิ่มรายการอุปกรณ์ใหม่ */}
       {isAddItemModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
-          <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl w-full max-w-md p-5 space-y-4 max-h-[90vh] overflow-y-auto font-sans">
-            <div className="flex justify-between items-center pb-2.5 border-b border-slate-100">
-              <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
-                <Plus size={18} className="text-blue-600" />
-                <span>เพิ่มรายการอุปกรณ์ ({type === 'bag' ? 'กระเป๋าฉุกเฉิน' : 'รถฉุกเฉิน'})</span>
-              </h3>
-              <button
-                type="button"
-                onClick={() => setIsAddItemModalOpen(false)}
-                className="p-1 rounded-full text-slate-400 hover:text-slate-700 transition cursor-pointer"
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            <form onSubmit={handleCreateNewItem} className="space-y-3 text-xs">
-              <div>
-                <label className="block text-slate-700 font-bold mb-1">ชื่อรายการอุปกรณ์ <span className="text-rose-500">*</span></label>
-                <input
-                  type="text"
-                  value={newItemName}
-                  onChange={(e) => setNewItemName(e.target.value)}
-                  placeholder="เช่น Laryngoscope set, Ambu bag, 0.9% NSS"
-                  className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-slate-700 font-bold mb-1">หมวดหมู่ / ชั้นวาง <span className="text-rose-500">*</span></label>
-                <select
-                  value={newItemGroup}
-                  onChange={(e) => setNewItemGroup(e.target.value)}
-                  className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-                >
-                  {groups.map((g) => (
-                    <option key={g} value={g}>{g}</option>
-                  ))}
-                  <option value="__custom__">+ สร้างหมวดหมู่ใหม่...</option>
-                </select>
-                {newItemGroup === '__custom__' && (
-                  <input
-                    type="text"
-                    value={customGroup}
-                    onChange={(e) => setCustomGroup(e.target.value)}
-                    placeholder="พิมพ์ชื่อหมวดหมู่ใหม่..."
-                    className="w-full mt-2 px-3.5 py-2 rounded-xl border border-slate-300 text-slate-900 outline-none focus:border-blue-500"
-                  />
-                )}
-              </div>
-
-              <div className="grid grid-cols-2 gap-2.5">
-                <div>
-                  <label className="block text-slate-700 font-bold mb-1">จำนวนตั้งต้น</label>
-                  <input
-                    type="text"
-                    value={newItemQty}
-                    onChange={(e) => setNewItemQty(e.target.value)}
-                    placeholder="เช่น 1 หรือ 1, 1"
-                    className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-slate-900 outline-none focus:border-blue-500"
-                  />
-                </div>
-
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="text-slate-700 font-bold">วันหมดอายุ (EXP)</label>
-                    <label className="flex items-center gap-1.5 text-[11px] text-slate-600 font-bold cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={newItemNoExp}
-                        onChange={(e) => setNewItemNoExp(e.target.checked)}
-                        className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                      />
-                      <span>ไม่มีวันหมดอายุ</span>
-                    </label>
-                  </div>
-                  {newItemNoExp ? (
-                    <div className="px-3 py-2 rounded-xl bg-slate-100 border border-slate-200 text-slate-500 text-xs font-semibold text-center">
-                      ไม่มีวันหมดอายุ (แสดงเป็น "-")
-                    </div>
-                  ) : modalSizes.length > 1 ? (
-                    <div className="space-y-1.5 p-2 bg-slate-50 rounded-xl border border-slate-200">
-                      <p className="text-[10px] text-slate-500 font-bold mb-1 italic">ระบุวันหมดอายุแยกตามชิ้น/ไซส์:</p>
-                      <div className="grid grid-cols-1 gap-1.5">
-                        {modalSizes.map((sz: string) => (
-                          <div key={sz} className="flex items-center gap-2">
-                            <span className="text-[10px] font-bold text-slate-600 min-w-[45px]">{sz}:</span>
-                            <input
-                              type="date"
-                              value={newItemExpParts[sz] || ''}
-                              onChange={(e) => setNewItemExpParts({ ...newItemExpParts, [sz]: e.target.value })}
-                              className="flex-1 px-2 py-1 rounded-lg border border-slate-300 text-[11px] outline-none focus:border-blue-500 h-8"
-                            />
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ) : (
-                    <input
-                      type="date"
-                      value={newItemExp}
-                      onChange={(e) => setNewItemExp(e.target.value)}
-                      className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-slate-900 outline-none focus:border-blue-500 h-10"
-                    />
-                  )}
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-slate-700 font-bold mb-1">คุณลักษณะ / สเปกเพิ่มเติม</label>
-                <input
-                  type="text"
-                  value={newItemSpec}
-                  onChange={(e) => setNewItemSpec(e.target.value)}
-                  placeholder="เช่น ขนาด No. 3, 4 หรือ ชนิดพร้อมใช้"
-                  className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-slate-900 outline-none focus:border-blue-500"
-                />
-              </div>
-
-              {/* 📷 รูปภาพอุปกรณ์ + Local File Upload */}
-              <div className="space-y-1 pt-1">
-                <label className="block text-slate-700 font-bold">รูปภาพอุปกรณ์</label>
-                
-                <div className="flex gap-2 items-center">
-                  <div className="relative flex-1">
-                    <input
-                      type="text"
-                      value={newItemImgUrl}
-                      onChange={(e) => setNewItemImgUrl(e.target.value)}
-                      placeholder="วาง URL รูปภาพ..."
-                      className="w-full pl-8 pr-3 py-2 rounded-xl border border-slate-300 text-slate-900 text-xs outline-none focus:border-blue-500"
-                    />
-                    <ImageIcon size={14} className="absolute left-2.5 top-2.5 text-slate-400" />
-                  </div>
-
-                  {/* Hidden File Input */}
-                  <input
-                    type="file"
-                    ref={fileInputRef}
-                    accept="image/*"
-                    onChange={handleFileChange}
-                    className="hidden"
-                  />
-
-                  {/* Local File Upload Button */}
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    className="px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs border border-slate-300 flex items-center gap-1 shrink-0 transition cursor-pointer"
-                    title="เลือกไฟล์รูปภาพจากเครื่องมือถือหรือคอมพิวเตอร์"
-                  >
-                    <Upload size={14} />
-                    <span>อัปโหลด</span>
-                  </button>
-                </div>
-
-                {newItemImgUrl && (
-                  <div className="mt-2 flex items-center gap-2.5 p-2 bg-slate-50 rounded-xl border border-slate-200">
-                    <img src={newItemImgUrl} alt="Preview" className="w-10 h-10 rounded-lg object-cover border border-slate-300" />
-                    <span className="text-[11px] text-emerald-700 font-bold">✓ โหลดรูปภาพสำเร็จ</span>
-                  </div>
-                )}
-              </div>
-
-              <div className="pt-2 flex items-center justify-end gap-2 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setIsAddItemModalOpen(false)}
-                  className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold transition cursor-pointer"
-                >
-                  ยกเลิก
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold transition shadow-xs cursor-pointer"
-                >
-                  บันทึกรายการ
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+        <EditItemModal
+          isOpen={isAddItemModalOpen}
+          mode="add"
+          type={type}
+          onClose={() => setIsAddItemModalOpen(false)}
+          groups={groups}
+          onSave={handleAddNewItemFromModal}
+        />
       )}
 
       {/* ✏️ Modal แก้ไขรายการอุปกรณ์ */}
       {isEditModalOpen && itemToEdit && (
         <EditItemModal
           isOpen={isEditModalOpen}
+          mode="edit"
+          type={type}
           onClose={() => setIsEditModalOpen(false)}
           item={itemToEdit as any}
           groups={groups}

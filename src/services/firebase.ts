@@ -80,6 +80,38 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
   }
 }
 
+/**
+ * Recursively removes all `undefined` values and functions from an object or array,
+ * preventing Firestore fatal errors such as:
+ * "Function setDoc() called with invalid data. Unsupported field value: undefined"
+ */
+export function sanitizeForFirestore<T>(data: T): T {
+  if (data === null || data === undefined) {
+    return null as unknown as T;
+  }
+  if (typeof data === 'number' && Number.isNaN(data)) {
+    return null as unknown as T;
+  }
+  if (Array.isArray(data)) {
+    return data
+      .filter((item) => item !== undefined && typeof item !== 'function')
+      .map((item) => sanitizeForFirestore(item)) as unknown as T;
+  }
+  if (typeof data === 'object') {
+    if (data instanceof Date) {
+      return data;
+    }
+    const cleanObj: Record<string, any> = {};
+    for (const [key, val] of Object.entries(data as Record<string, any>)) {
+      if (val !== undefined && typeof val !== 'function') {
+        cleanObj[key] = sanitizeForFirestore(val);
+      }
+    }
+    return cleanObj as T;
+  }
+  return data;
+}
+
 // --- EQUIPMENT HELPERS ---
 
 export async function fetchEquipmentFromFirebase(): Promise<EquipmentItem[]> {
@@ -99,7 +131,8 @@ export async function saveEquipmentItemToFirebase(item: EquipmentItem) {
   const id = item.id || `eq_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
   const path = `equipment/${id}`;
   try {
-    await setDoc(doc(db, 'equipment', id), { ...item, id }, { merge: true });
+    const cleanPayload = sanitizeForFirestore({ ...item, id });
+    await setDoc(doc(db, 'equipment', id), cleanPayload, { merge: true });
     return { ...item, id };
   } catch (e) {
     handleFirestoreError(e, OperationType.WRITE, path);
@@ -136,7 +169,8 @@ export async function fetchDrugsFromFirebase(): Promise<DrugItem[]> {
 export async function saveDrugItemToFirebase(item: DrugItem) {
   const path = `drugs/${item.id}`;
   try {
-    await setDoc(doc(db, 'drugs', item.id), item, { merge: true });
+    const cleanPayload = sanitizeForFirestore(item);
+    await setDoc(doc(db, 'drugs', item.id), cleanPayload, { merge: true });
     return true;
   } catch (e) {
     handleFirestoreError(e, OperationType.WRITE, path);
@@ -149,7 +183,8 @@ export async function saveDrugItemToFirebase(item: DrugItem) {
 export async function saveInspectionToFirebase(record: InspectionHistoryRecord) {
   const path = `inspection_records/${record.id}`;
   try {
-    await setDoc(doc(db, 'inspection_records', record.id), record, { merge: true });
+    const cleanPayload = sanitizeForFirestore(record);
+    await setDoc(doc(db, 'inspection_records', record.id), cleanPayload, { merge: true });
     return true;
   } catch (e) {
     handleFirestoreError(e, OperationType.WRITE, path);
@@ -200,7 +235,8 @@ export async function fetchUsersFromFirebase(): Promise<User[]> {
 export async function saveUserToFirebase(user: User) {
   const path = `users/${user.id}`;
   try {
-    await setDoc(doc(db, 'users', user.id), user, { merge: true });
+    const cleanPayload = sanitizeForFirestore(user);
+    await setDoc(doc(db, 'users', user.id), cleanPayload, { merge: true });
     return true;
   } catch (e) {
     handleFirestoreError(e, OperationType.WRITE, path);
@@ -213,7 +249,8 @@ export async function saveUserToFirebase(user: User) {
 export async function saveSettingsToFirebase(settings: any) {
   const path = 'settings/config';
   try {
-    await setDoc(doc(db, 'settings', 'config'), { ...settings, updatedAt: new Date().toISOString() }, { merge: true });
+    const cleanPayload = sanitizeForFirestore({ ...settings, updatedAt: new Date().toISOString() });
+    await setDoc(doc(db, 'settings', 'config'), cleanPayload, { merge: true });
     return true;
   } catch (e) {
     handleFirestoreError(e, OperationType.WRITE, path);

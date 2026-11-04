@@ -696,7 +696,18 @@ export default function App() {
   // Add New Item to Emergency Bag or Crash Cart Checklist
   const handleAddItem = async (
     type: 'bag' | 'cart',
-    newItem: { name: string; groupName: string; spec?: string; qty?: string; exp?: string; img?: string }
+    newItem: {
+      name: string;
+      groupName: string;
+      spec?: string;
+      qty?: string;
+      exp?: string;
+      img?: string;
+      checkType?: 'single' | 'sub_items';
+      subItems?: string[];
+      subItemQuantities?: number[];
+      subExps?: Array<{ label?: string; exp?: string; qty?: number; hasNoExp?: boolean }>;
+    }
   ) => {
     const itemKey = `${type}_${newItem.groupName}_${Date.now()}`;
     const itemObject: EquipmentItem = {
@@ -711,6 +722,10 @@ export default function App() {
       exp: newItem.exp || '',
       img: newItem.img || '',
       type,
+      ...(newItem.checkType ? { checkType: newItem.checkType } : {}),
+      ...(newItem.subItems && newItem.subItems.length > 0 ? { subItems: newItem.subItems } : {}),
+      ...(newItem.subItemQuantities && newItem.subItemQuantities.length > 0 ? { subItemQuantities: newItem.subItemQuantities } : {}),
+      ...(newItem.subExps && newItem.subExps.length > 0 ? { subExps: newItem.subExps } : {}),
     };
 
     const saved = await saveEquipmentItemToFirebase(itemObject);
@@ -1070,14 +1085,12 @@ export default function App() {
         const itemKey = it.id || `bag_${groupName}_${idx}`;
         const st = bagChecks[itemKey];
         const isBad = st?.result === 'ผิดปกติ';
-        rows.push({
+        const rowObj: OfficialReportItemRow = {
           no: count++,
           code: it.code || '',
           spec: it.spec || '',
           name: it.name,
           qty: it.qty || 1,
-          subItemQuantities: it.subItemQuantities,
-          subExps: it.subExps,
           exp: st?.exp || it.exp || '-',
           group: groupName,
           location: `กระเป๋าฉุกเฉิน (${groupName})`,
@@ -1085,7 +1098,14 @@ export default function App() {
           note: st?.note || '',
           val: st?.val || '',
           weekVals: st?.weekVals || {},
-        });
+        };
+        if (it.subItemQuantities && it.subItemQuantities.length > 0) {
+          rowObj.subItemQuantities = it.subItemQuantities;
+        }
+        if (it.subExps && it.subExps.length > 0) {
+          rowObj.subExps = it.subExps;
+        }
+        rows.push(rowObj);
       });
     });
     return rows;
@@ -1102,14 +1122,12 @@ export default function App() {
         const itemKey = it.id || `cart_${groupName}_${idx}`;
         const st = cartChecks[itemKey];
         const isBad = st?.result === 'ผิดปกติ';
-        rows.push({
+        const rowObj: OfficialReportItemRow = {
           no: count++,
           code: it.code || '',
           spec: it.spec || '',
           name: it.name,
           qty: it.qty || 1,
-          subItemQuantities: it.subItemQuantities,
-          subExps: it.subExps,
           exp: st?.exp || it.exp || '-',
           group: groupName,
           location: `รถฉุกเฉิน (${groupName})`,
@@ -1117,7 +1135,14 @@ export default function App() {
           note: st?.note || '',
           val: st?.val || '',
           weekVals: st?.weekVals || {},
-        });
+        };
+        if (it.subItemQuantities && it.subItemQuantities.length > 0) {
+          rowObj.subItemQuantities = it.subItemQuantities;
+        }
+        if (it.subExps && it.subExps.length > 0) {
+          rowObj.subExps = it.subExps;
+        }
+        rows.push(rowObj);
       });
     });
     return rows;
@@ -1192,7 +1217,13 @@ export default function App() {
     ) => {
       const now = new Date();
       // Use the latest dates from the component (which should be synced to global anyway)
-      const finalWeekDates = weekDatesFromComponent || emergencyWeekDates[type];
+      const rawWeekDates = weekDatesFromComponent || emergencyWeekDates[type] || {};
+      const finalWeekDates: Record<number, string> = {};
+      [1, 2, 3, 4, 5].forEach((w) => {
+        if (rawWeekDates[w] !== undefined && rawWeekDates[w] !== null && String(rawWeekDates[w]).trim() !== '') {
+          finalWeekDates[w] = String(rawWeekDates[w]).trim();
+        }
+      });
       const items = type === 'bag' ? formattedBagItems : formattedCartItems;
       const title = type === 'bag' ? 'แบบฟอร์มตรวจสอบความพร้อม กระเป๋า Emergency' : 'แบบฟอร์มตรวจสอบความพร้อม รถ Emergency';
 
@@ -1204,15 +1235,21 @@ export default function App() {
         type: type,
         title: `${title} (สัปดาห์ที่ ${week})`,
         who: currentUser?.name || 'ผู้ดูแลระบบ (Admin)',
-        rows: items.map(it => ({
-          ...it,
-          val: it.res === 'ใช้งานได้' ? '✓' : '-',
-          weekVals: it.weekVals || {} // Snapshot ALL weeks' values
-        })),
+        rows: items.map(it => {
+          const rowObj: any = {
+            ...it,
+            val: it.res === 'ใช้งานได้' ? '✓' : '-',
+            weekVals: it.weekVals || {} // Snapshot ALL weeks' values
+          };
+          if (rowObj.subItemQuantities === undefined) delete rowObj.subItemQuantities;
+          if (rowObj.subExps === undefined) delete rowObj.subExps;
+          return rowObj;
+        }),
         weekDates: finalWeekDates,
       };
 
       const nextHist = [newRecord, ...historyRecords].slice(0, 50);
+      setHistoryRecords(nextHist);
       await saveInspectionToFirebase(newRecord);
 
       // 2. Open Modal

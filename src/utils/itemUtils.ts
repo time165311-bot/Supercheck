@@ -42,17 +42,33 @@ export function parseSubExps(expStr?: string): Array<{ label: string; date: stri
   return results;
 }
 
-export function getItemSizes(item: { name: string; spec?: string; qty?: string | number; exp?: string; subExps?: Array<{ label?: string; exp?: string }> }): string[] {
+export function getItemSizes(item: {
+  name: string;
+  spec?: string;
+  qty?: string | number;
+  exp?: string;
+  checkType?: 'single' | 'sub_items';
+  subItems?: string[];
+  subExps?: Array<{ label?: string; exp?: string }>;
+}): string[] {
   const name = (item.name || '').toLowerCase();
   const spec = (item.spec || '').toLowerCase();
   const exp = item.exp || '';
 
+  // If explicitly configured as single count, return empty sub-items
+  if (item.checkType === 'single') {
+    return [];
+  }
+
+  // Explicit subItems list
+  if (item.subItems && Array.isArray(item.subItems) && item.subItems.length > 1) {
+    return item.subItems;
+  }
+
   // 0. Explicit subExps labels
   if (item.subExps && item.subExps.length > 1) {
     const valid = item.subExps.map((s) => s.label?.trim()).filter(Boolean) as string[];
-    // Only consider Type 2 if labels are not just generic numbers "ชิ้นที่ 1", "อันที่ 1"
-    const hasDistinctLabels = valid.some((lbl) => !/^ชิ้นที่\s*\d+$/i.test(lbl) && !/^อันที่\s*\d+$/i.test(lbl));
-    if (valid.length > 1 && hasDistinctLabels) {
+    if (valid.length > 1) {
       return valid;
     }
   }
@@ -137,9 +153,41 @@ export function getItemQuantityClassification(item: {
   spec?: string;
   qty?: string | number;
   exp?: string;
+  checkType?: 'single' | 'sub_items';
+  subItems?: string[];
   subExps?: Array<{ label?: string; exp?: string; qty?: number; hasNoExp?: boolean }>;
   subItemQuantities?: number[];
 }): ItemQuantityClassification {
+  // 1. If explicitly checkType === 'single', strictly enforce Type 1 (if qty > 1) or single item (if qty === 1)
+  if (item.checkType === 'single') {
+    const rawQty = String(item.qty || '').trim();
+    const parsedQty = parseInt(rawQty.replace(/\D/g, ''), 10);
+    if (!isNaN(parsedQty) && parsedQty > 1) {
+      return {
+        isType1: true,
+        isType2: false,
+        totalQty: parsedQty,
+        subItems: [],
+      };
+    }
+    return { isType1: false, isType2: false, totalQty: 1, subItems: [] };
+  }
+
+  // 2. If explicitly checkType === 'sub_items' or has subItems array > 1
+  if (item.checkType === 'sub_items' || (item.subItems && item.subItems.length > 1)) {
+    const subList = item.subItems && item.subItems.length > 1
+      ? item.subItems
+      : (item.subExps && item.subExps.length > 1 ? item.subExps.map((s) => s.label || '').filter(Boolean) : []);
+    if (subList.length > 1) {
+      return {
+        isType1: false,
+        isType2: true,
+        totalQty: subList.length,
+        subItems: subList,
+      };
+    }
+  }
+
   const subSizes = getItemSizes(item);
   const isType2 = subSizes.length > 1;
 
