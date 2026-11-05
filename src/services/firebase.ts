@@ -1,9 +1,10 @@
 import { initializeApp, getApps } from 'firebase/app';
 import { getAuth, inMemoryPersistence, setPersistence } from 'firebase/auth';
 import {
-  getFirestore,
+  initializeFirestore,
   doc,
   getDoc,
+  getDocFromServer,
   setDoc,
   deleteDoc,
   collection,
@@ -30,7 +31,27 @@ try {
 }
 
 // Initialize Firestore targeting the provisioned database ID
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+// Using experimentalForceLongPolling to resolve "Could not reach Cloud Firestore backend" errors in restricted environments
+export const db = initializeFirestore(app, {
+  experimentalForceLongPolling: true,
+}, firebaseConfig.firestoreDatabaseId);
+
+/**
+ * Validates connection to Firestore on boot
+ */
+async function testFirestoreConnection() {
+  try {
+    // Attempt a direct server fetch for a non-existent doc to test connectivity
+    await getDocFromServer(doc(db, '_internal_', 'connection_test'));
+    console.log('Firestore connection verified.');
+  } catch (error) {
+    const errMsg = error instanceof Error ? error.message : String(error);
+    if (errMsg.includes('offline') || errMsg.includes('Backend didn\'t respond')) {
+      console.warn('Firestore is starting in offline mode. Connectivity issues detected.');
+    }
+  }
+}
+testFirestoreConnection();
 
 // Export a promise that resolves when auth is ready (no-op as anonymous auth is not enabled)
 export const authReadyPromise: Promise<void> = Promise.resolve();
@@ -200,6 +221,8 @@ export async function subscribeInspectionHistory(callback: (records: InspectionH
       const records: InspectionHistoryRecord[] = [];
       snapshot.forEach((docSnap) => records.push(docSnap.data() as InspectionHistoryRecord));
       callback(records);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, path);
     });
   } catch (e) {
     return () => {};

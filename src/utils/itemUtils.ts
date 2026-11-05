@@ -18,6 +18,7 @@ export interface ItemQuantityClassification {
   isType2: boolean;      // Heterogeneous sub-items with distinct sizes/variants (e.g. IV Catheter No.18/20, Extension tube ผู้ใหญ่/เด็ก/T-way)
   totalQty: number;      // Target total quantity
   subItems: string[];    // Sub-item labels for Type 2
+  subQuantities: number[]; // Target quantities for sub-items
 }
 
 export function parseSubExps(expStr?: string): Array<{ label: string; date: string }> {
@@ -169,9 +170,10 @@ export function getItemQuantityClassification(item: {
         isType2: false,
         totalQty: parsedQty,
         subItems: [],
+        subQuantities: [parsedQty],
       };
     }
-    return { isType1: false, isType2: false, totalQty: 1, subItems: [] };
+    return { isType1: false, isType2: false, totalQty: 1, subItems: [], subQuantities: [1] };
   }
 
   // 2. If explicitly checkType === 'sub_items' or has subItems array > 1
@@ -179,12 +181,17 @@ export function getItemQuantityClassification(item: {
     const subList = item.subItems && item.subItems.length > 1
       ? item.subItems
       : (item.subExps && item.subExps.length > 1 ? item.subExps.map((s) => s.label || '').filter(Boolean) : []);
+    
     if (subList.length > 1) {
+      const explicitQtys = item.subItemQuantities || (item.subExps ? item.subExps.map(s => s.qty || 1) : []);
+      const finalQtys = Array.from({ length: subList.length }, (_, i) => explicitQtys[i] || 1);
+
       return {
         isType1: false,
         isType2: true,
-        totalQty: subList.length,
+        totalQty: finalQtys.reduce((a, b) => a + b, 0),
         subItems: subList,
+        subQuantities: finalQtys,
       };
     }
   }
@@ -193,11 +200,13 @@ export function getItemQuantityClassification(item: {
   const isType2 = subSizes.length > 1;
 
   if (isType2) {
+    const subInfo = getItemSubItemsInfo(item as any);
     return {
       isType1: false,
       isType2: true,
-      totalQty: subSizes.length,
+      totalQty: subInfo.quantities.reduce((a, b) => a + b, 0),
       subItems: subSizes,
+      subQuantities: subInfo.quantities,
     };
   }
 
@@ -208,13 +217,17 @@ export function getItemQuantityClassification(item: {
     (name.includes('tank') || name.includes('ความดัน') || name.includes('psi'));
 
   if (isPressure) {
-    return { isType1: false, isType2: false, totalQty: 1, subItems: [] };
+    return { isType1: false, isType2: false, totalQty: 1, subItems: [], subQuantities: [1] };
   }
 
   const rawQty = String(item.qty || '').trim();
   // If comma in qty e.g. "1, 1", it would have been caught or shouldn't be Type 1
   if (rawQty.includes(',') || rawQty.includes('/')) {
-    return { isType1: false, isType2: false, totalQty: 1, subItems: [] };
+    const extracted = extractQuantityNumbers(rawQty, item.subItemQuantities);
+    if (extracted.length > 1) {
+       return { isType1: false, isType2: true, totalQty: extracted.reduce((a,b) => a+b, 0), subItems: extracted.map((_, i) => `ชิ้นที่ ${i+1}`), subQuantities: extracted };
+    }
+    return { isType1: false, isType2: false, totalQty: 1, subItems: [], subQuantities: [1] };
   }
 
   const parsedQty = parseInt(rawQty.replace(/\D/g, ''), 10);
@@ -224,25 +237,39 @@ export function getItemQuantityClassification(item: {
       isType2: false,
       totalQty: parsedQty,
       subItems: [],
+      subQuantities: [parsedQty],
     };
   }
 
-  return { isType1: false, isType2: false, totalQty: 1, subItems: [] };
+  return { isType1: false, isType2: false, totalQty: 1, subItems: [], subQuantities: [1] };
 }
 
 /**
  * Extracts numeric quantity list from item.qty string or item.subItemQuantities
+ * e.g., "อย่างละ 2 อัน" -> [2, 2]
  * e.g., "1 set (1, 1, 2 อัน)" -> [1, 1, 2]
  * e.g., "1, 1, 2" -> [1, 1, 2]
  * e.g., "2, 2, 2, 2" -> [2, 2, 2, 2]
  */
-export function extractQuantityNumbers(strQty?: string | number, subItemQuantities?: number[]): number[] {
+export function extractQuantityNumbers(
+  strQty?: string | number,
+  subItemQuantities?: number[],
+  subItemCount?: number
+): number[] {
   if (subItemQuantities && subItemQuantities.length > 0) {
     return subItemQuantities;
   }
   if (!strQty && strQty !== 0) return [];
   const s = String(strQty).trim();
   if (!s || s === '-') return [];
+
+  // Match "อย่างละ X" e.g. "อย่างละ 2", "อย่างละ 2 อัน", "อย่างละ 5"
+  const eachMatch = s.match(/อย่างละ\s*(\d+)/i);
+  if (eachMatch) {
+    const num = parseInt(eachMatch[1], 10);
+    const count = subItemCount && subItemCount > 0 ? subItemCount : 2;
+    return Array(count).fill(num);
+  }
 
   // Look for numbers inside parentheses first e.g. "1 set (1, 1, 2 อัน)" or "(1, 1, 2)"
   const parenMatch = s.match(/\(([0-9.,\s/]+)\)/);
@@ -282,15 +309,18 @@ export function getItemSubItemsInfo(item: EquipmentItem): ItemSubItemsResult {
 
   // 2. Parse exp string if sub-exps formatted like "Label: Date, Label: Date"
   const parsedExpSubs = parseSubExps(item.exp);
-  const qtyNumbers = extractQuantityNumbers(item.qty, item.subItemQuantities);
   const knownSizes = getItemSizes(item);
+  const candidateCount = Math.max(
+    parsedExpSubs.length,
+    knownSizes.length,
+    item.subItems?.length || 0
+  );
+
+  const qtySource = item.qty || (item as any).unitText || (item as any).initialQtyText;
+  const qtyNumbers = extractQuantityNumbers(qtySource, item.subItemQuantities, candidateCount);
 
   // Determine the target sub-item count
-  const targetCount = Math.max(
-    parsedExpSubs.length,
-    qtyNumbers.length,
-    knownSizes.length
-  );
+  const targetCount = Math.max(candidateCount, qtyNumbers.length);
 
   if (targetCount > 1) {
     for (let i = 0; i < targetCount; i++) {
@@ -324,3 +354,97 @@ export function getItemSubItemsInfo(item: EquipmentItem): ItemSubItemsResult {
     isMulti: false,
   };
 }
+
+/**
+ * Computes the real target quantity check value string for Auto-Check:
+ * - Type 2 (sub-items e.g. IV Catheter, Extension tube): real sub-quantities e.g. "2, 2, 2, 2" or "1, 1, 2"
+ * - Type 1 (homogeneous e.g. Tape 4 เส้น, Syringe blow cuff 2 อัน): total count string e.g. "4", "2"
+ * - O2 tank: "2000, 2000" (PSI)
+ * - Single item: "1" (or its target single quantity)
+ */
+export function getRealTargetCheckValue(item: EquipmentItem): string {
+  const name = (item.name || '').toLowerCase();
+
+  // O2 tank special case: full pressure 2000 PSI per tank
+  if (
+    (name.includes('o2') || name.includes('oxygen') || name.includes('ออกซิเจน')) &&
+    (name.includes('tank') || name.includes('ถัง'))
+  ) {
+    return '2000, 2000';
+  }
+
+  const classification = getItemQuantityClassification(item);
+
+  // Type 1: Homogeneous item (e.g. Tape 4 เส้น -> '4')
+  if (classification.isType1) {
+    return String(classification.totalQty || 1);
+  }
+
+  // Type 2: Heterogeneous item (e.g. IV Catheter 4 sizes of 2 each -> '2, 2, 2, 2')
+  if (classification.isType2) {
+    const subInfo = getItemSubItemsInfo(item);
+    if (subInfo.quantities && subInfo.quantities.length > 0) {
+      return subInfo.quantities.join(', ');
+    }
+    return classification.subItems.map(() => '1').join(', ');
+  }
+
+  if (item.subItemQuantities && item.subItemQuantities.length > 0) {
+    return item.subItemQuantities.join(', ');
+  }
+
+  const qtyNumbers = extractQuantityNumbers(item.qty, item.subItemQuantities);
+  if (qtyNumbers.length > 1) {
+    return qtyNumbers.join(', ');
+  }
+
+  const singleParsed = parseInt(String(item.qty || '1').replace(/\D/g, ''), 10);
+  if (!isNaN(singleParsed) && singleParsed > 1) {
+    return String(singleParsed);
+  }
+
+  return '1';
+}
+
+/**
+ * Resolves the unit text string to display in PDF report column 2 and EditItemModal:
+ * - If unitText or initialQtyText exists and is non-empty, use it.
+ * - If subItemQuantities are all identical (e.g. [2, 2] or [5, 5]), formats as "อย่างละ X".
+ * - If qty is comma-separated identical numbers (e.g. "2, 2"), formats as "อย่างละ 2".
+ * - Otherwise falls back to item.qty or '1'.
+ */
+export function resolveItemUnitText(item?: {
+  unitText?: string;
+  initialQtyText?: string;
+  qty?: string | number;
+  subItemQuantities?: number[];
+  subExps?: Array<{ qty?: number }>;
+}): string {
+  if (!item) return '1';
+  if (item.unitText && String(item.unitText).trim()) return String(item.unitText).trim();
+  if (item.initialQtyText && String(item.initialQtyText).trim()) return String(item.initialQtyText).trim();
+
+  // If subItemQuantities or subExps exist and all are identical (e.g. [2, 2]), return "อย่างละ X"
+  const sq = item.subItemQuantities || (item.subExps ? item.subExps.map((s) => s.qty || 1) : []);
+  if (sq.length > 1 && sq.every((q) => q === sq[0])) {
+    return `อย่างละ ${sq[0]}`;
+  }
+
+  const rawQty = item.qty !== undefined && item.qty !== null ? String(item.qty).trim() : '';
+  if (rawQty && rawQty !== '-') {
+    if (rawQty.includes(',')) {
+      const parts = rawQty
+        .split(',')
+        .map((p: string) => parseInt(p.trim(), 10))
+        .filter((n: number) => !isNaN(n));
+      if (parts.length > 1 && parts.every((n: number) => n === parts[0])) {
+        return `อย่างละ ${parts[0]}`;
+      }
+    }
+    return rawQty;
+  }
+
+  return '1';
+}
+
+

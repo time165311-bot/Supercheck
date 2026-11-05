@@ -40,6 +40,8 @@ export interface EquipmentItem {
   subItemQuantities?: number[];
   checkType?: 'single' | 'sub_items';
   subItems?: string[];
+  unitText?: string;
+  initialQtyText?: string;
 }
 
 export interface CheckItemState {

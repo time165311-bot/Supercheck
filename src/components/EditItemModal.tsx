@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { X, Save, Trash2, Upload, Image as ImageIcon, Plus, Minus, Layers, Hash, Calendar } from 'lucide-react';
 import { EquipmentItem } from '../types';
-import { getItemSubItemsInfo, getItemSizes } from '../utils/itemUtils';
+import { getItemSubItemsInfo, getItemSizes, resolveItemUnitText } from '../utils/itemUtils';
 
 export interface SubExpField {
   id: string;
@@ -65,6 +65,7 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
   const [customCategory, setCustomCategory] = useState('');
   const [spec, setSpec] = useState(item?.spec || '');
   const [img, setImg] = useState(item?.img || '');
+  const [unitText, setUnitText] = useState(() => resolveItemUnitText(item as any));
 
   // Check Type Selector:
   // 'single': แบบที่ 1 ตรวจเช็กรวมตามจำนวนตั้งต้นปกติ (Single Count)
@@ -189,6 +190,7 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
       setSpec(item.spec || '');
       setImg(item.img || '');
       setQty(item.qty !== undefined && item.qty !== null ? String(item.qty) : '1');
+      setUnitText(resolveItemUnitText(item as any));
       setNoExp(item.exp === '-' || !item.exp || item.exp.toLowerCase() === 'no exp');
       if (item.exp && !item.exp.includes(',') && !item.exp.includes(':')) {
         setSingleExp(toIsoDate(item.exp));
@@ -282,6 +284,12 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
       const finalQty = qty.trim() || '1';
       const finalExp = noExp ? (singleExp.trim() || '-') : (singleExp ? singleExp.trim() : '-');
 
+      // Smart unitText for single
+      let finalUnitText = unitText.trim();
+      if (!finalUnitText || /^\d+$/.test(finalUnitText)) {
+        finalUnitText = finalQty;
+      }
+
       onSave({
         ...(item || {}),
         name: name.trim(),
@@ -289,6 +297,8 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
         category: finalCategory,
         spec: spec.trim(),
         qty: finalQty,
+        unitText: finalUnitText,
+        initialQtyText: finalUnitText,
         exp: finalExp,
         img: img.trim(),
         checkType: 'single',
@@ -319,6 +329,17 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
       const combinedExp = cleanSubExps.map((s) => `${s.label}: ${s.exp}`).join(', ');
       const totalCount = subQuantities.reduce((a, b) => a + b, 0);
       const combinedQty = subQuantities.length > 1 ? subQuantities.join(', ') : String(totalCount);
+      
+      // Smart unitText: If user didn't override, and all qtys are the same, use "อย่างละ X"
+      let finalUnitText = unitText.trim();
+      if (!finalUnitText || finalUnitText === combinedQty) {
+        const allSame = subQuantities.length > 1 && subQuantities.every(q => q === subQuantities[0]);
+        if (allSame) {
+          finalUnitText = `อย่างละ ${subQuantities[0]}`;
+        } else {
+          finalUnitText = combinedQty;
+        }
+      }
 
       onSave({
         ...(item || {}),
@@ -327,6 +348,8 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
         category: finalCategory,
         spec: spec.trim(),
         qty: combinedQty,
+        unitText: finalUnitText,
+        initialQtyText: finalUnitText,
         exp: combinedExp,
         img: img.trim(),
         checkType: 'sub_items',
@@ -480,6 +503,44 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
               </div>
             </div>
 
+            {/* Shared Quantity Text Input (Preserves Descriptive Units) */}
+            <div className="p-3.5 bg-blue-50/30 dark:bg-blue-500/5 rounded-2xl border border-blue-100 dark:border-blue-500/20">
+              <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1 flex items-center gap-1.5">
+                <Hash size={14} className="text-blue-600" />
+                <span>จำนวนตั้งต้น (แสดงในตารางรายงาน)</span>
+              </label>
+              <div className="space-y-1.5">
+                <input
+                  type="text"
+                  value={unitText}
+                  onChange={(e) => setUnitText(e.target.value)}
+                  placeholder="เช่น อย่างละ 2, 1 set (1, 1, 2 อัน), 3 ขวด"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-white/10 bg-white dark:bg-black/20 text-slate-900 dark:text-white outline-none focus:border-blue-500 font-bold text-sm"
+                />
+                <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                  * ข้อความนี้จะแสดงในคอลัมน์ "จำนวน" ของ PDF (เช่น "อย่างละ 2")
+                </p>
+                {/* Quick Unit Presets */}
+                <div className="flex items-center gap-1 flex-wrap pt-0.5">
+                  <span className="text-[9px] text-slate-400 font-bold">ป้ายกำกับด่วน:</span>
+                  {['1', '2', 'อย่างละ 2', '1 set', '2 set'].map((p) => (
+                    <button
+                      key={p}
+                      type="button"
+                      onClick={() => setUnitText(p)}
+                      className={`px-1.5 py-0.5 rounded text-[9px] font-bold border transition cursor-pointer ${
+                        unitText === p
+                          ? 'bg-blue-600 text-white border-blue-600'
+                          : 'bg-white dark:bg-white/5 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-white/10'
+                      }`}
+                    >
+                      {p}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
             {/* 4. DETAILS SECTION BASED ON CHECK TYPE */}
             {checkType === 'single' ? (
               /* --- แบบที่ 1: ตรวจเช็กรวมตามจำนวนตั้งต้นปกติ (Single Count) --- */
@@ -487,14 +548,14 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1">
-                      จำนวนตั้งต้น (Target Quantity)
+                      ค่าเป้าหมาย (Numeric Target)
                     </label>
                     <div className="space-y-1.5">
                       <input
                         type="text"
                         value={qty}
                         onChange={(e) => setQty(e.target.value)}
-                        placeholder="เช่น 1 ห่อ 1 คู่, 1, 1, 2 ขวด, 3 อัน"
+                        placeholder="ระบุตัวเลข เช่น 1, 2, 5"
                         className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-white/10 bg-white dark:bg-black/20 text-slate-900 dark:text-white outline-none focus:border-blue-500 font-bold text-sm"
                       />
                       {/* Presets */}

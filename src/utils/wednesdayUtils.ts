@@ -70,3 +70,53 @@ export function getWednesdaysInfoForMonth(dateInput?: string | Date): MonthWedne
 export function calculateWednesdaysForMonth(dateInput?: string): Record<number, string> {
   return getWednesdaysInfoForMonth(dateInput).dates;
 }
+
+export function getWednesdaysIsoDates(dateInput?: string | Date): Record<number, string> {
+  let refDate = new Date();
+  if (dateInput) {
+    if (dateInput instanceof Date) {
+      if (!isNaN(dateInput.getTime())) refDate = dateInput;
+    } else {
+      const parsed = new Date(dateInput);
+      if (!isNaN(parsed.getTime())) refDate = parsed;
+    }
+  }
+
+  const year = refDate.getFullYear();
+  const month = refDate.getMonth();
+  const lastDay = new Date(year, month + 1, 0).getDate();
+  const isoDates: Record<number, string> = {};
+  let weekIndex = 1;
+
+  for (let day = 1; day <= lastDay; day++) {
+    const d = new Date(year, month, day);
+    if (d.getDay() === 3) {
+      const dStr = String(day).padStart(2, '0');
+      const mStr = String(month + 1).padStart(2, '0');
+      isoDates[weekIndex] = `${year}-${mStr}-${dStr}`;
+      weekIndex++;
+    }
+  }
+
+  return isoDates;
+}
+
+export function getWeekOfMonth(dateStr?: string | Date): number {
+  let refDate = new Date();
+  if (dateStr) {
+    if (dateStr instanceof Date) {
+      if (!isNaN(dateStr.getTime())) refDate = dateStr;
+    } else {
+      const parsed = new Date(dateStr);
+      if (!isNaN(parsed.getTime())) refDate = parsed;
+    }
+  }
+  const day = refDate.getDate();
+  if (day <= 7) return 1;
+  if (day <= 14) return 2;
+  if (day <= 21) return 3;
+  if (day <= 28) return 4;
+  return 5;
+}
+
+

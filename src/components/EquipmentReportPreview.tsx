@@ -143,7 +143,7 @@ export const EquipmentReportPreview: React.FC<EquipmentReportPreviewProps> = ({
                     <td style={{ border: '1px solid #000', padding: '6px 4px', textAlign: 'left', fontSize: '10px' }}>{item.spec || '-'}</td>
                     <td style={{ border: '1px solid #000', padding: '6px 2px', textAlign: 'center', fontSize: '10px' }}>{item.source || '-'}</td>
                     <td style={{ border: '1px solid #000', padding: '6px 2px', textAlign: 'center', fontSize: '10px' }}>{formatAcquiredDate(item.date)}</td>
-                    <td style={{ border: '1px solid #000', padding: '6px 2px', textAlign: 'center', whiteSpace: 'nowrap' }}>{item.qty || '1'}</td>
+                    <td style={{ border: '1px solid #000', padding: '6px 2px', textAlign: 'center', whiteSpace: 'nowrap' }}>{item.unitText || item.qty || '1'}</td>
                     <td style={{ border: '1px solid #000', padding: '6px 2px', textAlign: 'center' }}>{item.tax || '7'}</td>
                     <td style={{ border: '1px solid #000', padding: '6px 2px', textAlign: 'right' }}>{item.price || '-'}</td>
                     <td style={{ border: '1px solid #000', padding: '6px 2px', textAlign: 'center', fontSize: '10px' }}>{item.location || '-'}</td>
@@ -230,7 +230,7 @@ export function generateEquipmentPrintHtml(
           <td style="text-align: left; border: 1px solid #000; padding-left: 5px; font-size: 9pt;">${item.spec || '-'}</td>
           <td style="text-align: center; border: 1px solid #000; font-size: 9pt;">${item.source || '-'}</td>
           <td style="text-align: center; border: 1px solid #000; font-size: 9pt;">${formatAcquiredDate(item.date)}</td>
-          <td style="text-align: center; border: 1px solid #000; white-space: nowrap;">${item.qty || '1'}</td>
+          <td style="text-align: center; border: 1px solid #000; white-space: nowrap;">${item.unitText || item.qty || '1'}</td>
           <td style="text-align: center; border: 1px solid #000;">${item.tax || '7'}</td>
           <td style="text-align: right; border: 1px solid #000; padding-right: 5px;">${item.price || '-'}</td>
           <td style="text-align: center; border: 1px solid #000; font-size: 9pt;">${item.location || '-'}</td>

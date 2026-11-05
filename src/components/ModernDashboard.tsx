@@ -443,6 +443,41 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
           user-drag: none;
           pointer-events: none;
         }
+
+        /* 🌟 Focus Carousel: Center Active Card Scaled Up & Side Cards Dimmed + Blurred */
+        .focus-carousel-swiper {
+          overflow: visible !important;
+          padding-top: 20px !important;
+          padding-bottom: 34px !important;
+        }
+        .focus-carousel-swiper .swiper-wrapper {
+          align-items: center !important;
+        }
+        .focus-carousel-swiper .swiper-slide {
+          overflow: visible !important;
+          transition: all 0.3s ease !important;
+        }
+        .focus-carousel-card {
+          transition: transform 0.3s ease, opacity 0.3s ease, filter 0.3s ease, box-shadow 0.3s ease !important;
+          will-change: transform, opacity, filter, box-shadow;
+        }
+        .focus-carousel-swiper .swiper-slide-active {
+          z-index: 30 !important;
+        }
+        .focus-carousel-swiper .swiper-slide-active .focus-carousel-card {
+          transform: scale(1.08) !important;
+          opacity: 1 !important;
+          filter: blur(0px) !important;
+          box-shadow: 0 10px 25px rgba(0, 0, 0, 0.25) !important;
+          z-index: 30 !important;
+        }
+        .focus-carousel-swiper .swiper-slide:not(.swiper-slide-active) .focus-carousel-card {
+          transform: scale(0.88) !important;
+          opacity: 0.5 !important;
+          filter: blur(2px) !important;
+          box-shadow: none !important;
+          z-index: 10 !important;
+        }
       `}</style>
 
       {/* Background Video (Samsung One UI Softened Background) */}
@@ -688,7 +723,7 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
               grabCursor={true}
               simulateTouch={true}
               allowTouchMove={true}
-              slideToClickedSlide={false}
+              slideToClickedSlide={true}
               loop={true}
               loopPreventsSliding={false}
               loopAdditionalSlides={4}
@@ -711,15 +746,15 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
               threshold={5}
               breakpoints={{
                 320: { slidesPerView: 1.15, spaceBetween: 14, centeredSlides: true },
-                640: { slidesPerView: 2.1, spaceBetween: 16, centeredSlides: true },
-                1024: { slidesPerView: 2.8, spaceBetween: 20, centeredSlides: true },
-                1280: { slidesPerView: 3.4, spaceBetween: 22, centeredSlides: true },
-                1600: { slidesPerView: 4, spaceBetween: 24, centeredSlides: false },
+                640: { slidesPerView: 1.8, spaceBetween: 18, centeredSlides: true },
+                1024: { slidesPerView: 2.3, spaceBetween: 24, centeredSlides: true },
+                1280: { slidesPerView: 2.7, spaceBetween: 28, centeredSlides: true },
+                1600: { slidesPerView: 3.3, spaceBetween: 32, centeredSlides: true },
               }}
               coverflowEffect={{
                 rotate: 0,
                 stretch: 0,
-                depth: 25,
+                depth: 0,
                 modifier: 1,
                 slideShadows: false,
               }}
@@ -736,7 +771,7 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
                   }
                 }
               }}
-              className="w-full pb-8 px-6 sm:px-12 card-grab-cursor select-none"
+              className="focus-carousel-swiper w-full px-6 sm:px-12 card-grab-cursor select-none"
             >
               {loopedCategories.map((item) => (
                 <SwiperSlide key={item.uniqueId} className="select-none pointer-events-auto">
@@ -755,13 +790,18 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
                       style={{
                         pointerEvents: 'auto',
                         position: 'relative',
-                        zIndex: isActive ? 30 : 20,
+                        zIndex: isActive ? 30 : 10,
+                        transform: isActive ? 'scale(1.08)' : 'scale(0.88)',
+                        opacity: isActive ? 1 : 0.5,
+                        filter: isActive ? 'blur(0px)' : 'blur(2px)',
+                        boxShadow: isActive ? '0 10px 25px rgba(0,0,0,0.25)' : 'none',
+                        transition: 'all 0.3s ease',
                         touchAction: 'pan-y pinch-zoom',
                       }}
-                      className={`card-grab-cursor relative h-72 sm:h-80 lg:h-84 rounded-[2.2rem] overflow-hidden transition-all duration-300 group select-none pointer-events-auto cursor-grab active:cursor-grabbing ${
+                      className={`focus-carousel-card card-grab-cursor relative h-72 sm:h-80 lg:h-84 rounded-[2.2rem] overflow-hidden select-none pointer-events-auto cursor-grab active:cursor-grabbing ${
                         isActive
-                          ? 'scale-100 opacity-100 shadow-2xl ring-2 ring-white/30 z-30'
-                          : 'scale-95 opacity-85 blur-[0.2px] z-20'
+                          ? 'ring-2 ring-white/40'
+                          : ''
                       }`}
                     >
                       <img

@@ -22,9 +22,9 @@ import { formatAcquiredDate } from './OfficialReportModal';
 import { EditItemModal } from './EditItemModal';
 import { getWednesdaysInfoForMonth } from '../utils/wednesdayUtils';
 
-import { getItemSizes, parseSubExps, getItemSubItemsInfo, extractQuantityNumbers, getItemQuantityClassification } from '../utils/itemUtils';
+import { getItemSizes, parseSubExps, getItemSubItemsInfo, extractQuantityNumbers, getItemQuantityClassification, getRealTargetCheckValue } from '../utils/itemUtils';
 export type { SubExpItemInfo as SubExpItem } from '../utils/itemUtils';
-export { getItemSizes, parseSubExps };
+export { getItemSizes, parseSubExps, getRealTargetCheckValue };
 
 export function getDeviceTodayDateStr(): string {
   const d = new Date();
@@ -34,23 +34,32 @@ export function getDeviceTodayDateStr(): string {
   return `${year}-${month}-${day}`;
 }
 
-export function parseSubItemStatuses(weekVal: string | undefined, subCount: number): string[] {
+export function parseSubItemStatuses(weekVal: string | undefined, subQuantities: number[]): string[] {
+  const subCount = subQuantities.length;
   if (subCount <= 1) {
-    return [weekVal === '1' ? '1' : weekVal === '0' || weekVal === '✗' ? '0' : ''];
+    const target = String(subQuantities[0] || 1);
+    return [weekVal === target || weekVal === '✓' ? target : weekVal === '0' || weekVal === '✗' ? '0' : ''];
   }
   if (!weekVal || weekVal === '-') {
     return Array(subCount).fill('');
   }
   if (weekVal === '1' || weekVal === '✓') {
-    return Array(subCount).fill('1');
+    // If it's a bulk "1" or "✓", expand it using the actual target quantities!
+    return subQuantities.map(q => String(q));
   }
   if (weekVal === '0' || weekVal === '✗') {
     return Array(subCount).fill('0');
   }
   if (weekVal.includes(',')) {
     const parts = weekVal.split(',').map((p) => p.trim());
-    return Array.from({ length: subCount }, (_, i) => (parts[i] !== undefined ? parts[i] : '1'));
+    return Array.from({ length: subCount }, (_, i) => {
+      if (parts[i] !== undefined && parts[i] !== '') return parts[i];
+      // If a part is missing in a comma list, default to its target qty if the overall check is positive?
+      // Actually, just return what's there or empty.
+      return '';
+    });
   }
+  // Single value for multiple items? Treat as if all are that value or all are '1'
   return Array(subCount).fill(weekVal);
 }
 
@@ -235,6 +244,11 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
       exp?: string;
       img?: string;
       groupName: string;
+      checkType?: 'single' | 'sub_items';
+      subItems?: string[];
+      subItemQuantities?: number[];
+      subExps?: Array<{ label?: string; exp?: string; qty?: number; hasNoExp?: boolean }>;
+      unitText?: string;
     }> = [];
 
     if (!listConfig || !listConfig.groups) return itemsList;
@@ -253,7 +267,12 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
           location: item.location || groupName,
           exp: item.exp,
           img: item.img,
+          unitText: item.unitText,
           groupName,
+          checkType: item.checkType,
+          subItems: item.subItems,
+          subItemQuantities: item.subItemQuantities,
+          subExps: item.subExps,
         });
       });
     });
@@ -289,10 +308,19 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
     return filteredItems.every((item) => {
       const c = checks[item.itemKey];
       const wkVal = c?.weekVals?.[selectedWeek];
-      const subItems = getItemSizes(item);
-      if (subItems.length > 1) {
-        const subStat = parseSubItemStatuses(wkVal, subItems.length);
-        return subStat.every((s) => s === '1');
+      const classification = getItemQuantityClassification(item);
+      
+      if (classification.isType2) {
+        const subInfo = getItemSubItemsInfo(item);
+        const subStat = parseSubItemStatuses(wkVal, classification.subQuantities);
+        return subStat.every((s, idx) => {
+          const target = String(subInfo.quantities[idx] || 1);
+          return s === target;
+        });
+      }
+      if (classification.isType1) {
+        const parsed = parseInt(String(wkVal || '').replace(/\D/g, ''), 10);
+        return !isNaN(parsed) && parsed >= classification.totalQty;
       }
       return wkVal === '1' || c?.result === 'ปกติ';
     });
@@ -305,7 +333,8 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
       });
     } else {
       filteredItems.forEach((item) => {
-        onToggleCheck(item.itemKey, 'ปกติ', item.name, selectedWeek, true, '1');
+        const passVal = getRealTargetCheckValue(item);
+        onToggleCheck(item.itemKey, 'ปกติ', item.name, selectedWeek, true, passVal);
       });
     }
   };
@@ -381,7 +410,7 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
   return (
     <div className="space-y-3.5 font-['TH_Sarabun_New','Sarabun',sans-serif] pb-28 animate-in fade-in duration-300 text-slate-800">
       
-      {/* 🌟 Auto-Hiding Header Banner (Slides up on scroll down, returns on scroll up) */}
+      {/* 🌟 Auto-Hiding Header Banner (Slides up on scroll down only on mobile, stays visible 100% on desktop) */}
       <div
         style={{
           transform: isVisible ? 'translateY(0)' : 'translateY(-100%)',
@@ -391,7 +420,7 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
           overflow: isVisible ? 'visible' : 'hidden',
           marginBottom: isVisible ? '0.75rem' : '0px',
         }}
-        className="w-full z-20"
+        className="w-full z-20 md:!transform-none md:!opacity-100 md:!max-h-none md:!overflow-visible md:!mb-3.5"
       >
         {/* 🌟 Clean One UI Royal Blue Header Banner */}
         <div className="bg-gradient-to-r from-blue-600 via-blue-500 to-cyan-500 text-white p-3.5 sm:p-4 rounded-[1.8rem] border border-blue-400/30 shadow-md flex justify-between items-center flex-wrap gap-2.5">
@@ -454,7 +483,8 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
                   if (confirm('คุณต้องการทำเครื่องหมาย "ปกติ" ให้กับทุกรายการในทุกสัปดาห์ (1-5) ใช่หรือไม่?')) {
                     [1, 2, 3, 4, 5].forEach((wk) => {
                       allItems.forEach((item) => {
-                        onToggleCheck(item.itemKey, 'ปกติ', item.name, wk, true);
+                        const passVal = getRealTargetCheckValue(item);
+                        onToggleCheck(item.itemKey, 'ปกติ', item.name, wk, true, passVal);
                       });
                     });
                   }
@@ -621,10 +651,10 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
         )}
       </div>
 
-      {/* 📋 Minimalist Clean Checklist Cards */}
-      <div className="space-y-2.5">
+      {/* 📋 Clean Checklist Cards (CSS Column Layout for Seamless Desktop Masonry Flow Without Gaps) */}
+      <div className="columns-1 md:columns-2 gap-3.5 md:gap-4 [column-fill:_balance]">
         {filteredItems.length === 0 ? (
-          <div className="p-6 text-center bg-white rounded-2xl border border-slate-200 text-slate-500 text-xs shadow-xs">
+          <div className="w-full p-6 text-center bg-white rounded-2xl border border-slate-200 text-slate-500 text-xs shadow-xs mb-4">
             ไม่พบรายการอุปกรณ์ตรงตามคำค้นหา
           </div>
         ) : (
@@ -639,7 +669,7 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
             const targetTotalQty = classification.totalQty;
             const subItems = isType2 ? classification.subItems : [];
             const hasMultipleSubItems = isType2;
-            const subStatuses = parseSubItemStatuses(weekVal, subItems.length);
+            const subStatuses = parseSubItemStatuses(weekVal, classification.subQuantities);
 
             // Calculate current counted quantity for Type 1 items
             let currentCount: number | null = null;
@@ -662,12 +692,12 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
             const isCountZero = currentCount === 0 || check?.result === 'ผิดปกติ';
 
             const isOk = isType2
-              ? (weekVal ? subStatuses.every((s) => s === '1') : false)
+              ? (weekVal ? subStatuses.every((s, i) => s === String(classification.subQuantities[i] || 1)) : false)
               : isType1
               ? isCountOk
-              : (weekVal === '1' || check?.result === 'ปกติ');
+              : (weekVal === '1' || weekVal === String(classification.subQuantities[0]) || check?.result === 'ปกติ');
             const isBad = isType2
-              ? (weekVal ? subStatuses.some((s) => s === '0' || s === '✗') : false)
+              ? (weekVal ? subStatuses.some((s, i) => s === '0' || s === '✗' || (s !== '' && s !== String(classification.subQuantities[i] || 1))) : false)
               : isType1
               ? isCountZero || isCountPartial
               : (weekVal === '0' || check?.result === 'ผิดปกติ');
@@ -683,23 +713,35 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
             };
 
             // Handler for toggling single sub-item
-            const handleToggleSubItem = (idx: number, targetStatus: '1' | '0') => {
+            const handleToggleSubItem = (idx: number, targetStatus: string) => {
               const nextStatuses = [...subStatuses];
+              const subInfo = getItemSubItemsInfo(item);
+              const realTarget = String(subInfo.quantities[idx] || 1);
+              
               // If already targetStatus, toggle off/reset or keep
               if (nextStatuses[idx] === targetStatus) {
-                nextStatuses[idx] = targetStatus === '1' ? '0' : '1';
+                nextStatuses[idx] = targetStatus === realTarget ? '0' : realTarget;
               } else {
                 nextStatuses[idx] = targetStatus;
               }
-              // Fill any unselected sub-items with '1' if user has started checking
-              const cleaned = nextStatuses.map((s) => (s === '0' ? '0' : '1'));
+              
+              // Fill any unselected sub-items with their target if user has started checking
+              const cleaned = nextStatuses.map((s, i) => {
+                const subTarget = String(subInfo.quantities[i] || 1);
+                return (s === '0' || s === '✗') ? '0' : subTarget;
+              });
+              
               const combinedStr = cleaned.join(', ');
-              const hasProblem = cleaned.some((s) => s === '0');
+              const hasProblem = cleaned.some((s, i) => {
+                const subTarget = String(subInfo.quantities[i] || 1);
+                return s !== subTarget;
+              });
               onToggleCheck(item.itemKey, hasProblem ? 'ผิดปกติ' : 'ปกติ', item.name, selectedWeek, true, combinedStr);
             };
 
             const handleMasterAllOk = () => {
-              const allOk = Array(subItems.length).fill('1').join(', ');
+              const subInfo = getItemSubItemsInfo(item);
+              const allOk = subInfo.quantities.map(q => String(q)).join(', ');
               onToggleCheck(item.itemKey, 'ปกติ', item.name, selectedWeek, true, allOk);
             };
 
@@ -711,7 +753,8 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
             return (
               <div
                 key={item.itemKey}
-                className={`p-3 sm:p-3.5 rounded-2xl border transition-all duration-200 space-y-2.5 ${
+                style={{ breakInside: 'avoid' }}
+                className={`break-inside-avoid mb-3.5 md:mb-4 inline-block w-full align-top p-2.5 sm:p-3 rounded-2xl border transition-all duration-200 space-y-2 ${
                   isBad
                     ? 'bg-rose-50/70 border-rose-300 shadow-xs text-slate-900'
                     : isOk
@@ -749,7 +792,7 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
                         )}
                         {hasMultipleSubItems && (
                           <span className="text-[10px] px-2 py-0.5 rounded-md bg-purple-50 text-purple-700 font-bold border border-purple-200">
-                            {subItems.length} ชิ้นย่อย ({subStatuses.filter((s) => s === '1').length}/{subItems.length} ปกติ)
+                            {subItems.length} ชิ้นย่อย ({subStatuses.filter((s, i) => s === String(classification.subQuantities[i] || 1)).length}/{subItems.length} ปกติ)
                           </span>
                         )}
                       </div>
@@ -844,16 +887,18 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
                     {/* Sub-item Grid */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       {subItems.map((subLabel, idx) => {
+                        const subInfo = getItemSubItemsInfo(item);
+                        const subTarget = String(subInfo.quantities[idx] || 1);
                         const status = subStatuses[idx];
-                        const isSubOk = status === '1';
-                        const isSubBad = status === '0';
+                        const isSubOk = status === subTarget;
+                        const isSubBad = status === '0' || status === '✗' || (status !== '' && status !== subTarget);
                         const matchedSubExp = subExps[idx]?.date || (subExps.find((s) => s.label?.includes(subLabel))?.date) || '';
                         const isSubNoExp = !matchedSubExp || matchedSubExp === '-' || matchedSubExp.toLowerCase() === 'no exp' || !matchedSubExp.match(/^\d{4}-\d{2}-\d{2}$/);
 
                         return (
                           <div
                             key={idx}
-                            className={`p-2 rounded-xl border flex flex-col justify-between gap-1.5 transition ${
+                            className={`px-2 py-1.5 rounded-xl border flex items-center justify-between gap-2 transition ${
                               isSubBad
                                 ? 'bg-rose-50 border-rose-200'
                                 : isSubOk
@@ -861,99 +906,48 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
                                 : 'bg-slate-50 dark:bg-black/20 border-slate-200'
                             }`}
                           >
-                            <div className="flex items-center justify-between gap-1">
-                              <span className="font-bold text-xs text-slate-800 line-clamp-1" title={subLabel}>
+                            {/* Left: Sub-item name/label bold & clear */}
+                            <div className="flex items-center gap-2 min-w-0 flex-1">
+                              <span className="font-bold text-xs text-slate-800 truncate" title={subLabel}>
                                 {subLabel}
                               </span>
-                              <div className="flex items-center gap-1 shrink-0">
+                              {/* Center: EXP short label */}
+                              <span className="text-[10px] text-slate-500 hidden sm:inline truncate">
+                                {isSubNoExp ? 'No EXP' : matchedSubExp}
+                              </span>
+                            </div>
+
+                              <div className="flex items-center gap-1.5 shrink-0">
                                 <button
                                   type="button"
-                                  onClick={() => handleToggleSubItem(idx, '1')}
-                                  className={`px-2 py-1 rounded-lg text-[11px] font-bold flex items-center gap-0.5 cursor-pointer transition active:scale-95 ${
+                                  onClick={() => {
+                                    const subInfo = getItemSubItemsInfo(item);
+                                    handleToggleSubItem(idx, String(subInfo.quantities[idx] || 1));
+                                  }}
+                                  className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-0.5 cursor-pointer transition active:scale-95 ${
                                     isSubOk
                                       ? 'bg-emerald-600 text-white shadow-2xs'
                                       : 'bg-white border border-slate-300 text-slate-700 hover:bg-emerald-100'
                                   }`}
-                                  title="ตรวจแล้ว ปกติ (1)"
+                                  title={`ตรวจแล้ว ปกติ (${subTarget})`}
                                 >
-                                  <Check size={12} strokeWidth={3} />
-                                  <span>1</span>
+                                  <Check size={13} strokeWidth={3} />
+                                  <span>ผ่าน ({subTarget})</span>
                                 </button>
                                 <button
                                   type="button"
                                   onClick={() => handleToggleSubItem(idx, '0')}
-                                  className={`px-2 py-1 rounded-lg text-[11px] font-bold flex items-center gap-0.5 cursor-pointer transition active:scale-95 ${
+                                  className={`px-2 py-1 rounded-lg text-xs font-bold flex items-center gap-0.5 cursor-pointer transition active:scale-95 ${
                                     isSubBad
                                       ? 'bg-rose-600 text-white shadow-2xs'
                                       : 'bg-white border border-slate-300 text-slate-700 hover:bg-rose-100'
                                   }`}
                                   title="ตรวจแล้ว มีปัญหา/ขาด (0)"
                                 >
-                                  <X size={12} strokeWidth={3} />
-                                  <span>0</span>
+                                  <X size={13} strokeWidth={3} />
+                                  <span>ไม่ผ่าน</span>
                                 </button>
                               </div>
-                            </div>
-
-                            {/* Sub-item EXP Date Picker with No EXP toggle */}
-                            {(item.exp || subExps.length > 0 || isType2) && (
-                              <div className="flex items-center gap-1.5 pt-1 border-t border-slate-200/60 text-[10px]">
-                                <span className="text-slate-500 font-semibold shrink-0">EXP:</span>
-                                {isSubNoExp ? (
-                                  <div className="flex-1 px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 font-bold flex items-center justify-between text-[10px] border border-slate-200">
-                                    <span>{matchedSubExp || '-'}</span>
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        const newSubExps = subItems.map((lbl, i) => {
-                                          const ex = subExps[i] || subExps.find((s) => s.label?.includes(lbl));
-                                          return { label: lbl, date: ex ? ex.date : '' };
-                                        });
-                                        newSubExps[idx] = { label: subLabel, date: getDeviceTodayDateStr() };
-                                        const combined = newSubExps.map((s) => `${s.label.trim()}: ${s.date || '-'}`).join(', ');
-                                        onUpdateNote(item.itemKey, `EXP:${combined}`);
-                                      }}
-                                      className="text-[9px] text-blue-600 hover:underline cursor-pointer"
-                                    >
-                                      ใส่วันที่
-                                    </button>
-                                  </div>
-                                ) : (
-                                  <div className="flex-1 flex items-center gap-1">
-                                    <input
-                                      type="date"
-                                      value={matchedSubExp}
-                                      onChange={(e) => {
-                                        const newSubExps = subItems.map((lbl, i) => {
-                                          const ex = subExps[i] || subExps.find((s) => s.label?.includes(lbl));
-                                          return { label: lbl, date: ex ? ex.date : '' };
-                                        });
-                                        newSubExps[idx] = { label: subLabel, date: e.target.value };
-                                        const combined = newSubExps.map((s) => `${s.label.trim()}: ${s.date || '-'}`).join(', ');
-                                        onUpdateNote(item.itemKey, `EXP:${combined}`);
-                                      }}
-                                      className="flex-1 bg-white border border-slate-300 rounded px-1 py-0.5 text-[10px] text-rose-700 font-bold outline-none h-6"
-                                    />
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        const newSubExps = subItems.map((lbl, i) => {
-                                          const ex = subExps[i] || subExps.find((s) => s.label?.includes(lbl));
-                                          return { label: lbl, date: ex ? ex.date : '' };
-                                        });
-                                        newSubExps[idx] = { label: subLabel, date: '-' };
-                                        const combined = newSubExps.map((s) => `${s.label.trim()}: ${s.date || '-'}`).join(', ');
-                                        onUpdateNote(item.itemKey, `EXP:${combined}`);
-                                      }}
-                                      className="px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 text-[9px] font-bold shrink-0 transition cursor-pointer"
-                                      title="ตั้งค่าชิ้นนี้ไม่มีวันหมดอายุ (No EXP)"
-                                    >
-                                      No EXP
-                                    </button>
-                                  </div>
-                                )}
-                              </div>
-                            )}
                           </div>
                         );
                       })}
@@ -1119,18 +1113,21 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
                             <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300 block mb-1">
                               ถังที่ 1 (PSI)
                             </label>
-                            <input
-                              type="number"
-                              max="9999"
-                              maxLength={4}
-                              value={psi1}
-                              onChange={(e) => {
-                                const val = e.target.value.replace(/[^0-9]/g, '').slice(0, 4);
-                                handleUpdateO2(val, psi2);
-                              }}
-                              placeholder="เช่น 1950"
-                              className="w-full px-3 py-1.5 rounded-xl border border-slate-300 dark:border-white/10 bg-white dark:bg-black/20 text-xs font-bold text-center text-slate-900 dark:text-white outline-none focus:border-blue-500"
-                            />
+                              <div className="relative">
+                                <input
+                                  type="number"
+                                  max="9999"
+                                  maxLength={4}
+                                  value={psi1}
+                                  onChange={(e) => {
+                                    const val = e.target.value.replace(/[^0-9]/g, '').slice(0, 4);
+                                    handleUpdateO2(val, psi2);
+                                  }}
+                                  placeholder="เช่น 1950"
+                                  className="w-full px-3 py-1.5 rounded-xl border border-slate-300 dark:border-white/10 bg-white dark:bg-black/20 text-xs font-bold text-center text-slate-900 dark:text-white outline-none focus:border-blue-500"
+                                />
+                                <span className="absolute right-2 top-1.5 text-[10px] text-slate-400 font-bold">psi</span>
+                              </div>
                             {isLow1 && (
                               <span className="text-[10px] text-rose-500 font-bold block mt-1">
                                 ⚠️ ต่ำกว่า 500 PSI

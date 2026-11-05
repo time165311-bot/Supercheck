@@ -21,7 +21,7 @@ import {
   generateEmergencyPrintHtml,
 } from './EmergencyChecklistReportPreview';
 import { EquipmentReportPreview, generateEquipmentPrintHtml } from './EquipmentReportPreview';
-import { extractQuantityNumbers, getItemQuantityClassification } from '../utils/itemUtils';
+import { extractQuantityNumbers, getItemQuantityClassification, getRealTargetCheckValue } from '../utils/itemUtils';
 
 export interface OfficialReportItemRow {
   no?: string | number;
@@ -43,6 +43,7 @@ export interface OfficialReportItemRow {
   weekVals?: { [week: number]: string };
   subItemQuantities?: number[];
   subExps?: Array<{ label?: string; exp?: string; qty?: number; hasNoExp?: boolean }>;
+  unitText?: string;
 }
 
 export interface OfficialReportModalProps {
@@ -293,8 +294,8 @@ export function formatRealQuantity(qtyVal?: string | number, nameStr?: string, s
 
   // Type 2 (distinct sub-items / sizes):
   if (classification.isType2) {
-    if (subQuantities && subQuantities.length > 1) {
-      return subQuantities.join(', ');
+    if (classification.subQuantities && classification.subQuantities.length > 0) {
+      return classification.subQuantities.join(', ');
     }
     return classification.subItems.map(() => '1').join(', ');
   }
@@ -591,10 +592,11 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
       }, {} as any) : activeItems.reduce((acc, it) => {
         if (it.name) {
           const realVal = formatRealQuantity(it.qty, it.name, it.spec, it.exp, it.subItemQuantities);
+          const targetVal = getRealTargetCheckValue(it as any);
           acc[`${it.name}|${it.code || ''}`] = it.weekVals && Object.keys(it.weekVals).length > 0
             ? it.weekVals
             : {
-                [activeWeek]: it.res === 'ใช้งานได้' ? (realVal || '1') : (it.res === 'ใช้งานไม่ได้' ? '0' : '')
+                [activeWeek]: it.res === 'ใช้งานได้' ? (realVal || targetVal) : (it.res === 'ใช้งานไม่ได้' ? '0' : '')
               };
         }
         return acc;
@@ -1034,8 +1036,6 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
         <div
           ref={scrollContainerRef}
           onMouseDown={handleMouseDown}
-          onTouchStart={handleTouchStart}
-          onTouchMove={handleTouchMove}
           className="paper-viewport-area paper-scroll-viewport report-viewport-area"
           style={{
             flex: 1,
@@ -1051,7 +1051,7 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
             boxSizing: 'border-box',
             background: '#e2e8f0',
             WebkitOverflowScrolling: 'touch',
-            touchAction: 'pan-x pan-y',
+            touchAction: 'pan-x pan-y pinch-zoom',
             cursor: isFitToScreen ? 'default' : (isMouseDragging ? 'grabbing' : 'grab'),
             userSelect: isMouseDragging ? 'none' : 'auto',
           }}
@@ -1165,10 +1165,11 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
                   }, {} as any) : activeItems.reduce((acc, it) => {
                     if (it.name) {
                       const realVal = formatRealQuantity(it.qty, it.name, it.spec, it.exp, it.subItemQuantities);
+                      const targetVal = getRealTargetCheckValue(it as any);
                       // Prefer multi-week live data (it.weekVals) if available
                       acc[`${it.name}|${it.code || ''}`] = it.weekVals && Object.keys(it.weekVals).length > 0
                         ? it.weekVals
-                        : { [activeWeek]: it.res === 'ใช้งานได้' ? (realVal || '1') : (it.res === 'ใช้งานไม่ได้' ? '0' : '') };
+                        : { [activeWeek]: it.res === 'ใช้งานได้' ? (realVal || targetVal) : (it.res === 'ใช้งานไม่ได้' ? '0' : '') };
                     }
                     return acc;
                   }, {} as any)}

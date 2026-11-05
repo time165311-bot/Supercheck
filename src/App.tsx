@@ -17,6 +17,8 @@ import { EmergencyChecklistView } from './components/EmergencyChecklistView';
 import { GoogleSheetsSettings } from './components/GoogleSheetsSettings';
 import { GlobalScrollButtons } from './components/GlobalScrollButtons';
 import { AuraAssistant } from './components/AuraAssistant';
+import { getWednesdaysIsoDates, getWednesdaysInfoForMonth } from './utils/wednesdayUtils';
+import { getRealTargetCheckValue } from './utils/itemUtils';
 
 import {
   STORAGE_KEYS,
@@ -474,6 +476,12 @@ export default function App() {
     const threshold = 10;
 
     const handleScroll = () => {
+      // On desktop (>= 768px), keep navigation and headers visible 100% of the time, no auto-hide, no flicker
+      if (typeof window !== 'undefined' && window.innerWidth >= 768) {
+        setIsBottomBarVisible(true);
+        return;
+      }
+
       const winY = window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0;
       const containerY = contentRef.current ? contentRef.current.scrollTop : 0;
       const currentY = Math.max(winY, containerY);
@@ -488,18 +496,25 @@ export default function App() {
       const diff = currentY - lastY;
       if (Math.abs(diff) >= threshold) {
         if (diff > 0) {
-          // Scrolling DOWN -> Hide Header & Bottom Navigation!
+          // Scrolling DOWN -> Hide Header & Bottom Navigation on Mobile
           setIsBottomBarVisible(false);
         } else {
-          // Scrolling UP -> Show Header & Bottom Navigation!
+          // Scrolling UP -> Show Header & Bottom Navigation on Mobile
           setIsBottomBarVisible(true);
         }
         lastY = currentY;
       }
     };
 
+    const handleResize = () => {
+      if (window.innerWidth >= 768) {
+        setIsBottomBarVisible(true);
+      }
+    };
+
     window.addEventListener('scroll', handleScroll, { passive: true });
     document.addEventListener('scroll', handleScroll, { passive: true });
+    window.addEventListener('resize', handleResize, { passive: true });
     const container = contentRef.current;
     if (container) {
       container.addEventListener('scroll', handleScroll, { passive: true });
@@ -508,6 +523,7 @@ export default function App() {
     return () => {
       window.removeEventListener('scroll', handleScroll);
       document.removeEventListener('scroll', handleScroll);
+      window.removeEventListener('resize', handleResize);
       if (container) {
         container.removeEventListener('scroll', handleScroll);
       }
@@ -629,7 +645,28 @@ export default function App() {
         if (customValue !== undefined) {
           nextWeekVals[week] = customValue;
         } else {
-          const targetVal = result === 'ปกติ' ? '1' : '0';
+          // If no custom value provided, attempt to find the item to get its real target quantity
+          let targetVal = result === 'ปกติ' ? '1' : '0';
+          
+          if (result === 'ปกติ') {
+            const config = lists[categoryOrRoomId as 'bag' | 'cart'];
+            if (config && config.groups) {
+              let foundItem: EquipmentItem | undefined;
+              Object.values(config.groups).forEach(groupItems => {
+                if (foundItem) return;
+                const match = groupItems.find(it => it.id === itemKey || `${categoryOrRoomId}_${it.category}_${groupItems.indexOf(it)}` === itemKey);
+                if (match) foundItem = match;
+              });
+              
+              if (foundItem) {
+                targetVal = getRealTargetCheckValue(foundItem);
+              }
+            } else if (equipment[categoryOrRoomId]) {
+              const match = equipment[categoryOrRoomId].find(it => it.id === itemKey);
+              if (match) targetVal = getRealTargetCheckValue(match);
+            }
+          }
+
           if (isMassAction) {
             nextWeekVals[week] = targetVal;
           } else {
@@ -657,6 +694,107 @@ export default function App() {
       setStored(STORAGE_KEYS.GLOBAL_CHECKS, updatedGlobal);
       return updatedGlobal;
     });
+  };
+
+  // Aura Smart Bulk Auto-Check Engine (100% Pass with true sub-item quantities & auto-calculated Wednesdays)
+  const handleAuraBulkAutoCheck = async (params: {
+    categories: ('bag' | 'cart')[];
+    weeks: number[];
+  }) => {
+    const categories: ('bag' | 'cart')[] = params.categories.length > 0 ? params.categories : ['bag', 'cart'];
+    const wedIsoMap = getWednesdaysIsoDates(new Date());
+    const wedInfo = getWednesdaysInfoForMonth(new Date());
+    const weeks = params.weeks.length > 0 ? params.weeks : wedInfo.weeks;
+
+    // 1. Update emergencyWeekDates for requested categories
+    const nextWeekDates = { ...emergencyWeekDates };
+    categories.forEach((cat) => {
+      const catDates = { ...(nextWeekDates[cat] || {}) };
+      weeks.forEach((wk) => {
+        if (wedIsoMap[wk]) {
+          catDates[wk] = wedIsoMap[wk];
+        }
+      });
+      nextWeekDates[cat] = catDates;
+    });
+
+    setEmergencyWeekDates(nextWeekDates);
+    setStored(STORAGE_KEYS.EMER_WEEK_DATES, nextWeekDates);
+
+    // 2. Update globalChecks with true target quantities for all items
+    let totalItemsChecked = 0;
+    const nextGlobal = { ...globalChecks };
+
+    categories.forEach((cat) => {
+      const currentCatChecks = { ...(nextGlobal[cat] || {}) };
+      const groups = lists[cat]?.groups || {};
+
+      Object.entries(groups).forEach(([groupName, groupItems]) => {
+        (groupItems as EquipmentItem[]).forEach((item, idx) => {
+          const itemKey = item.id || `${cat}_${groupName}_${idx}`;
+          const existing = currentCatChecks[itemKey] || { result: '', weekVals: {} };
+          const nextWeekVals = { ...(existing.weekVals || {}) };
+
+          const realTargetVal = getRealTargetCheckValue(item);
+
+          weeks.forEach((wk) => {
+            nextWeekVals[wk] = realTargetVal;
+          });
+
+          currentCatChecks[itemKey] = {
+            ...existing,
+            result: 'ปกติ',
+            weekVals: nextWeekVals,
+          };
+          totalItemsChecked++;
+        });
+      });
+
+      nextGlobal[cat] = currentCatChecks;
+    });
+
+    setGlobalChecks(nextGlobal);
+    setStored(STORAGE_KEYS.GLOBAL_CHECKS, nextGlobal);
+
+    // 3. Save snapshot history records so PDF Export & Preview reflect immediately
+    const now = new Date();
+    const primaryCat = categories[0];
+    const primaryWeek = weeks[0] || 1;
+    const finalWeekDates = nextWeekDates[primaryCat] || {};
+
+    const itemsForSnapshot = primaryCat === 'bag' ? formattedBagItems : formattedCartItems;
+    const catTitle = primaryCat === 'bag' ? 'แบบฟอร์มตรวจสอบความพร้อม กระเป๋า Emergency' : 'แบบฟอร์มตรวจสอบความพร้อม รถ Emergency';
+    const newRecord: InspectionHistoryRecord = {
+      id: `${primaryCat}_wk${primaryWeek}_${Date.now()}`,
+      timestamp: new Date().toLocaleString('th-TH'),
+      date: now.toISOString().split('T')[0],
+      type: primaryCat,
+      title: `${catTitle} (สัปดาห์ที่ ${primaryWeek})`,
+      who: currentUser?.name || 'ผู้ดูแลระบบ (Admin)',
+      rows: itemsForSnapshot.map((it) => {
+        const rowObj: any = {
+          ...it,
+          val: getRealTargetCheckValue(it as any),
+          res: 'ใช้งานได้',
+          weekVals: it.weekVals || {},
+        };
+        return rowObj;
+      }),
+      weekDates: finalWeekDates,
+    };
+
+    setHistoryRecords((prev) => [newRecord, ...prev].slice(0, 50));
+    saveInspectionToFirebase(newRecord).catch((e) => console.warn('Firebase history save error:', e));
+
+    return {
+      success: true,
+      categories,
+      weeks,
+      datesFormatted: wedInfo.dates,
+      totalItemsChecked,
+      primaryCategory: primaryCat,
+      primaryWeek,
+    };
   };
 
   // Update Note for Defective Item
@@ -1063,6 +1201,7 @@ export default function App() {
           source: it.source || 'เงินบำรุง',
           date: it.date || '-',
           qty: it.qty || 1,
+          unitText: it.unitText,
           tax: it.tax || 7,
           price: it.price || '-',
           location: r.n,
@@ -1091,12 +1230,13 @@ export default function App() {
           spec: it.spec || '',
           name: it.name,
           qty: it.qty || 1,
+          unitText: it.unitText,
           exp: st?.exp || it.exp || '-',
           group: groupName,
           location: `กระเป๋าฉุกเฉิน (${groupName})`,
           res: isBad ? 'ใช้งานไม่ได้' : 'ใช้งานได้',
           note: st?.note || '',
-          val: st?.val || '',
+          val: st?.val || (st?.result === 'ปกติ' ? getRealTargetCheckValue(it) : ''),
           weekVals: st?.weekVals || {},
         };
         if (it.subItemQuantities && it.subItemQuantities.length > 0) {
@@ -1128,12 +1268,13 @@ export default function App() {
           spec: it.spec || '',
           name: it.name,
           qty: it.qty || 1,
+          unitText: it.unitText,
           exp: st?.exp || it.exp || '-',
           group: groupName,
           location: `รถฉุกเฉิน (${groupName})`,
           res: isBad ? 'ใช้งานไม่ได้' : 'ใช้งานได้',
           note: st?.note || '',
-          val: st?.val || '',
+          val: st?.val || (st?.result === 'ปกติ' ? getRealTargetCheckValue(it) : ''),
           weekVals: st?.weekVals || {},
         };
         if (it.subItemQuantities && it.subItemQuantities.length > 0) {
@@ -1238,7 +1379,7 @@ export default function App() {
         rows: items.map(it => {
           const rowObj: any = {
             ...it,
-            val: it.res === 'ใช้งานได้' ? '✓' : '-',
+            val: it.res === 'ใช้งานได้' ? getRealTargetCheckValue(it as any) : '-',
             weekVals: it.weekVals || {} // Snapshot ALL weeks' values
           };
           if (rowObj.subItemQuantities === undefined) delete rowObj.subItemQuantities;
@@ -2007,6 +2148,33 @@ export default function App() {
         stats={overallStats}
         onAddItem={(type, newItem) => handleAddItem(type, newItem)}
         onDeleteItem={(type, key) => handleDeleteItem(type, key)}
+        onBulkAutoCheck={handleAuraBulkAutoCheck}
+        onOpenReportModal={(category, week) => {
+          const targetCat = category || 'bag';
+          setReportCategory(targetCat);
+          if (week) {
+            setReportInitialWeek(week);
+          }
+          if (emergencyWeekDates[targetCat]) {
+            setReportInitialWeekDates(emergencyWeekDates[targetCat]);
+          }
+          setIsOfficialReportOpen(true);
+        }}
+        onNavigate={(view, category) => {
+          if (view === 'room_check') {
+            setSelectedRoomId('or1');
+            setActiveCategory('equipment');
+          } else if (view === 'bag_check') {
+            setActiveCategory('bag');
+          } else if (view === 'cart_check') {
+            setActiveCategory('cart');
+          } else if (view === 'drug_check') {
+            setActiveCategory('medicine');
+          } else if (category) {
+            setActiveCategory(category);
+          }
+          setCurrentView(view as any);
+        }}
         isDarkMode={isDark}
         isBottomBarVisible={shouldShowBottomBar}
         isAnyModalOpen={isAnyModalActive || isKeyboardOpen || !shouldShowBottomBar}

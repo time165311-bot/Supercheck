@@ -14,7 +14,7 @@ import { getMonthAndYearThai } from './DrugInventoryReportPreview';
 import { Calendar, User as UserIcon } from 'lucide-react';
 import { User } from '../types';
 import { getWednesdaysInfoForMonth } from '../utils/wednesdayUtils';
-import { getItemQuantityClassification } from '../utils/itemUtils';
+import { getItemQuantityClassification, getRealTargetCheckValue } from '../utils/itemUtils';
 
 export function getWeekOfMonth(dateStr?: string): number {
   if (!dateStr) return 1;
@@ -497,14 +497,23 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
 
                       let displayVal = '-';
                       if (customVal !== undefined && customVal !== '') {
-                        displayVal = formatStrictCountableNumbers(customVal);
+                        displayVal = String(customVal);
                       } else if (itemWeekVal !== undefined && itemWeekVal !== '') {
-                        displayVal = formatStrictCountableNumbers(itemWeekVal);
+                        displayVal = String(itemWeekVal);
                       } else if (currentWeek === w) {
                         if (item.val && item.val !== '✓') {
-                          displayVal = formatStrictCountableNumbers(item.val);
+                          displayVal = String(item.val);
                         } else if (isOk) {
-                          displayVal = classification.isType1 ? String(classification.totalQty) : formatStrictCountableNumbers(realCheckVal || item.qty || '1');
+                          if (classification.isType1) {
+                            displayVal = String(classification.totalQty);
+                          } else if (item.subItemQuantities && item.subItemQuantities.length > 1) {
+                            displayVal = item.subItemQuantities.join(', ');
+                          } else if ((item as any).subItemQuantities && (item as any).subItemQuantities.length > 1) {
+                            displayVal = (item as any).subItemQuantities.join(', ');
+                          } else {
+                            const targetVal = getRealTargetCheckValue(item as any);
+                            displayVal = String(realCheckVal || item.qty || targetVal);
+                          }
                         } else if (isBad) {
                           displayVal = '✗';
                         } else if (isMiss) {
@@ -513,7 +522,14 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
                       }
 
                       // Type 1 vs Type 2 formatting guarantee
-                      if (classification.isType1) {
+                      if (classification.isType2) {
+                        // Normalize generic/default states (like '1, 1' or '✓') to real target quantities if all sub-items are satisfied
+                        const parts = displayVal.split(',').map((p) => p.trim());
+                        const isGeneric = parts.every(p => p === '1' || p === '✓' || p === '-' || p === '');
+                        if (isOk || isGeneric) {
+                           displayVal = classification.subQuantities.join(', ');
+                        }
+                      } else if (classification.isType1) {
                         if (displayVal.includes(',')) {
                           const parts = displayVal.split(',').map((p) => p.trim());
                           const validCount = parts.filter((p) => p === '1' || p === '✓' || parseInt(p, 10) > 0).length;
@@ -521,10 +537,13 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
                         } else if ((displayVal === '1' || displayVal === '✓') && isOk) {
                           displayVal = String(classification.totalQty);
                         }
-                      } else if (classification.isType2) {
-                        if (displayVal === '1' || displayVal === '✓') {
-                          displayVal = classification.subItems.map(() => '1').join(', ');
-                        }
+                      }
+
+                      const isO2Tank = (item.name?.toLowerCase().includes('tank') || item.name?.includes('ถัง')) &&
+                        (item.name?.toLowerCase().includes('o2') || item.name?.toLowerCase().includes('oxygen') || item.name?.includes('ออกซิเจน'));
+                      
+                      if (isO2Tank && displayVal !== '-' && displayVal !== '' && displayVal !== '?' && displayVal !== '✗') {
+                         displayVal = displayVal.split(',').map(p => p.trim() + ' psi').join(', ');
                       }
 
                       const isValBad = displayVal === '✗' || displayVal.toLowerCase() === 'fail' || (displayVal.toLowerCase().includes('psi') && parseInt(displayVal.replace(/\D/g, ''), 10) < 500);
@@ -802,14 +821,22 @@ export function generateEmergencyPrintHtml(
 
               let displayVal = '-';
               if (customVal !== undefined && customVal !== '') {
-                displayVal = formatStrictCountableNumbers(customVal);
+                displayVal = String(customVal);
               } else if (itemWeekVal !== undefined && itemWeekVal !== '') {
-                displayVal = formatStrictCountableNumbers(itemWeekVal);
+                displayVal = String(itemWeekVal);
               } else if (activeWeek === w) {
                 if (item.val && item.val !== '✓') {
-                  displayVal = formatStrictCountableNumbers(item.val);
+                  displayVal = String(item.val);
                 } else if (isOk) {
-                  displayVal = classification.isType1 ? String(classification.totalQty) : formatStrictCountableNumbers(realCheckVal || item.qty || '1');
+                  if (classification.isType1) {
+                    displayVal = String(classification.totalQty);
+                  } else if (item.subItemQuantities && item.subItemQuantities.length > 1) {
+                    displayVal = item.subItemQuantities.join(', ');
+                  } else if ((item as any).subItemQuantities && (item as any).subItemQuantities.length > 1) {
+                    displayVal = (item as any).subItemQuantities.join(', ');
+                  } else {
+                    displayVal = String(realCheckVal || item.qty || '1');
+                  }
                 } else if (isBad) {
                   displayVal = '✗';
                 } else if (isMiss) {
@@ -818,7 +845,14 @@ export function generateEmergencyPrintHtml(
               }
 
               // Type 1 vs Type 2 formatting guarantee
-              if (classification.isType1) {
+              if (classification.isType2) {
+                // Normalize generic/default states (like '1, 1' or '✓') to real target quantities if all sub-items are satisfied
+                const parts = displayVal.split(',').map((p) => p.trim());
+                const isGeneric = parts.every(p => p === '1' || p === '✓' || p === '-' || p === '');
+                if (isOk || isGeneric) {
+                  displayVal = classification.subQuantities.join(', ');
+                }
+              } else if (classification.isType1) {
                 if (displayVal.includes(',')) {
                   const parts = displayVal.split(',').map((p) => p.trim());
                   const validCount = parts.filter((p) => p === '1' || p === '✓' || parseInt(p, 10) > 0).length;
@@ -826,10 +860,13 @@ export function generateEmergencyPrintHtml(
                 } else if ((displayVal === '1' || displayVal === '✓') && isOk) {
                   displayVal = String(classification.totalQty);
                 }
-              } else if (classification.isType2) {
-                if (displayVal === '1' || displayVal === '✓') {
-                  displayVal = classification.subItems.map(() => '1').join(', ');
-                }
+              }
+
+              const isO2Tank = (item.name?.toLowerCase().includes('tank') || item.name?.includes('ถัง')) &&
+                (item.name?.toLowerCase().includes('o2') || item.name?.toLowerCase().includes('oxygen') || item.name?.includes('ออกซิเจน'));
+              
+              if (isO2Tank && displayVal !== '-' && displayVal !== '' && displayVal !== '?' && displayVal !== '✗') {
+                  displayVal = displayVal.split(',').map(p => p.trim() + ' psi').join(', ');
               }
 
               const isValBad = displayVal === '✗' || displayVal.toLowerCase() === 'fail' || (displayVal.toLowerCase().includes('psi') && parseInt(displayVal.replace(/\D/g, ''), 10) < 500);

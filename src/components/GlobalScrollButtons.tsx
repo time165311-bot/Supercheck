@@ -52,16 +52,11 @@ export const GlobalScrollButtons: React.FC<GlobalScrollButtonsProps> = ({
     <div
       style={{
         position: 'fixed',
-        right: '24px',
-        bottom: isBottomBarVisible ? '152px' : '88px',
-        zIndex: 45,
-        transition: 'opacity 0.2s ease, bottom 0.25s ease',
-        willChange: 'opacity',
+        right: '16px',
+        bottom: '80px',
+        zIndex: 99,
       }}
-      className={`flex flex-col gap-2 items-center select-none ${
-        showButtons ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
-      }`}
-      aria-hidden={!showButtons}
+      className="flex flex-col gap-2 items-center select-none pointer-events-auto"
     >
       {/* 1. ปุ่ม [↑] (Scroll to Top) - Minimal Clean Circular Icon */}
       <button
