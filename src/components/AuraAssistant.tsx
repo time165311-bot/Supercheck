@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { speakWithAura, stopSpeech } from '../utils/textToSpeech';
 import { getWednesdaysInfoForMonth, getWeekOfMonth } from '../utils/wednesdayUtils';
+import { useDataContext } from '../context/DataContext';
 
 interface AuraAssistantProps {
   equipment?: Record<string, any[]>;
@@ -90,6 +91,7 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
   isBottomBarVisible = true,
   isAnyModalOpen = false,
 }) => {
+  const { channels, activeChannel, setActiveChannelId, addChannel } = useDataContext();
   const [isOpen, setIsOpen] = useState(false);
   const [isAnimating, setIsAnimating] = useState(false);
   const [inputMessage, setInputMessage] = useState('');
@@ -287,13 +289,40 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
   const processCommand = async (rawQuery: string) => {
     const query = rawQuery.trim();
     if (!query) return;
+    const q = query.toLowerCase();
 
     addMessage('user', query);
     setInputMessage('');
     setIsLoading(true);
 
     try {
-      const q = query.toLowerCase();
+      // -------------------------------------------------------------
+      // 0. CHANNEL / WARD SWITCHING AND CREATION COMMANDS
+      // -------------------------------------------------------------
+      if (q.includes('channel') || q.includes('แชนแนล') || q.includes('วอร์ด')) {
+        if (q.includes('สลับ') || q.includes('เลือก') || q.includes('เปลี่ยน') || q.includes('ไป')) {
+          const matched = channels.find((c) =>
+            q.includes(c.name.toLowerCase()) ||
+            c.name.toLowerCase().includes(q.replace(/(สลับไป|สลับ|เปลี่ยนไป|เปลี่ยน|เลือก|channel|แชนแนล|วอร์ด|น้องออร่า)/gi, '').trim())
+          );
+          if (matched) {
+            setActiveChannelId(matched.id);
+            addMessage('ai', `✨ น้องออร่าสลับไปยัง Channel "${matched.name}" เรียบร้อยแล้วค่ะ! ข้อมูลการตรวจเช็กและตารางจะปรับเป็นของวอร์ดนี้ทันทีค่ะ 🏥`);
+            setIsLoading(false);
+            return;
+          }
+        }
+
+        if (q.includes('สร้าง') || q.includes('เพิ่ม')) {
+          const rawName = query.replace(/(น้องออร่า|สร้าง|เพิ่ม|channel|แชนแนล|วอร์ด|ใหม่|ชื่อ)/gi, '').trim();
+          if (rawName) {
+            const created = addChannel(rawName, true);
+            addMessage('ai', `✨ น้องออร่าสร้าง Channel "${created.name}" เรียบร้อยแล้วค่ะ! พร้อมเปิดใช้งานและตรวจเช็กวอร์ดนี้ได้ทันทีค่ะ 🎉`);
+            setIsLoading(false);
+            return;
+          }
+        }
+      }
 
       // -------------------------------------------------------------
       // 1. MULTI-TURN CLARIFICATION (ADDING / DELETING CONFIRMATION)

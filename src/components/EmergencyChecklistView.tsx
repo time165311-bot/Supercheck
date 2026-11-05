@@ -475,6 +475,23 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
               <span>{areAllPassed ? `ยกเลิกตรวจ (W${selectedWeek})` : `ตรวจผ่านทั้งหมด (W${selectedWeek})`}</span>
             </button>
 
+            {/* Clear All Checks Button */}
+            <button
+              type="button"
+              onClick={() => {
+                if (confirm(`คุณต้องการล้างค่าผลการตรวจเช็กทั้งหมดในสัปดาห์ที่ ${selectedWeek} ใช่หรือไม่?`)) {
+                  allItems.forEach((item) => {
+                    onToggleCheck(item.itemKey, 'ปกติ', item.name, selectedWeek, true, '');
+                  });
+                }
+              }}
+              className="px-3 py-2 rounded-xl bg-slate-100 dark:bg-white/10 hover:bg-rose-50 hover:text-rose-600 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-white/10 font-bold text-xs transition flex items-center gap-1 cursor-pointer active:scale-95"
+              title={`ล้างค่าการตรวจเช็กทั้งหมดสำหรับสัปดาห์ที่ ${selectedWeek}`}
+            >
+              <span>🧹</span>
+              <span>ล้างค่า (W{selectedWeek})</span>
+            </button>
+
             {/* Render 5-Week Pass Button ONLY if totalWeeksInMonth === 5 */}
             {totalWeeksInMonth === 5 && (
               <button

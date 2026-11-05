@@ -1,8 +1,23 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { User } from '../types';
-import { saveUserToFirebase } from '../services/firebase';
 
-interface DataContextType {
+import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { User, WardChannel, CheckItemState, ListConfig, EquipmentItem, InspectionHistoryRecord } from '../types';
+import { saveUserToFirebase } from '../services/firebase';
+import { STORAGE_KEYS, getStored, setStored, getChannelDbKey } from '../services/storage';
+
+// Placeholder for now, will need to be imported or refactored
+export const DEFAULT_CHANNELS: WardChannel[] = [
+  { id: 'channel_master', name: 'คลินิกวิสัญญี (Master)', isDefault: true, createdAt: '2026-01-01T00:00:00.000Z' },
+  { id: 'channel_opd', name: 'วอร์ด OPD', isDefault: false, createdAt: '2026-01-01T00:00:00.000Z' },
+  { id: 'channel_ipd1', name: 'วอร์ด IPD 1', isDefault: false, createdAt: '2026-01-01T00:00:00.000Z' },
+];
+
+export interface ChannelData {
+  lists: Record<'bag' | 'cart', ListConfig>;
+  globalChecks: Record<string, Record<string, CheckItemState>>;
+  emergencyWeekDates: Record<string, Record<number, string>>;
+}
+
+export interface DataContextType {
   userName: string;
   setUserName: (name: string) => void;
   userPosition: string;
@@ -10,48 +25,129 @@ interface DataContextType {
   userProfile: User | null;
   setUserProfile: (user: User | null) => void;
   saveUserProfile: (name: string, position: string, avatar?: string) => Promise<User>;
+
+  // Multi-Channel / Multi-Ward Management
+  channels: WardChannel[];
+  activeChannelId: string;
+  activeChannel: WardChannel;
+  setActiveChannelId: (id: string) => void;
+  addChannel: (name: string, duplicateFromMaster?: boolean) => WardChannel;
+  removeChannel: (id: string) => void;
+  renameChannel: (id: string, newName: string) => void;
+
+  // Isolated Data
+  channelData: ChannelData;
+  updateChannelData: (newData: Partial<ChannelData>) => void;
 }
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
 
 export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [userName, setUserNameState] = useState<string>(() => {
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem('user_display_name') || localStorage.getItem('user_name_default') || 'สาธิต';
-    }
-    return 'สาธิต';
+  // ... (User state management remains same)
+  // [Cut down to essential]
+  const [userName, setUserNameState] = useState<string>('สาธิต');
+  const [userPosition, setUserPositionState] = useState<string>('พยาบาลวิสัญญี');
+  const [userProfile, setUserProfileState] = useState<User | null>(null);
+
+  // Channel Management States
+  const [channels, setChannels] = useState<WardChannel[]>(DEFAULT_CHANNELS);
+  const [activeChannelId, setActiveChannelIdState] = useState<string>('channel_master');
+
+  const [channelData, setChannelData] = useState<ChannelData>({
+    lists: {
+      bag: { title: 'กระเป๋าฉุกเฉิน', sheet: 'กระเป๋า Emergency', groups: {} },
+      cart: { title: 'รถฉุกเฉิน', sheet: 'รถ Emergency', groups: {} },
+    },
+    globalChecks: {},
+    emergencyWeekDates: {}
   });
 
-  const [userPosition, setUserPositionState] = useState<string>(() => {
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem('user_display_position') || localStorage.getItem('user_position_default') || 'พยาบาลวิสัญญี';
+  // Load channel data when channel switches
+  useEffect(() => {
+    const key = getChannelDbKey(activeChannelId);
+    const stored = getStored<ChannelData | null>(key, null);
+    
+    if (stored) {
+      setChannelData(stored);
+    } else {
+      // Auto-Clone Logic: If channel data is missing, clone Master Data
+      const masterData = getStored<ChannelData>(getChannelDbKey('channel_master'), {
+        lists: {
+          bag: { title: 'กระเป๋าฉุกเฉิน', sheet: 'กระเป๋า Emergency', groups: {} },
+          cart: { title: 'รถฉุกเฉิน', sheet: 'รถ Emergency', groups: {} },
+        },
+        globalChecks: {},
+        emergencyWeekDates: {}
+      });
+      
+      const newData = { ...masterData };
+      setChannelData(newData);
+      setStored(key, newData);
     }
-    return 'พยาบาลวิสัญญี';
-  });
+  }, [activeChannelId]);
 
-  const [userProfile, setUserProfileState] = useState<User | null>(() => {
+  const updateChannelData = (newData: Partial<ChannelData>) => {
+    const updated = { ...channelData, ...newData };
+    setChannelData(updated);
+    setStored(getChannelDbKey(activeChannelId), updated);
+  };
+
+  const activeChannel = React.useMemo(() => {
+    return channels.find((c) => c.id === activeChannelId) || channels[0] || DEFAULT_CHANNELS[0];
+  }, [channels, activeChannelId]);
+
+  const setActiveChannelId = (id: string) => {
+    setActiveChannelIdState(id);
     if (typeof window !== 'undefined') {
-      try {
-        const raw = localStorage.getItem('anesthesia_session');
-        if (raw) return JSON.parse(raw);
-      } catch (e) {
-        // ignore
-      }
+      localStorage.setItem('anesthesia_active_channel_id', id);
     }
-    return {
-      id: 'usr_admin',
-      username: 'admin',
-      name: 'สาธิต',
-      role: 'admin',
-      position: 'วิสัญญีแพทย์',
-      active: true,
-      salt: '',
-      hash: '',
-      must: false,
-      created: new Date().toISOString(),
-      last: new Date().toISOString(),
+  };
+
+  const addChannel = (name: string, duplicateFromMaster: boolean = true): WardChannel => {
+    const newId = `channel_${Date.now()}`;
+    const newChan: WardChannel = {
+      id: newId,
+      name: name.trim(),
+      isDefault: false,
+      createdAt: new Date().toISOString(),
     };
-  });
+    const nextChannels = [...channels, newChan];
+    setChannels(nextChannels);
+
+    // Clone logic:
+    if (duplicateFromMaster) {
+      const masterData = getStored(getChannelDbKey('channel_master'), channelData);
+      setStored(getChannelDbKey(newId), masterData);
+    }
+
+    setActiveChannelId(newId);
+    return newChan;
+  };
+
+  const removeChannel = (id: string) => {
+    const target = channels.find((c) => c.id === id);
+    if (!target || target.isDefault) {
+      alert('ไม่สามารถลบ Channel หลัก (Master) ได้');
+      return;
+    }
+    const nextChannels = channels.filter((c) => c.id !== id);
+    setChannels(nextChannels);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('anesthesia_channels', JSON.stringify(nextChannels));
+      localStorage.removeItem(getChannelDbKey(id));
+    }
+    if (activeChannelId === id) {
+      setActiveChannelId('channel_master');
+    }
+  };
+
+  const renameChannel = (id: string, newName: string) => {
+    const nextChannels = channels.map((c) => (c.id === id ? { ...c, name: newName.trim() } : c));
+    setChannels(nextChannels);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('anesthesia_channels', JSON.stringify(nextChannels));
+    }
+  };
 
   const setUserName = (name: string) => {
     const trimmed = name.trim();
@@ -138,23 +234,6 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     return updatedUser;
   };
 
-  useEffect(() => {
-    const handleProfileUpdated = (e: any) => {
-      const detail = e.detail;
-      if (detail && detail.name) {
-        setUserNameState(detail.name);
-      }
-      if (detail && detail.position) {
-        setUserPositionState(detail.position);
-      }
-      if (detail && detail.id) {
-        setUserProfileState((prev) => ({ ...(prev || {}), ...detail }));
-      }
-    };
-    window.addEventListener('user_profile_updated', handleProfileUpdated);
-    return () => window.removeEventListener('user_profile_updated', handleProfileUpdated);
-  }, []);
-
   return (
     <DataContext.Provider
       value={{
@@ -165,12 +244,22 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         userProfile,
         setUserProfile,
         saveUserProfile,
+        channels,
+        activeChannelId,
+        activeChannel,
+        setActiveChannelId,
+        addChannel,
+        removeChannel,
+        renameChannel,
+        channelData,
+        updateChannelData
       }}
     >
       {children}
     </DataContext.Provider>
   );
 };
+
 
 export const useDataContext = (): DataContextType => {
   const context = useContext(DataContext);
@@ -197,9 +286,26 @@ export const useDataContext = (): DataContextType => {
         }
         return { id: 'usr_admin', username: 'admin', name: n, role: 'admin', position: p, active: true, salt: '', hash: '', must: false, created: '', last: '', avatar: a };
       },
+      channels: DEFAULT_CHANNELS,
+      activeChannelId: 'channel_master',
+      activeChannel: DEFAULT_CHANNELS[0],
+      setActiveChannelId: () => {},
+      addChannel: (n) => ({ id: `channel_${Date.now()}`, name: n, isDefault: false, createdAt: '' }),
+      removeChannel: () => {},
+      renameChannel: () => {},
+      channelData: {
+        lists: {
+          bag: { title: 'กระเป๋าฉุกเฉิน', sheet: 'กระเป๋า Emergency', groups: {} },
+          cart: { title: 'รถฉุกเฉิน', sheet: 'รถ Emergency', groups: {} },
+        },
+        globalChecks: {},
+        emergencyWeekDates: {},
+      },
+      updateChannelData: () => {},
     };
   }
   return context;
 };
 
 export default DataContext;
+

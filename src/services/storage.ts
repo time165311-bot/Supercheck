@@ -28,7 +28,26 @@ export const STORAGE_KEYS = {
   DRUGS: 'anesthesia_drug_inventory',
   HISTORY: 'inspection_history',
   ACCENT_COLOR: 'anesthesia_accent_color',
+  CHANNELS: 'anesthesia_channels',
+  ACTIVE_CHANNEL_ID: 'anesthesia_active_channel_id',
 };
+
+export function getChannelDbKey(channelId: string): string {
+  if (!channelId || channelId === 'channel_master') return 'server_db_master_data';
+  return `server_db_${channelId}_data`;
+}
+
+export function getChannelListsKey(channelId: string): string {
+  return `server_db_${channelId}_lists`;
+}
+
+export function getChannelChecksKey(channelId: string): string {
+  return `server_db_${channelId}_checks`;
+}
+
+export function getChannelWeekDatesKey(channelId: string): string {
+  return `server_db_${channelId}_week_dates`;
+}
 
 export function getStored<T>(key: string, defaultValue: T): T {
   try {

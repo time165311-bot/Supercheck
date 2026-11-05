@@ -5,10 +5,12 @@ interface GlobalScrollButtonsProps {
   onNavigateHome?: () => void;
   showHomeButton?: boolean;
   isBottomBarVisible?: boolean;
+  isAnyModalOpen?: boolean;
 }
 
 export const GlobalScrollButtons: React.FC<GlobalScrollButtonsProps> = ({
   isBottomBarVisible = true,
+  isAnyModalOpen = false,
 }) => {
   const [showButtons, setShowButtons] = useState(false);
 
@@ -33,6 +35,8 @@ export const GlobalScrollButtons: React.FC<GlobalScrollButtonsProps> = ({
       window.removeEventListener('scroll', handleScroll);
     };
   }, []);
+
+  if (isAnyModalOpen) return null;
 
   const scrollToTop = () => {
     window.scrollTo({

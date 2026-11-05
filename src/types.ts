@@ -17,6 +17,13 @@ export interface User {
   ringColor?: string;
 }
 
+export interface WardChannel {
+  id: string;
+  name: string;
+  isDefault?: boolean;
+  createdAt: string;
+}
+
 export interface EquipmentItem {
   id?: string;
   name: string;

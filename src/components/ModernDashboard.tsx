@@ -9,17 +9,14 @@ import {
   XCircle,
   Sun,
   Moon,
-  Menu,
   User as UserIcon,
-  FileText,
-  FileSpreadsheet,
 } from 'lucide-react';
 import { CheckItemState, DrugItem, EquipmentItem, ExpiryAlertItem, ListConfig, User } from '../types';
 import { categoryCovers } from '../assets/categoryCovers';
 import operatingRoomBg from '../assets/images/modern_operating_room_1793107748862.jpg';
 import { Swiper, SwiperSlide } from 'swiper/react';
 import { EffectCoverflow, Pagination } from 'swiper/modules';
-// AiInsightsWidget removed - consolidated into AuraAssistant
+import { useDataContext } from '../context/DataContext';
 
 // Import Swiper styles
 import 'swiper/css';
@@ -46,6 +43,7 @@ interface ModernDashboardProps {
   onOpenMenu?: () => void;
   onOpenReport?: () => void;
   onOpenSheets?: () => void;
+  onOpenChannelSelector?: () => void;
   onToggleCheck?: (categoryOrRoomId: string, itemKey: string, result: 'ปกติ' | 'ผิดปกติ', itemName: string) => void;
   onUpdateNote?: (categoryOrRoomId: string, itemKey: string, note: string) => void;
   onZoomImage?: (url: string) => void;
@@ -78,8 +76,10 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
   onOpenMenu,
   onOpenReport,
   onOpenSheets,
+  onOpenChannelSelector,
   overallStats,
 }) => {
+  const { activeChannel } = useDataContext();
   const isDarkMode = theme ? theme === 'dark' : true;
   const swiperRef = React.useRef<any>(null);
 
@@ -520,7 +520,7 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
           <div className="absolute -top-12 -right-12 w-48 h-48 bg-cyan-300/30 rounded-full blur-3xl pointer-events-none animate-pulse" />
           <div className="absolute -bottom-10 -left-10 w-44 h-44 bg-blue-300/30 rounded-full blur-3xl pointer-events-none animate-pulse" />
 
-          {/* Top Row: Title + User Profile + Menu + Notifications + Theme Toggle */}
+          {/* Top Row: Title + User Profile + Notifications + Theme Toggle */}
           <div className="flex flex-wrap sm:flex-nowrap justify-between items-center relative z-10 gap-3">
             {/* Title / Brand & User Profile Badge */}
             <div className="flex items-center gap-3 shrink-0 flex-wrap">
@@ -550,43 +550,8 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
               )}
             </div>
 
-            {/* Controls Right: 1. [ รายงาน ] 2. [ ชีต ] 3. [ เมนู ] */}
-            <div className="flex items-center gap-2 flex-wrap shrink-0">
-              {/* 1. รายงาน (Leftmost) */}
-              <button
-                type="button"
-                onClick={onOpenReport || (() => onNavigate('room_check'))}
-                title="เปิดรายงานสรุปประจำวัน & พรีวิว PDF"
-                className="text-xs px-3.5 py-2 rounded-full font-bold border border-white/30 bg-white/20 hover:bg-white/30 text-white flex items-center gap-1.5 cursor-pointer transition active:scale-95 shadow-sm backdrop-blur-md"
-              >
-                <FileText size={15} />
-                <span>รายงาน</span>
-              </button>
-
-              {/* 2. ชีต (Next to รายงาน) */}
-              <button
-                type="button"
-                onClick={onOpenSheets || onOpenDrawer || onOpenMenu}
-                title="ตั้งค่าการเชื่อมต่อ Google Sheets"
-                className="text-xs px-3.5 py-2 rounded-full font-bold border border-white/30 bg-white/20 hover:bg-white/30 text-white flex items-center gap-1.5 cursor-pointer transition active:scale-95 shadow-sm backdrop-blur-md"
-              >
-                <FileSpreadsheet size={15} className="text-emerald-300" />
-                <span>ชีต</span>
-              </button>
-
-              {/* 3. เมนู (Rightmost, next to ชีต) */}
-              {(onOpenDrawer || onOpenMenu) && (
-                <button
-                  type="button"
-                  onClick={onOpenMenu || onOpenDrawer}
-                  title="เปิดเมนูตั้งค่าและจัดการ"
-                  className="text-xs px-3.5 py-2 rounded-full font-bold border border-white/30 bg-white/20 hover:bg-white/30 text-white flex items-center gap-1.5 cursor-pointer transition active:scale-95 shadow-sm backdrop-blur-md"
-                >
-                  <Menu size={16} />
-                  <span>เมนู</span>
-                </button>
-              )}
-
+            {/* Controls Right: Notifications & Theme Toggle */}
+            <div className="flex items-center gap-2 shrink-0">
               {/* Notifications Bell */}
               {onOpenNotifications && (
                 <button
@@ -613,6 +578,38 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
                 </button>
               )}
             </div>
+          </div>
+
+          {/* 📍 Embedded Ward Channel Selector Box inside Header Card */}
+          <div className="relative z-10 w-full p-3 sm:p-3.5 rounded-[1.3rem] border border-white/25 bg-black/20 text-white backdrop-blur-md flex flex-wrap items-center justify-between gap-2.5 shadow-inner">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-8 h-8 rounded-xl bg-cyan-400/20 text-cyan-300 border border-cyan-300/30 flex items-center justify-center font-bold text-xs shrink-0 backdrop-blur-xs">
+                📍
+              </div>
+              <div className="min-w-0">
+                <div className="text-[10px] font-bold text-cyan-200/90 uppercase tracking-wider truncate">
+                  CHANNEL / วอร์ดที่กำลังตรวจเช็ก
+                </div>
+                <div className="text-sm font-extrabold text-white flex items-center gap-2 truncate drop-shadow-xs">
+                  <span className="truncate">{activeChannel?.name || 'คลินิกวิสัญญี (Master)'}</span>
+                  {activeChannel?.isDefault && (
+                    <span className="px-2 py-0.5 rounded-md bg-amber-400/90 text-amber-950 text-[9px] font-black shrink-0 shadow-xs">
+                      Master
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {onOpenChannelSelector && (
+              <button
+                type="button"
+                onClick={onOpenChannelSelector}
+                className="px-3.5 py-1.5 rounded-xl bg-white/20 hover:bg-white/30 text-white text-xs font-bold transition flex items-center gap-1.5 border border-white/30 cursor-pointer active:scale-95 shadow-sm backdrop-blur-md shrink-0"
+              >
+                <span>🔄 สลับ / เพิ่ม Channel</span>
+              </button>
+            )}
           </div>
 
           {/* Weather Squircle Widget (Pure White Text & Clean Backdrop) */}

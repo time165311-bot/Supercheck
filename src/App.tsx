@@ -17,6 +17,8 @@ import { EmergencyChecklistView } from './components/EmergencyChecklistView';
 import { GoogleSheetsSettings } from './components/GoogleSheetsSettings';
 import { GlobalScrollButtons } from './components/GlobalScrollButtons';
 import { AuraAssistant } from './components/AuraAssistant';
+import { ChannelSelectorModal } from './components/ChannelSelectorModal';
+import { useDataContext } from './context/DataContext';
 import { getWednesdaysIsoDates, getWednesdaysInfoForMonth } from './utils/wednesdayUtils';
 import { getRealTargetCheckValue } from './utils/itemUtils';
 
@@ -28,6 +30,9 @@ import {
   setStoredString,
   getInitialEquipment,
   getInitialLists,
+  getChannelListsKey,
+  getChannelChecksKey,
+  getChannelWeekDatesKey,
 } from './services/storage';
 import {
   signInWithPopup,
@@ -92,6 +97,18 @@ import {
 } from './services/firebase';
 
 export default function App() {
+  const {
+    channels,
+    activeChannelId,
+    activeChannel,
+    setActiveChannelId,
+    addChannel,
+    removeChannel,
+    renameChannel,
+  } = useDataContext();
+
+  const [isChannelModalOpen, setIsChannelModalOpen] = useState(false);
+
   // Navigation & Theme
   const [currentView, setCurrentView] = useState<
     'home' | 'drug_check' | 'room_check' | 'bag_check' | 'cart_check' | 'eq_overview' | 'users'
@@ -162,39 +179,29 @@ export default function App() {
   // Main Data States
   const [drugs, setDrugs] = useState<DrugItem[]>([]);
   const [equipment, setEquipment] = useState<Record<string, EquipmentItem[]>>({});
-  const [lists, setLists] = useState<Record<'bag' | 'cart', ListConfig>>({
-    bag: { title: 'กระเป๋าฉุกเฉิน', sheet: 'กระเป๋า Emergency', groups: {} },
-    cart: { title: 'รถฉุกเฉิน', sheet: 'รถ Emergency', groups: {} },
-  });
-
-  const [globalChecks, setGlobalChecks] = useState<Record<string, Record<string, CheckItemState>>>(() => {
-    return getStored<Record<string, Record<string, CheckItemState>>>(STORAGE_KEYS.GLOBAL_CHECKS, {});
-  });
+  
+  const { channelData, updateChannelData } = useDataContext();
+  const { lists, globalChecks, emergencyWeekDates } = channelData;
+  
+  // Helper to update specific parts of channelData
+  const setLists = (newLists: Record<'bag' | 'cart', ListConfig> | ((prev: Record<'bag' | 'cart', ListConfig>) => Record<'bag' | 'cart', ListConfig>)) => {
+    const next = typeof newLists === 'function' ? newLists(lists) : newLists;
+    updateChannelData({ lists: next });
+  };
+  const setGlobalChecks = (newChecks: Record<string, Record<string, CheckItemState>> | ((prev: Record<string, Record<string, CheckItemState>>) => Record<string, Record<string, CheckItemState>>)) => {
+    const next = typeof newChecks === 'function' ? newChecks(globalChecks) : newChecks;
+    updateChannelData({ globalChecks: next });
+  };
+  const setEmergencyWeekDates = (newDates: Record<string, Record<number, string>> | ((prev: Record<string, Record<number, string>>) => Record<string, Record<number, string>>)) => {
+    const next = typeof newDates === 'function' ? newDates(emergencyWeekDates) : newDates;
+    updateChannelData({ emergencyWeekDates: next });
+  };
 
   const [historyRecords, setHistoryRecords] = useState<InspectionHistoryRecord[]>([]);
 
-  const [emergencyWeekDates, setEmergencyWeekDates] = useState<Record<string, Record<number, string>>>(() => {
-    const d = new Date();
-    const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    const initial: Record<'bag' | 'cart', Record<number, string>> = {
-      bag: { 1: today, 2: today, 3: today, 4: today, 5: today },
-      cart: { 1: today, 2: today, 3: today, 4: today, 5: today },
-    };
-    const stored = getStored<Record<string, Record<number, string>>>(STORAGE_KEYS.EMER_WEEK_DATES, initial);
-    const merged: Record<string, Record<number, string>> = { ...initial, ...stored };
-    (['bag', 'cart'] as const).forEach((t) => {
-      if (!merged[t]) merged[t] = { ...initial[t] };
-      for (let w = 1; w <= 5; w++) {
-        if (!merged[t][w] || !merged[t][w].trim()) {
-          merged[t][w] = today;
-        }
-      }
-    });
-    return merged;
-  });
-
   const [isLoadingData, setIsLoadingData] = useState(true);
   const [authLoading, setAuthLoading] = useState(true);
+
 
   // Connectivity Test & Auth Listener with robust error handling
   useEffect(() => {
@@ -539,7 +546,8 @@ export default function App() {
     isDrawerOpen ||
     zoomedImgUrl ||
     isKeyboardOpen ||
-    isExternalModalOpen
+    isExternalModalOpen ||
+    isChannelModalOpen
   );
 
   const shouldShowBottomBar = isBottomBarVisible && !isAnyModalActive && !isKeyboardOpen;
@@ -691,7 +699,7 @@ export default function App() {
         [categoryOrRoomId]: updatedCategory,
       };
 
-      setStored(STORAGE_KEYS.GLOBAL_CHECKS, updatedGlobal);
+      setStored(getChannelChecksKey(activeChannelId), updatedGlobal);
       return updatedGlobal;
     });
   };
@@ -719,7 +727,7 @@ export default function App() {
     });
 
     setEmergencyWeekDates(nextWeekDates);
-    setStored(STORAGE_KEYS.EMER_WEEK_DATES, nextWeekDates);
+    setStored(getChannelWeekDatesKey(activeChannelId), nextWeekDates);
 
     // 2. Update globalChecks with true target quantities for all items
     let totalItemsChecked = 0;
@@ -754,7 +762,7 @@ export default function App() {
     });
 
     setGlobalChecks(nextGlobal);
-    setStored(STORAGE_KEYS.GLOBAL_CHECKS, nextGlobal);
+    setStored(getChannelChecksKey(activeChannelId), nextGlobal);
 
     // 3. Save snapshot history records so PDF Export & Preview reflect immediately
     const now = new Date();
@@ -810,8 +818,6 @@ export default function App() {
       } else if (note.startsWith('PSI:')) {
         const psiVal = note.replace('PSI:', '');
         updatedItem.val = psiVal;
-        // Also update weekVals if we know which week is active (this is a bit tricky since week isn't passed here)
-        // For simplicity, we'll let the checklist view handle the weekVals update via onToggleCheck
       } else {
         updatedItem.note = note;
       }
@@ -826,7 +832,7 @@ export default function App() {
         [categoryOrRoomId]: updatedCategory,
       };
 
-      setStored(STORAGE_KEYS.GLOBAL_CHECKS, updatedGlobal);
+      setStored(getChannelChecksKey(activeChannelId), updatedGlobal);
       return updatedGlobal;
     });
   };
@@ -851,7 +857,7 @@ export default function App() {
     const itemObject: EquipmentItem = {
       id: itemKey,
       name: newItem.name,
-      no: '1', // Will be re-indexed locally by the processEquipment logic if we were using it, but here we update state directly
+      no: '1',
       code: `NEW-${Math.floor(1000 + Math.random() * 9000)}`,
       spec: newItem.spec || '',
       qty: newItem.qty || '1',
@@ -877,7 +883,7 @@ export default function App() {
       groups[newItem.groupName] = [...targetGroup, saved];
 
       const updatedLists = { ...prev, [type]: { ...currentList, groups } };
-      setStored(STORAGE_KEYS.CUSTOM_LISTS, updatedLists);
+      setStored(getChannelListsKey(activeChannelId), updatedLists);
       return updatedLists;
     });
   };
@@ -900,7 +906,7 @@ export default function App() {
       });
 
       const updatedLists = { ...prev, [type]: { ...currentList, groups: newGroups } };
-      setStored(STORAGE_KEYS.CUSTOM_LISTS, updatedLists);
+      setStored(getChannelListsKey(activeChannelId), updatedLists);
       return updatedLists;
     });
 
@@ -913,7 +919,7 @@ export default function App() {
       delete newCategoryChecks[itemKey];
 
       const updatedGlobal = { ...prev, [type]: newCategoryChecks };
-      setStored(STORAGE_KEYS.GLOBAL_CHECKS, updatedGlobal);
+      setStored(getChannelChecksKey(activeChannelId), updatedGlobal);
       return updatedGlobal;
     });
   };
@@ -972,7 +978,7 @@ export default function App() {
       }
 
       const updatedLists = { ...prev, [type]: { ...currentList, groups: newGroups } };
-      setStored(STORAGE_KEYS.CUSTOM_LISTS, updatedLists);
+      setStored(getChannelListsKey(activeChannelId), updatedLists);
       return updatedLists;
     });
 
@@ -1593,6 +1599,7 @@ export default function App() {
             onToggleTheme={toggleTheme}
             activeCategory={activeCategory}
             onSelectCategory={(cat) => setActiveCategory(cat)}
+            onOpenChannelSelector={() => setIsChannelModalOpen(true)}
             onNavigate={(view) => {
               if (view === 'room_check') {
                 setSelectedRoomId('or1');
@@ -2180,8 +2187,29 @@ export default function App() {
         isAnyModalOpen={isAnyModalActive || isKeyboardOpen || !shouldShowBottomBar}
       />
 
+      {/* 📍 Channel Selector Modal */}
+      <ChannelSelectorModal
+        isOpen={isChannelModalOpen}
+        onClose={() => setIsChannelModalOpen(false)}
+        channels={channels}
+        activeChannelId={activeChannelId}
+        onSelectChannel={(id) => {
+          setActiveChannelId(id);
+          setIsChannelModalOpen(false);
+        }}
+        onCreateChannel={(name, duplicate) => {
+          addChannel(name, duplicate);
+        }}
+        onRenameChannel={(id, newName) => {
+          renameChannel(id, newName);
+        }}
+        onDeleteChannel={(id) => {
+          removeChannel(id);
+        }}
+      />
+
       {/* 📍 Floating Quick Controls (Scroll to Top, Scroll to Bottom) */}
-      <GlobalScrollButtons isBottomBarVisible={shouldShowBottomBar} />
+      <GlobalScrollButtons isBottomBarVisible={shouldShowBottomBar} isAnyModalOpen={isAnyModalActive} />
     </div>
   );
 }

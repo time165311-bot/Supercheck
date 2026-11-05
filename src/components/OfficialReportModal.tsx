@@ -22,6 +22,7 @@ import {
 } from './EmergencyChecklistReportPreview';
 import { EquipmentReportPreview, generateEquipmentPrintHtml } from './EquipmentReportPreview';
 import { extractQuantityNumbers, getItemQuantityClassification, getRealTargetCheckValue } from '../utils/itemUtils';
+import { useDataContext } from '../context/DataContext';
 
 export interface OfficialReportItemRow {
   no?: string | number;
@@ -342,6 +343,7 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
   initialWeekDates,
   initialRoundId,
 }) => {
+  const { activeChannel } = useDataContext();
   const [isPrinting, setIsPrinting] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<'eq' | 'bag' | 'cart' | 'drug'>('eq');
   const [selectedRoundId, setSelectedRoundId] = useState<string>('current');
@@ -355,6 +357,7 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
   const [orientation] = useState<'landscape' | 'portrait'>('landscape');
 
   const [activeWeek, setActiveWeek] = useState<number>(1);
+  const [isBlankForm, setIsBlankForm] = useState<boolean>(false);
   const [weekDates, setWeekDates] = useState<{ [wk: number]: string }>({});
   const [weekItemValues] = useState<{ [itemKey: string]: { [week: number]: string } }>({});
 
@@ -529,6 +532,9 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
   }
 
   const cleanClinicName = useMemo(() => {
+    if (activeChannel && !activeChannel.isDefault) {
+      return `คลินิกวิสัญญี (${activeChannel.name})`;
+    }
     const raw = String(displayTitle || 'คลินิกงานบริการผู้ป่วยในวิสัญญี')
       .replace(/\s*\(ภาพรวมทุกห้อง\)/g, '')
       .replace(/^แบบฟอร์มตรวจสอบ.*$/g, '')
@@ -537,16 +543,17 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
       return 'คลินิกงานบริการผู้ป่วยในวิสัญญี';
     }
     return raw;
-  }, [displayTitle, selectedCategory]);
+  }, [displayTitle, selectedCategory, activeChannel]);
 
   const mainDocHeading = useMemo(() => {
     const { month, year } = getMonthAndYearThai(displayDate);
-    if (selectedCategory === 'eq') return 'ทะเบียนรายการครุภัณฑ์และอุปกรณ์';
-    if (selectedCategory === 'bag') return `ตารางตรวจเช็คกระเป๋า Emergency ประจำเดือน ${month} พ.ศ. ${year}`;
-    if (selectedCategory === 'cart') return `ตารางตรวจเช็ครถ Emergency ประจำเดือน ${month} พ.ศ. ${year}`;
+    const chanTag = activeChannel && !activeChannel.isDefault ? ` (${activeChannel.name})` : '';
+    if (selectedCategory === 'eq') return `ทะเบียนรายการครุภัณฑ์และอุปกรณ์${chanTag}`;
+    if (selectedCategory === 'bag') return `ตารางตรวจเช็คกระเป๋า Emergency${chanTag} ประจำเดือน ${month} พ.ศ. ${year}`;
+    if (selectedCategory === 'cart') return `ตารางตรวจเช็ครถ Emergency${chanTag} ประจำเดือน ${month} พ.ศ. ${year}`;
     if (selectedCategory === 'drug') return getDrugCategoryTitle(drugSubCategory, displayDate);
-    return 'ทะเบียนรายการครุภัณฑ์และอุปกรณ์';
-  }, [selectedCategory, drugSubCategory, displayDate]);
+    return `ทะเบียนรายการครุภัณฑ์และอุปกรณ์${chanTag}`;
+  }, [selectedCategory, drugSubCategory, displayDate, activeChannel]);
 
   const userSignature = useMemo(() => {
     if (currentUser?.signature) return currentUser.signature;
@@ -608,6 +615,7 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
         weekItemValues: wkVals,
         weekDates: selectedRecord ? selectedRecord.weekDates : weekDates,
         activeWeek: selectedRecord ? (Object.keys(selectedRecord.rows[0]?.weekVals || {}).map(Number)[0] || 1) : activeWeek,
+        isBlankForm: isBlankForm,
       });
     } else {
       printHtml = generateEquipmentPrintHtml(activeItems, printOptions);
@@ -979,7 +987,52 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
                 </button>
               </div>
 
+              {/* Toggle & Button for Blank Form Mode */}
+              {(selectedCategory === 'bag' || selectedCategory === 'cart') && (
+                <div className="flex items-center gap-1.5">
+                  <label className="flex items-center gap-1.5 px-2.5 py-1.5 bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 rounded-xl text-xs font-bold text-amber-900 dark:text-amber-200 cursor-pointer shadow-2xs select-none">
+                    <input
+                      type="checkbox"
+                      checked={isBlankForm}
+                      onChange={(e) => {
+                        const checked = e.target.checked;
+                        setIsBlankForm(checked);
+                        setFeedback({
+                          type: 'info',
+                          message: checked
+                            ? '🧹 เปิดโหมดแสดงแบบฟอร์มเปล่า (ซ่อนผลการตรวจเช็กเพื่อพิมพ์แจกวอร์ด)'
+                            : '📋 สลับกลับเป็นโหมดแสดงผลการตรวจเช็กปกติ',
+                        });
+                      }}
+                      className="w-4 h-4 text-amber-600 rounded focus:ring-amber-500 accent-amber-600 cursor-pointer"
+                    />
+                    <span>แสดงแบบฟอร์มเปล่าสำหรับพิมพ์</span>
+                  </label>
 
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = !isBlankForm;
+                      setIsBlankForm(next);
+                      setFeedback({
+                        type: 'info',
+                        message: next
+                          ? '🧹 ล้างค่าการตรวจเช็กชั่วคราว เพื่อพิมพ์เป็นแบบฟอร์มเปล่าสำหรับแจกวอร์ด'
+                          : '📋 คืนค่าการตรวจเช็กเรียบร้อยแล้ว',
+                      });
+                    }}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-xl border transition cursor-pointer active:scale-95 ${
+                      isBlankForm
+                        ? 'bg-amber-600 text-white border-amber-700 shadow-md font-extrabold'
+                        : 'bg-amber-50 text-amber-800 hover:bg-amber-100 border-amber-300'
+                    }`}
+                    title="ล้างค่าการตรวจเช็กในตารางเพื่อพิมพ์เป็นแบบฟอร์มเปล่าแจกวอร์ด"
+                  >
+                    <span className="text-sm">🧹</span>
+                    <span>{isBlankForm ? 'ฟอร์มเปล่า (เปิดอยู่)' : 'ล้างค่า / ฟอร์มเปล่า'}</span>
+                  </button>
+                </div>
+              )}
               <button
                 type="button"
                 onClick={handleSendReportToGas}
@@ -1176,6 +1229,7 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
                   weekDates={selectedRecord ? selectedRecord.weekDates : weekDates}
                   activeWeek={selectedRecord ? (Object.keys(selectedRecord.rows[0]?.weekVals || {}).map(Number)[0] || 1) : activeWeek}
                   currentUser={currentUser ? { ...currentUser, name: activeUserName } : ({ name: activeUserName } as any)}
+                  isBlankForm={isBlankForm}
                 />
               ) : (
                 <EquipmentReportPreview
@@ -1255,11 +1309,17 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
 
         .paper-viewport-area {
           flex: 1 !important;
-          overflow: auto !important;
+          overflow-x: auto !important;
+          overflow-y: auto !important;
           position: relative !important;
           width: 100% !important;
           height: 100% !important;
           padding: 16px !important;
+          -webkit-overflow-scrolling: touch !important;
+        }
+
+        .a4-print-container {
+          max-width: 100% !important;
         }
 
         @media print {
