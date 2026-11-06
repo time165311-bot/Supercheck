@@ -219,3 +219,151 @@ export function reRenderData(): void {
     window.dispatchEvent(new Event('storage'));
   }
 }
+
+export interface AutoCheckIntentResult {
+  isAutoCheck: boolean;
+  categories: ('bag' | 'cart')[];
+  weeks: number[];
+  isFullMonth: boolean;
+  isSingleWeek: boolean;
+  targetWeek?: number;
+}
+
+/**
+ * Natural Language Intent Parser for Auto-Check commands (Specific Week vs Full Month)
+ */
+export function parseAutoCheckIntent(queryStr: string, currentWeekNum: number = 1, availableWeeks: number[] = [1, 2, 3, 4]): AutoCheckIntentResult {
+  const q = (queryStr || '').toLowerCase().trim();
+
+  const isAutoCheck =
+    q.includes('ตรวจผ่าน') ||
+    q.includes('เช็กผ่าน') ||
+    q.includes('เช็คผ่าน') ||
+    q.includes('auto-check') ||
+    q.includes('auto check') ||
+    (
+      (q.includes('ตรวจ') || q.includes('เช็ก') || q.includes('เช็ค')) &&
+      (
+        q.includes('ให้หน่อย') ||
+        q.includes('ให้ที') ||
+        q.includes('ให้หมด') ||
+        q.includes('ทั้งหมด') ||
+        q.includes('สัปดาห์') ||
+        q.includes('อาทิตย์') ||
+        q.includes('เดือนนี้') ||
+        q.includes('ปกติทุกรายการ') ||
+        q.includes('ผ่านทั้งหมด')
+      ) &&
+      !q.includes('เปิดหน้า') &&
+      !q.includes('ไปที่') &&
+      !q.includes('ไปหน้า') &&
+      !q.includes('เพิ่ม') &&
+      !q.includes('ลบ')
+    );
+
+  if (!isAutoCheck) {
+    return {
+      isAutoCheck: false,
+      categories: ['bag', 'cart'],
+      weeks: [],
+      isFullMonth: false,
+      isSingleWeek: false,
+    };
+  }
+
+  // 1. Determine categories
+  const hasBag = q.includes('กระเป๋า') || q.includes('bag');
+  const hasCart = q.includes('รถ') || q.includes('cart');
+  const hasAllCats =
+    q.includes('ทั้งหมด') ||
+    q.includes('ทุกหมวด') ||
+    q.includes('ทุกอย่าง') ||
+    (!hasBag && !hasCart);
+
+  let categories: ('bag' | 'cart')[] = [];
+  if (hasAllCats || (hasBag && hasCart)) {
+    categories = ['bag', 'cart'];
+  } else if (hasBag) {
+    categories = ['bag'];
+  } else if (hasCart) {
+    categories = ['cart'];
+  } else {
+    categories = ['bag', 'cart'];
+  }
+
+  // 2. Determine target weeks (Full month vs Single Week)
+  const isFullMonth =
+    q.includes('เหมาเดือน') ||
+    q.includes('ทั้งเดือน') ||
+    q.includes('ทุกสัปดาห์') ||
+    q.includes('ทุกอาทิตย์') ||
+    q.includes('ทุก week') ||
+    q.includes('ทุกวีค') ||
+    q.includes('ทั้งหมดของเดือน') ||
+    q.includes('ครบทุกสัปดาห์') ||
+    (q.includes('เดือนนี้') && !/(?:w|สัปดาห์ที่|สัปดาห์|week|อาทิตย์ที่|ที่)\s*[1-5]/i.test(q));
+
+  if (isFullMonth) {
+    return {
+      isAutoCheck: true,
+      categories,
+      weeks: [...availableWeeks],
+      isFullMonth: true,
+      isSingleWeek: false,
+    };
+  }
+
+  // Specific week matching
+  const weekMatches: number[] = [];
+  const weekRegex = /(?:สัปดาห์ที่|สัปดาห์|week|อาทิตย์ที่|ที่|w)\s*([1-5])/gi;
+  let m;
+  while ((m = weekRegex.exec(q)) !== null) {
+    const wNum = parseInt(m[1], 10);
+    if (wNum >= 1 && wNum <= 5 && !weekMatches.includes(wNum)) {
+      weekMatches.push(wNum);
+    }
+  }
+
+  if (weekMatches.length === 0) {
+    [1, 2, 3, 4, 5].forEach((w) => {
+      if (q.includes(`w${w}`) || q.includes(`ที่ ${w}`) || q.includes(`ที่${w}`)) {
+        if (!weekMatches.includes(w)) weekMatches.push(w);
+      }
+    });
+  }
+
+  if (weekMatches.length > 0) {
+    weekMatches.sort((a, b) => a - b);
+    return {
+      isAutoCheck: true,
+      categories,
+      weeks: weekMatches,
+      isFullMonth: false,
+      isSingleWeek: weekMatches.length === 1,
+      targetWeek: weekMatches[0],
+    };
+  }
+
+  if (q.includes('สัปดาห์นี้') || q.includes('อาทิตย์นี้') || q.includes('week นี้') || q.includes('วีคนี้')) {
+    const safeWk = Math.min(currentWeekNum, availableWeeks.length);
+    return {
+      isAutoCheck: true,
+      categories,
+      weeks: [safeWk],
+      isFullMonth: false,
+      isSingleWeek: true,
+      targetWeek: safeWk,
+    };
+  }
+
+  const safeWk = Math.min(currentWeekNum, availableWeeks.length);
+  return {
+    isAutoCheck: true,
+    categories,
+    weeks: [safeWk],
+    isFullMonth: false,
+    isSingleWeek: true,
+    targetWeek: safeWk,
+  };
+}
+

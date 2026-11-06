@@ -22,7 +22,7 @@ import {
 import { speakWithAura, stopSpeech } from '../utils/textToSpeech';
 import { getWednesdaysInfoForMonth, getWeekOfMonth } from '../utils/wednesdayUtils';
 import { useDataContext } from '../context/DataContext';
-import { applyUserFiltering } from '../services/aiEngine';
+import { applyUserFiltering, parseAutoCheckIntent } from '../services/aiEngine';
 
 interface AuraAssistantProps {
   equipment?: Record<string, any[]>;
@@ -530,97 +530,16 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
       // -------------------------------------------------------------
       // 1.8 HYPER-INTELLIGENT SMART BULK AUTO-CHECK & DATED WEDNESDAYS
       // -------------------------------------------------------------
-      const isAutoCheck =
-        q.includes('ตรวจผ่าน') ||
-        q.includes('เช็กผ่าน') ||
-        q.includes('เช็คผ่าน') ||
-        q.includes('auto-check') ||
-        q.includes('auto check') ||
-        (
-          (q.includes('ตรวจ') || q.includes('เช็ก') || q.includes('เช็ค')) &&
-          (
-            q.includes('ให้หน่อย') ||
-            q.includes('ให้ที') ||
-            q.includes('ให้หมด') ||
-            q.includes('ทั้งหมด') ||
-            q.includes('สัปดาห์') ||
-            q.includes('อาทิตย์') ||
-            q.includes('เดือนนี้') ||
-            q.includes('ปกติทุกรายการ') ||
-            q.includes('ผ่านทั้งหมด')
-          ) &&
-          !q.includes('เปิดหน้า') &&
-          !q.includes('ไปที่') &&
-          !q.includes('ไปหน้า') &&
-          !q.includes('เพิ่ม') &&
-          !q.includes('ลบ')
-        );
+      const wedInfo = getWednesdaysInfoForMonth(new Date());
+      const allAvailableWeeks = wedInfo.weeks;
+      const totalWeeksInMonth = wedInfo.totalWednesdays;
+      const currentWeekNumber = getWeekOfMonth(new Date());
 
-      if (isAutoCheck && onBulkAutoCheck) {
-        // 1. Determine categories
-        const hasBag = q.includes('กระเป๋า') || q.includes('bag');
-        const hasCart = q.includes('รถ') || q.includes('cart');
-        const hasAllCats =
-          q.includes('ทั้งหมด') ||
-          q.includes('ทุกหมวด') ||
-          q.includes('ทุกอย่าง') ||
-          (!hasBag && !hasCart);
+      const autoCheckResult = parseAutoCheckIntent(query, currentWeekNumber, allAvailableWeeks);
 
-        let targetCategories: ('bag' | 'cart')[] = [];
-        if (hasAllCats || (hasBag && hasCart)) {
-          targetCategories = ['bag', 'cart'];
-        } else if (hasBag) {
-          targetCategories = ['bag'];
-        } else if (hasCart) {
-          targetCategories = ['cart'];
-        } else {
-          targetCategories = ['bag', 'cart'];
-        }
-
-        // 2. Determine target weeks & wednesdays
-        const wedInfo = getWednesdaysInfoForMonth(new Date());
-        const allAvailableWeeks = wedInfo.weeks;
-        const currentWeekNumber = getWeekOfMonth(new Date());
-
-        let targetWeeks: number[] = [];
-
-        if (
-          q.includes('เดือนนี้') ||
-          q.includes('ทั้งเดือน') ||
-          q.includes('ทุกสัปดาห์') ||
-          q.includes('ทั้งหมดของเดือน') ||
-          q.includes('ครบทุกสัปดาห์')
-        ) {
-          targetWeeks = [...allAvailableWeeks];
-        } else if (q.includes('สัปดาห์นี้') || q.includes('อาทิตย์นี้') || q.includes('week นี้')) {
-          const safeWk = Math.min(currentWeekNumber, wedInfo.totalWednesdays);
-          targetWeeks = [safeWk];
-        } else {
-          const weekMatches: number[] = [];
-          const weekRegex = /(?:สัปดาห์ที่|สัปดาห์|week|อาทิตย์ที่|ที่)\s*(\d+)/gi;
-          let m;
-          while ((m = weekRegex.exec(q)) !== null) {
-            const wNum = parseInt(m[1], 10);
-            if (wNum >= 1 && wNum <= 5 && !weekMatches.includes(wNum)) {
-              weekMatches.push(wNum);
-            }
-          }
-          if (weekMatches.length === 0) {
-            [1, 2, 3, 4, 5].forEach((w) => {
-              if (q.includes(`ที่ ${w}`) || q.includes(`ที่${w}`) || q.includes(`w${w}`)) {
-                weekMatches.push(w);
-              }
-            });
-          }
-          if (weekMatches.length > 0) {
-            targetWeeks = weekMatches;
-          } else {
-            const safeWk = Math.min(currentWeekNumber, wedInfo.totalWednesdays);
-            targetWeeks = [safeWk];
-          }
-        }
-
-        targetWeeks.sort((a, b) => a - b);
+      if (autoCheckResult.isAutoCheck && onBulkAutoCheck) {
+        const targetCategories = autoCheckResult.categories;
+        const targetWeeks = autoCheckResult.weeks.sort((a, b) => a - b);
 
         // Execute bulk auto check
         await onBulkAutoCheck({
@@ -632,18 +551,21 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
         const catNamesThai = targetCategories
           .map((c) => (c === 'bag' ? 'กระเป๋าฉุกเฉิน' : 'รถฉุกเฉิน'))
           .join(' และ ');
-        const weekStr = targetWeeks.map((w) => `สัปดาห์ที่ ${w}`).join(', ');
         const primaryCat = targetCategories[0];
         const primaryWeek = targetWeeks[0];
 
-        const datesDesc = targetWeeks
-          .map((w) => `W${w}: ${wedInfo.dates[w] || '-'}`)
-          .join(', ');
+        let responseText = '';
+        if (autoCheckResult.isSingleWeek && targetWeeks.length === 1) {
+          const singleWk = targetWeeks[0];
+          const wedDate = wedInfo.dates[singleWk] || '-';
+          responseText = `น้องออร่าทำการลงผลตรวจเช็ก สัปดาห์ที่ ${singleWk} (ตรงกับวันพุธที่ ${wedDate}) ให้เรียบร้อยแล้วค่ะ! ✨`;
+        } else {
+          const maxWk = totalWeeksInMonth;
+          responseText = `น้องออร่าทำการลงผลตรวจเช็กครบทุกสัปดาห์ (W1-W${maxWk}) ประจำเดือนนี้ พร้อมลงวันที่วันพุธให้อัตโนมัติเรียบร้อยแล้วค่ะ! ✨`;
+        }
 
-        const spokenResponse = `น้องออร่าทำการตรวจผ่านอุปกรณ์ทุกรายการใน ${catNamesThai} ประจำ${weekStr} เรียบร้อยแล้วค่ะ! พร้อมลงวันที่วันพุธประจำสัปดาห์ (${datesDesc}) ครบถ้วน พี่สามารถกดเปิดดูรายงาน PDF ได้เลยนะคะ ✨`;
-
-        addMessage('ai', spokenResponse, false, {
-          label: `📄 เปิดดูรายงาน PDF (${catNamesThai} ${weekStr})`,
+        addMessage('ai', responseText, false, {
+          label: `📄 เปิดดูรายงาน PDF (${catNamesThai})`,
           onClick: () => {
             if (onOpenReportModal) {
               onOpenReportModal(primaryCat, primaryWeek);
@@ -651,6 +573,12 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
             handleClose();
           },
         });
+
+        // Automatically open PDF report modal & auto-close chat window
+        if (onOpenReportModal) {
+          onOpenReportModal(primaryCat, primaryWeek);
+        }
+        handleClose();
 
         setIsLoading(false);
         return;
