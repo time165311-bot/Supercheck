@@ -448,6 +448,41 @@ export function resolveItemUnitText(item?: {
 }
 
 /**
+ * Normalizes expiration date strings:
+ * - Converts MM/YY, MM/YYYY, MM-YY (e.g., "12/73", "12/2073", "05/26") to 1st day of month (e.g. "01/12/2573" or "01/05/2026")
+ * - Handles "No EXP", "ไม่มีวันหมดอายุ", "-" to set hasNoExp: true
+ */
+export function normalizeExpDate(expStr?: string): { expDate: string; hasNoExp: boolean } {
+  if (!expStr || expStr.trim() === '' || expStr === '-' || /no\s*exp/i.test(expStr) || /ไม่มี/i.test(expStr)) {
+    return { expDate: '-', hasNoExp: true };
+  }
+
+  const s = expStr.trim();
+
+  // Match MM/YY or MM/YYYY or MM-YY or MM.YY
+  const mmYyMatch = s.match(/^(\d{1,2})[-/.](\d{2,4})$/);
+  if (mmYyMatch) {
+    const month = String(parseInt(mmYyMatch[1], 10)).padStart(2, '0');
+    let year = parseInt(mmYyMatch[2], 10);
+    if (year < 100) {
+      if (year >= 50) year += 2500;
+      else year += 2000;
+    }
+    return { expDate: `01/${month}/${year}`, hasNoExp: false };
+  }
+
+  // Match YYYY-MM or YYYY/MM
+  const yyyyMmMatch = s.match(/^(\d{4})[-/.](\d{1,2})$/);
+  if (yyyyMmMatch) {
+    let year = parseInt(yyyyMmMatch[1], 10);
+    const month = String(parseInt(yyyyMmMatch[2], 10)).padStart(2, '0');
+    return { expDate: `01/${month}/${year}`, hasNoExp: false };
+  }
+
+  return { expDate: s, hasNoExp: false };
+}
+
+/**
  * Strips leading numeric prefixes from item names (e.g., "1. Name" -> "Name", "1.1. Name" -> "Name")
  */
 export function sanitizeItemName(name: string): string {
@@ -473,5 +508,6 @@ export function sortItemsNaturally<T extends { name: string }>(items: T[]): T[] 
     return a.name.localeCompare(b.name, 'th', { numeric: true });
   });
 }
+
 
 

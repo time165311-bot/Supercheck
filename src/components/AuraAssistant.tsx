@@ -21,8 +21,9 @@ import {
 } from 'lucide-react';
 import { speakWithAura, stopSpeech } from '../utils/textToSpeech';
 import { getWednesdaysInfoForMonth, getWeekOfMonth } from '../utils/wednesdayUtils';
+import { normalizeExpDate } from '../utils/itemUtils';
 import { useDataContext } from '../context/DataContext';
-import { applyUserFiltering, parseAutoCheckIntent } from '../services/aiEngine';
+import { applyUserFiltering, parseAutoCheckIntent, normalizeText, resolveTargetCategory } from '../services/aiEngine';
 
 interface AuraAssistantProps {
   equipment?: Record<string, any[]>;
@@ -113,11 +114,13 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
 
   const [isAnimating, setIsAnimating] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [stagedImage, setStagedImage] = useState<{
-    file: File;
-    previewUrl: string;
-    name: string;
-  } | null>(null);
+  const [stagedImages, setStagedImages] = useState<
+    Array<{
+      file: File;
+      previewUrl: string;
+      name: string;
+    }>
+  >([]);
   const [inputMessage, setInputMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isListening, setIsListening] = useState(false);
@@ -238,80 +241,123 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
   };
 
   const handleImageSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    const previewUrl = URL.createObjectURL(file);
-    setStagedImage({ file, previewUrl, name: file.name });
+    const files = Array.from(event.target.files || []);
+    if (files.length === 0) return;
+
+    const newItems = files.map((file) => ({
+      file,
+      previewUrl: URL.createObjectURL(file),
+      name: file.name,
+    }));
+
+    setStagedImages((prev) => [...prev, ...newItems]);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const handleProcessImageWithFilter = async (file: File, userInstruction: string) => {
+  const handleRemoveStagedImage = (index: number) => {
+    setStagedImages((prev) => {
+      const item = prev[index];
+      if (item?.previewUrl) URL.revokeObjectURL(item.previewUrl);
+      return prev.filter((_, i) => i !== index);
+    });
+  };
+
+  const handleProcessMultipleImagesWithFilter = async (
+    images: Array<{ file: File; previewUrl: string; name: string }>,
+    userInstruction: string
+  ) => {
     setIsLoading(true);
     const promptText = userInstruction.trim();
+    const count = images.length;
     const userDisplayMsg = promptText
-      ? `📸 แนบรูปตารางอุปกรณ์: "${promptText}"`
-      : '📸 แนบรูปภาพตารางอุปกรณ์ไปให้ช่วยวิเคราะห์...';
+      ? `📸 แนบรูปตารางอุปกรณ์ ${count} รูป: "${promptText}"`
+      : `📸 แนบรูปภาพตารางอุปกรณ์ ${count} รูป ไปให้ช่วยวิเคราะห์...`;
 
     addMessage('user', userDisplayMsg);
 
-    const formData = new FormData();
-    formData.append('image', file);
-    if (promptText) {
-      formData.append('prompt', promptText);
-      formData.append('filterInstructions', promptText);
-    }
+    let allExtractedItems: any[] = [];
+    let isQuotaExceeded = false;
+    let quotaMsg = '';
 
-    try {
-      const response = await fetch('/api/ai/vision', {
-        method: 'POST',
-        body: formData,
-      });
-
-      const data = await response.json();
-      let extractedItems = data.items || [];
-      if (promptText && extractedItems.length > 0) {
-        extractedItems = applyUserFiltering(extractedItems, promptText);
+    for (const imgObj of images) {
+      const formData = new FormData();
+      formData.append('image', imgObj.file);
+      if (promptText) {
+        formData.append('prompt', promptText);
+        formData.append('filterInstructions', promptText);
       }
 
-      if (data.success && extractedItems.length > 0) {
-        // 1. Explicitly save to channel state and LocalStorage
-        addBatchItemsToChannel(activeChannelId, extractedItems, 'bag');
+      try {
+        const response = await fetch('/api/ai/vision', {
+          method: 'POST',
+          body: formData,
+        });
 
-        // 2. Trigger instant reactive UI re-render
-        reRenderData();
-
-        // 3. Immediately switch view to bag_check so the cards render right away
-        if (onNavigate) {
-          onNavigate('bag_check', 'bag');
-          handleClose();
+        const data = await response.json();
+        if (data.isQuotaExceeded) {
+          isQuotaExceeded = true;
+          quotaMsg = data.message || '';
         }
-
-        const note = data.isQuotaExceeded ? `\n(${data.message})` : '';
-        addMessage(
-          'ai',
-          `✨ น้องออร่าทำการคัดกรองและเพิ่มรายการอุปกรณ์ให้ครบถ้วน ${extractedItems.length} รายการ ใน Channel [${activeChannel.name}] เรียบร้อยแล้วค่ะ!${note} ✨`,
-          false,
-          {
-            label: `💼 เปิดดูรายการในกระเป๋าฉุกเฉิน (${extractedItems.length} รายการ)`,
-            onClick: () => {
-              if (onNavigate) onNavigate('bag_check', 'bag');
-              handleClose();
-            },
-          }
-        );
-      } else {
-        addMessage('ai', 'น้องออร่าพยายามอ่านรูปภาพแล้ว แต่ไม่พบรายการอุปกรณ์ที่ตรงตามเงื่อนไขค่ะ รบกวนถ่ายรูปใหม่หรือปรับเปลี่ยนเงื่อนไขนะคะ');
+        let items = data.items || [];
+        if (promptText && items.length > 0) {
+          items = applyUserFiltering(items, promptText);
+        }
+        allExtractedItems = [...allExtractedItems, ...items];
+      } catch (err) {
+        console.warn('Vision analysis client warning for file:', imgObj.name, err);
       }
-    } catch (err) {
-      console.warn('Vision analysis client warning:', err);
-      addMessage('ai', 'เกิดข้อผิดพลาดในการวิเคราะห์รูปภาพค่ะ');
-    } finally {
-      setIsLoading(false);
-      if (stagedImage?.previewUrl) {
-        URL.revokeObjectURL(stagedImage.previewUrl);
-      }
-      setStagedImage(null);
     }
+
+    // Smart EXP Date Normalization
+    const normalizedItems = allExtractedItems.map((item) => {
+      const rawExp = item.exp || item.expDate || '-';
+      const normExp = normalizeExpDate(rawExp);
+      return {
+        ...item,
+        exp: normExp.expDate,
+        hasNoExp: normExp.hasNoExp,
+      };
+    });
+
+    if (normalizedItems.length > 0) {
+      // 1. Explicitly save to channel state and LocalStorage
+      addBatchItemsToChannel(activeChannelId, normalizedItems, 'bag');
+
+      // 2. Trigger instant reactive UI re-render
+      reRenderData();
+
+      // 3. Immediately switch view to bag_check so the cards render right away
+      if (onNavigate) {
+        onNavigate('bag_check', 'bag');
+        handleClose();
+      }
+
+      const note = isQuotaExceeded ? `\n(${quotaMsg})` : '';
+      addMessage(
+        'ai',
+        `✨ น้องออร่าสแกนรูปภาพ ${count} รูป อ่านรายการอุปกรณ์ได้ทั้งหมด ${normalizedItems.length} รายการ และบันทึกข้อมูลพร้อมปรับวันที่ EXP เป็นวันที่ 1 ของเดือนเรียบร้อยค่ะ!${note} ✨`,
+        false,
+        {
+          label: `💼 เปิดดูรายการในกระเป๋าฉุกเฉิน (${normalizedItems.length} รายการ)`,
+          onClick: () => {
+            if (onNavigate) onNavigate('bag_check', 'bag');
+            handleClose();
+          },
+        }
+      );
+    } else {
+      addMessage(
+        'ai',
+        `น้องออร่าพยายามอ่านรูปภาพทั้ง ${count} รูปแล้ว แต่ไม่พบรายการอุปกรณ์ที่ตรงตามเงื่อนไขค่ะ รบกวนถ่ายรูปใหม่หรือปรับเปลี่ยนเงื่อนไขนะคะ`
+      );
+    }
+
+    // Clean up preview URLs and state
+    images.forEach((img) => {
+      if (img.previewUrl) URL.revokeObjectURL(img.previewUrl);
+    });
+    setStagedImages([]);
+    setIsLoading(false);
   };
 
   const addMessage = (
@@ -525,6 +571,162 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
           setIsLoading(false);
           return;
         }
+      }
+
+      // -------------------------------------------------------------
+      // 1.5 SMART TRANSFER & DEDUPLICATION (ย้ายของ/สลับของ)
+      // -------------------------------------------------------------
+      const isTransferCmd =
+        q.includes('ย้าย') ||
+        q.includes('สลับ') ||
+        q.includes('transfer') ||
+        (q.includes('จาก') && (q.includes('ไป') || q.includes('เข้า'))) ||
+        (q.includes('ไม่ใช่ใน') && (q.includes('แอด') || q.includes('เพิ่ม') || q.includes('ใส่')));
+
+      if (isTransferCmd) {
+        let sourceType: 'bag' | 'cart' = 'bag';
+        let targetType: 'bag' | 'cart' = 'cart';
+
+        if (
+          q.includes('จากรถ') ||
+          q.includes('จาก cart') ||
+          q.includes('ในรถไม่ใช่') ||
+          q.includes('รถไปกระเป๋า') ||
+          q.includes('รถไปเป๋า')
+        ) {
+          sourceType = 'cart';
+          targetType = 'bag';
+        } else if (
+          q.includes('จากกระเป๋า') ||
+          q.includes('จากเป๋า') ||
+          q.includes('จาก bag') ||
+          q.includes('ในเป๋าไม่ใช่') ||
+          q.includes('กระเป๋าไปรถ') ||
+          q.includes('เป๋าไปรถ')
+        ) {
+          sourceType = 'bag';
+          targetType = 'cart';
+        } else {
+          const resolvedTarget = resolveTargetCategory(query);
+          if (resolvedTarget === 'cart') {
+            sourceType = 'bag';
+            targetType = 'cart';
+          } else if (resolvedTarget === 'bag') {
+            sourceType = 'cart';
+            targetType = 'bag';
+          }
+        }
+
+        const sourceName = sourceType === 'bag' ? 'กระเป๋าฉุกเฉิน' : 'รถฉุกเฉิน';
+        const targetName = targetType === 'cart' ? 'รถฉุกเฉิน' : 'กระเป๋าฉุกเฉิน';
+
+        // Search for item to transfer
+        const found = findItemForAction(query);
+
+        if (found) {
+          const { item: sourceItem, itemKey: sourceKey, groupName: sourceGroupName } = found;
+
+          // Check for duplicate item in target
+          let duplicateInTarget: { item: any; groupName: string; itemKey: string } | null = null;
+          if (lists[targetType]?.groups) {
+            Object.entries(lists[targetType].groups as Record<string, any[]>).forEach(([gName, gItems]) => {
+              gItems.forEach((tItem, idx) => {
+                const tName = (tItem.name || '').toLowerCase().trim();
+                const sName = (sourceItem.name || '').toLowerCase().trim();
+                if (tName === sName || (tItem.code && sourceItem.code && tItem.code === sourceItem.code)) {
+                  duplicateInTarget = {
+                    item: tItem,
+                    groupName: gName,
+                    itemKey: tItem.id || `${targetType}_${gName}_${idx}`,
+                  };
+                }
+              });
+            });
+          }
+
+          const dupe = duplicateInTarget as { item: any; groupName: string; itemKey: string } | null;
+          if (dupe) {
+            const targetItem = dupe.item;
+            const sourceExpStr = sourceItem.expDate || sourceItem.exp || '';
+            const targetExpStr = targetItem.expDate || targetItem.exp || '';
+            const sourceExpDate = new Date(sourceExpStr);
+            const targetExpDate = new Date(targetExpStr);
+
+            const isSourceNewer = !isNaN(sourceExpDate.getTime()) && !isNaN(targetExpDate.getTime())
+              ? sourceExpDate > targetExpDate
+              : sourceExpStr.localeCompare(targetExpStr) > 0;
+
+            if (isSourceNewer) {
+              // Replace target item with newer source item
+              if (onDeleteItem) {
+                await onDeleteItem(targetType, dupe.itemKey);
+                await onDeleteItem(sourceType, sourceKey);
+              }
+              if (onAddItem) {
+                await onAddItem(targetType, {
+                  ...sourceItem,
+                  groupName: dupe.groupName || sourceGroupName,
+                });
+              }
+
+              reRenderData();
+
+              addMessage(
+                'ai',
+                `✨ น้องออร่าทำการสลับนำ "${sourceItem.name}" (EXP ที่ใหม่กว่า: ${sourceExpStr || '-'}) เข้าไปไว้ใน${targetName} และคัดรายการเก่า (EXP: ${targetExpStr || '-'}) ออกเรียบร้อยค่ะ!`
+              );
+            } else {
+              // Target item is newer or equal, delete item from source
+              if (onDeleteItem) {
+                await onDeleteItem(sourceType, sourceKey);
+              }
+
+              reRenderData();
+
+              addMessage(
+                'ai',
+                `✨ น้องออร่าทำการตรวจสอบพบว่าใน${targetName} มี "${targetItem.name}" ชิ้นที่มี EXP ใหม่กว่า (EXP: ${targetExpStr || '-'}) อยู่แล้ว จึงคงรายการเดิมไว้ และลบรายการจาก${sourceName} เรียบร้อยแล้วค่ะ!`
+              );
+            }
+          } else {
+            // No duplicate, simple transfer
+            if (onDeleteItem) {
+              await onDeleteItem(sourceType, sourceKey);
+            }
+            if (onAddItem) {
+              await onAddItem(targetType, {
+                ...sourceItem,
+                groupName: sourceGroupName || 'อุปกรณ์และเวชภัณฑ์ฉุกเฉิน',
+              });
+            }
+
+            reRenderData();
+
+            addMessage(
+              'ai',
+              `✨ น้องออร่าทำการย้าย "${sourceItem.name}" จาก${sourceName} ไปยัง${targetName} เรียบร้อยแล้วค่ะ!`
+            );
+          }
+        } else {
+          const rawItemName = query
+            .replace(/(สลับของ|ย้ายของ|สลับ|ย้าย|จาก|ไป|ใน|ไม่ใช่|กระเป๋า|รถ|เป๋า|cart|bag|ออร่า|น้องออร่า)/gi, '')
+            .trim();
+
+          if (rawItemName.length > 1) {
+            addMessage(
+              'ai',
+              `น้องออร่าค้นหารายการ "${rawItemName}" ใน${sourceName} ไม่พบค่ะ รบกวนระบุชื่ออุปกรณ์ให้ชัดเจนอีกครั้งนะคะ`
+            );
+          } else {
+            addMessage(
+              'ai',
+              `✨ น้องออร่าพร้อมช่วยสลับของจาก${sourceName} ไป${targetName} ค่ะ รบกวนระบุชื่ออุปกรณ์ เช่น "ย้าย Atropine ไปกระเป๋า"`
+            );
+          }
+        }
+
+        setIsLoading(false);
+        return;
       }
 
       // -------------------------------------------------------------
@@ -1094,29 +1296,44 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
 
             {/* Input Form */}
             <div className="p-4 border-t border-slate-100 dark:border-white/10 bg-slate-50/50 dark:bg-slate-900/50 rounded-b-[2.5rem]">
-              {/* Requirement 2: Image Staging Preview Area */}
-              {stagedImage && (
-                <div className="mb-3 p-2 bg-white dark:bg-slate-800 rounded-2xl border border-purple-200 dark:border-purple-900/50 shadow-sm flex items-center gap-3 animate-in fade-in slide-in-from-bottom-2">
-                  <div className="relative w-14 h-14 rounded-xl overflow-hidden border border-slate-200 shadow-inner">
-                    <img src={stagedImage.previewUrl} alt="Staged" className="w-full h-full object-cover" />
+              {/* Requirement 1: Multi-Image Staging Preview Area */}
+              {stagedImages.length > 0 && (
+                <div className="mb-3 p-2 bg-white dark:bg-slate-800 rounded-2xl border border-purple-200 dark:border-purple-900/50 shadow-sm animate-in fade-in slide-in-from-bottom-2">
+                  <div className="flex items-center justify-between px-1 mb-1.5">
+                    <p className="text-[10px] font-bold text-purple-600 dark:text-purple-400 flex items-center gap-1">
+                      <Sparkles size={10} />
+                      <span>รูปถ่ายรอประมวลผล ({stagedImages.length} รูป)</span>
+                    </p>
                     <button
                       type="button"
                       onClick={() => {
-                        URL.revokeObjectURL(stagedImage.previewUrl);
-                        setStagedImage(null);
+                        stagedImages.forEach((img) => {
+                          if (img.previewUrl) URL.revokeObjectURL(img.previewUrl);
+                        });
+                        setStagedImages([]);
                       }}
-                      className="absolute top-[4px] right-[4px] z-50 p-1 bg-rose-500/90 text-white rounded-lg shadow-md hover:bg-rose-600 transition backdrop-blur-sm border border-white/20"
-                      title="ลบรูปภาพ"
+                      className="text-[9px] font-bold text-rose-500 hover:text-rose-600 cursor-pointer"
                     >
-                      <X size={12} className="stroke-[3]" />
+                      ลบทั้งหมด
                     </button>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[10px] font-bold text-purple-600 dark:text-purple-400 mb-0.5 flex items-center gap-1">
-                      <Sparkles size={10} />
-                      <span>รูปถ่ายรอประมวลผล</span>
-                    </p>
-                    <p className="text-[9px] text-slate-500 truncate">{stagedImage.name}</p>
+                  <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1">
+                    {stagedImages.map((img, idx) => (
+                      <div
+                        key={idx}
+                        className="relative w-14 h-14 rounded-xl overflow-hidden border border-slate-200 shadow-inner shrink-0 group"
+                      >
+                        <img src={img.previewUrl} alt={`Staged ${idx + 1}`} className="w-full h-full object-cover" />
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveStagedImage(idx)}
+                          className="absolute top-[3px] right-[3px] z-50 p-1 bg-rose-500/90 text-white rounded-lg shadow-md hover:bg-rose-600 transition backdrop-blur-sm border border-white/20 cursor-pointer"
+                          title="ลบรูปภาพนี้"
+                        >
+                          <X size={10} className="stroke-[3]" />
+                        </button>
+                      </div>
+                    ))}
                   </div>
                 </div>
               )}
@@ -1124,8 +1341,8 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
               <form
                 onSubmit={(e) => {
                   e.preventDefault();
-                  if (stagedImage) {
-                    handleProcessImageWithFilter(stagedImage.file, inputMessage);
+                  if (stagedImages.length > 0) {
+                    handleProcessMultipleImagesWithFilter(stagedImages, inputMessage);
                     setInputMessage('');
                   } else if (inputMessage.trim()) {
                     processCommand(inputMessage);
@@ -1151,13 +1368,14 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
                   ref={fileInputRef}
                   className="hidden"
                   accept="image/*"
+                  multiple
                   onChange={handleImageSelect}
                 />
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
                   className="p-3 rounded-2xl bg-purple-100 text-purple-600 dark:bg-purple-900/40 hover:bg-purple-200 transition cursor-pointer flex items-center justify-center"
-                  title="ถ่ายรูปหรือแนบภาพตารางอุปกรณ์ (OCR Vision)"
+                  title="ถ่ายรูปหรือแนบภาพตารางอุปกรณ์หลายรูปพร้อมกัน (Multi-Image OCR)"
                 >
                   <Camera size={18} />
                 </button>
@@ -1174,7 +1392,7 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
                 />
                 <button
                   type="submit"
-                  disabled={(!inputMessage.trim() && !stagedImage) || isLoading}
+                  disabled={(inputMessage.trim() === '' && stagedImages.length === 0) || isLoading}
                   className="p-3 rounded-2xl bg-gradient-to-r from-pink-500 to-purple-600 text-white hover:opacity-90 disabled:opacity-50 transition shadow-md cursor-pointer"
                   title="ส่งข้อความ"
                 >

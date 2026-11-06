@@ -220,6 +220,60 @@ export function reRenderData(): void {
   }
 }
 
+/**
+ * Normalizes input text by mapping Thai synonyms and trimming common filler words
+ */
+export function normalizeText(text: string): string {
+  if (!text) return '';
+  let str = text.toLowerCase().trim();
+
+  // Remove common polite/filler prefixes and suffixes
+  str = str.replace(/(?:น้องออร่า|ออร่า|ช่วย|หน่อย|ที|นะ|ครับ|ค่ะ|ด้วย|ให้หน่อย|ให้ที|ให้ด้วย)+/gi, ' ').trim();
+
+  // Normalize spaces
+  return str.replace(/\s+/g, ' ');
+}
+
+/**
+ * Resolves target category ('bag' | 'cart' | 'both') with negative context handling
+ * e.g. "แอดในรถไม่ใช่ในเป๋า" -> 'cart'
+ * e.g. "ไม่เอาเป๋า จะเอาลงรถ" -> 'cart'
+ * e.g. "เช็กทั้งกระเป๋าทั้งรถ" -> 'both'
+ */
+export function resolveTargetCategory(text: string): 'bag' | 'cart' | 'both' {
+  const norm = normalizeText(text);
+
+  const bagPatterns = /(?:กระเป๋า|เป๋า|ในเป๋า|bag|แบ็ก|แบก)/gi;
+  const cartPatterns = /(?:รถฉุกเฉิน|ตู้รถ|บนรถ|ในรถ|รถ|cart|คาร์ท|คาร์ต|ตู้)/gi;
+
+  const negBagPattern = /(?:ไม่|ไม่ใช่|ไม่เอา|ไม่ใช่ใน)\s*(?:กระเป๋า|เป๋า|ในเป๋า|bag|แบ็ก|แบก)/gi;
+  const negCartPattern = /(?:ไม่|ไม่ใช่|ไม่เอา|ไม่ใช่ใน)\s*(?:รถฉุกเฉิน|ตู้รถ|บนรถ|ในรถ|รถ|cart|คาร์ท|คาร์ต|ตู้)/gi;
+
+  const hasNegBag = negBagPattern.test(norm);
+  const hasNegCart = negCartPattern.test(norm);
+
+  let posText = norm
+    .replace(/(?:ไม่|ไม่ใช่|ไม่เอา|ไม่ใช่ใน)\s*(?:กระเป๋า|เป๋า|ในเป๋า|bag|แบ็ก|แบก)/gi, '')
+    .replace(/(?:ไม่|ไม่ใช่|ไม่เอา|ไม่ใช่ใน)\s*(?:รถฉุกเฉิน|ตู้รถ|บนรถ|ในรถ|รถ|cart|คาร์ท|คาร์ต|ตู้)/gi, '');
+
+  const hasPosBag = bagPatterns.test(posText);
+  const hasPosCart = cartPatterns.test(posText);
+
+  if (hasPosBag && hasPosCart && !hasNegBag && !hasNegCart) {
+    return 'both';
+  }
+
+  if (hasPosCart || hasNegBag) {
+    return 'cart';
+  }
+
+  if (hasPosBag || hasNegCart) {
+    return 'bag';
+  }
+
+  return 'both';
+}
+
 export interface AutoCheckIntentResult {
   isAutoCheck: boolean;
   categories: ('bag' | 'cart')[];
@@ -233,7 +287,7 @@ export interface AutoCheckIntentResult {
  * Natural Language Intent Parser for Auto-Check commands (Specific Week vs Full Month)
  */
 export function parseAutoCheckIntent(queryStr: string, currentWeekNum: number = 1, availableWeeks: number[] = [1, 2, 3, 4]): AutoCheckIntentResult {
-  const q = (queryStr || '').toLowerCase().trim();
+  const q = normalizeText(queryStr);
 
   const isAutoCheck =
     q.includes('ตรวจผ่าน') ||
@@ -258,7 +312,9 @@ export function parseAutoCheckIntent(queryStr: string, currentWeekNum: number = 
       !q.includes('ไปที่') &&
       !q.includes('ไปหน้า') &&
       !q.includes('เพิ่ม') &&
-      !q.includes('ลบ')
+      !q.includes('แอด') &&
+      !q.includes('ลบ') &&
+      !q.includes('เอาออก')
     );
 
   if (!isAutoCheck) {
@@ -271,24 +327,13 @@ export function parseAutoCheckIntent(queryStr: string, currentWeekNum: number = 
     };
   }
 
-  // 1. Determine categories
-  const hasBag = q.includes('กระเป๋า') || q.includes('bag');
-  const hasCart = q.includes('รถ') || q.includes('cart');
-  const hasAllCats =
-    q.includes('ทั้งหมด') ||
-    q.includes('ทุกหมวด') ||
-    q.includes('ทุกอย่าง') ||
-    (!hasBag && !hasCart);
-
+  // 1. Determine categories with negative context handling
+  const targetCategory = resolveTargetCategory(queryStr);
   let categories: ('bag' | 'cart')[] = [];
-  if (hasAllCats || (hasBag && hasCart)) {
+  if (targetCategory === 'both') {
     categories = ['bag', 'cart'];
-  } else if (hasBag) {
-    categories = ['bag'];
-  } else if (hasCart) {
-    categories = ['cart'];
   } else {
-    categories = ['bag', 'cart'];
+    categories = [targetCategory];
   }
 
   // 2. Determine target weeks (Full month vs Single Week)
@@ -366,4 +411,5 @@ export function parseAutoCheckIntent(queryStr: string, currentWeekNum: number = 
     targetWeek: safeWk,
   };
 }
+
 
