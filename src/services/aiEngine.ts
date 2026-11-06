@@ -79,7 +79,7 @@ export function applyUserFiltering(items: any[], filterPrompt: string): any[] {
       };
 
       const itemMatches = hasNumInRange(itemName);
-      const subMatches = subItems.some((s) => hasNumInRange(s));
+      const subMatches = subItems.some((s: string) => hasNumInRange(s));
       if (!itemMatches && !subMatches) {
         return false;
       }

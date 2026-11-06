@@ -248,10 +248,10 @@ async function startServer() {
           if (catMatch) {
             const catKeywords = catMatch[1]
               .split(/(?:และ|กับ|หรือ|,|\s+)/)
-              .map((w) => w.trim().toLowerCase())
-              .filter((w) => w.length > 1 && !['หมวด', 'กลุ่ม', 'ของ', 'และ', 'กับ'].includes(w));
+              .map((w: string) => w.trim().toLowerCase())
+              .filter((w: string) => w.length > 1 && !['หมวด', 'กลุ่ม', 'ของ', 'และ', 'กับ'].includes(w));
             if (catKeywords.length > 0) {
-              const matchesCategory = catKeywords.some((kw) => itemCat.includes(kw) || itemName.includes(kw));
+              const matchesCategory = catKeywords.some((kw: string) => itemCat.includes(kw) || itemName.includes(kw));
               if (!matchesCategory) return false;
             }
           }
@@ -274,7 +274,7 @@ async function startServer() {
             };
 
             const itemMatches = hasNumInRange(itemName);
-            const subMatches = subItems.some((s) => hasNumInRange(s));
+            const subMatches = subItems.some((s: string) => hasNumInRange(s));
             if (!itemMatches && !subMatches) {
               return false;
             }

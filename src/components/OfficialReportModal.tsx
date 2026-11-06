@@ -546,14 +546,25 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
   }, [displayTitle, selectedCategory, activeChannel]);
 
   const mainDocHeading = useMemo(() => {
-    const { month, year } = getMonthAndYearThai(displayDate);
+    let monthVal = '';
+    let yearVal = '';
+    
+    if (isBlankForm && (selectedCategory === 'bag' || selectedCategory === 'cart')) {
+      monthVal = '....................................................';
+      yearVal = '............';
+    } else {
+      const res = getMonthAndYearThai(displayDate);
+      monthVal = res.month;
+      yearVal = res.year;
+    }
+    
     const chanTag = activeChannel && !activeChannel.isDefault ? ` (${activeChannel.name})` : '';
     if (selectedCategory === 'eq') return `ทะเบียนรายการครุภัณฑ์และอุปกรณ์${chanTag}`;
-    if (selectedCategory === 'bag') return `ตารางตรวจเช็คกระเป๋า Emergency${chanTag} ประจำเดือน ${month} พ.ศ. ${year}`;
-    if (selectedCategory === 'cart') return `ตารางตรวจเช็ครถ Emergency${chanTag} ประจำเดือน ${month} พ.ศ. ${year}`;
+    if (selectedCategory === 'bag') return `ตารางตรวจเช็คกระเป๋า Emergency${chanTag} ประจำเดือน ${monthVal} พ.ศ. ${yearVal}`;
+    if (selectedCategory === 'cart') return `ตารางตรวจเช็ครถ Emergency${chanTag} ประจำเดือน ${monthVal} พ.ศ. ${yearVal}`;
     if (selectedCategory === 'drug') return getDrugCategoryTitle(drugSubCategory, displayDate);
     return `ทะเบียนรายการครุภัณฑ์และอุปกรณ์${chanTag}`;
-  }, [selectedCategory, drugSubCategory, displayDate, activeChannel]);
+  }, [selectedCategory, drugSubCategory, displayDate, activeChannel, isBlankForm]);
 
   const userSignature = useMemo(() => {
     if (currentUser?.signature) return currentUser.signature;

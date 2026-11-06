@@ -115,7 +115,11 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
     return getWednesdaysInfoForMonth(surveyDate);
   }, [surveyDate]);
 
-  const { dates: defaultWednesdays, totalWednesdays, weeks, monthNameThai, yearBE } = wedInfo;
+  const { dates: defaultWednesdays, totalWednesdays: actualWednesdays, monthNameThai, yearBE } = wedInfo;
+
+  // Force 5 weeks support for both preview and blank form
+  const totalWednesdays = 5;
+  const weeks = [1, 2, 3, 4, 5];
 
   const currentWeek = useMemo(() => {
     const rawWk = propActiveWeek || getWeekOfMonth(surveyDate);
@@ -123,11 +127,14 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
   }, [propActiveWeek, surveyDate, totalWednesdays]);
 
   const { month, year } = useMemo(() => {
+    if (isBlankForm) {
+      return { month: '....................................................', year: '............' };
+    }
     if (monthNameThai && yearBE) {
       return { month: monthNameThai, year: String(yearBE) };
     }
     return getMonthAndYearThai(surveyDate);
-  }, [monthNameThai, yearBE, surveyDate]);
+  }, [monthNameThai, yearBE, surveyDate, isBlankForm]);
 
   const shortDate = formatShortDmy(surveyDate);
 
@@ -144,14 +151,16 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
     const formatted: Record<number, string> = {};
     for (let wk = 1; wk <= totalWednesdays; wk++) {
       const d = dates[wk];
-      if (d && d.trim() && d !== '-' && !d.includes('....')) {
+      if (isBlankForm) {
+        formatted[wk] = '...../...../.....';
+      } else if (d && d.trim() && d !== '-' && !d.includes('....')) {
         formatted[wk] = formatShortDmy(d);
       } else {
         formatted[wk] = defaultWednesdays[wk] || '';
       }
     }
     return formatted;
-  }, [propWeekDates, internalWeekDates, defaultWednesdays, totalWednesdays]);
+  }, [propWeekDates, internalWeekDates, defaultWednesdays, totalWednesdays, isBlankForm]);
 
   const handleDateChange = (wk: number, val: string) => {
     const updated = { ...resolvedWeekDates, [wk]: val };
@@ -204,9 +213,7 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
     }
   };
 
-  const headingTitle = isBlankForm
-    ? `ตารางตรวจเช็ค${type === 'cart' ? 'รถ' : 'กระเป๋า'} Emergency`
-    : type === 'cart'
+  const headingTitle = type === 'cart'
     ? `ตารางตรวจเช็ครถ Emergency ประจำเดือน ${month} พ.ศ. ${year}`
     : `ตารางตรวจเช็คกระเป๋า Emergency ประจำเดือน ${month} พ.ศ. ${year}`;
 
@@ -354,7 +361,7 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
             <Calendar className="w-4 h-4" style={{ color: '#000000 !important' }} />
             {isBlankForm 
               ? 'ประจำเดือน: ............................................ พ.ศ. ............'
-              : `วัน, เดือน, ปี ที่สำรวจ: ${formatThaiDate(surveyDate)}`}
+              : `ประจำเดือน: ${month} พ.ศ. ${year}`}
           </span>
           {!isBlankForm && inspector && (
             <span className="flex items-center gap-1 font-medium" style={{ color: '#000000 !important', lineHeight: '1.4' }}>
@@ -423,22 +430,14 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
                 <th
                   key={w}
                   className={`border border-slate-400 p-1 text-center font-semibold ${
-                    currentWeek === w ? 'bg-blue-50/80 font-bold text-blue-900' : ''
+                    currentWeek === w && !isBlankForm ? 'bg-blue-50/80 font-bold text-blue-900' : ''
                   }`}
-                  style={{ width: `${375 / totalWednesdays}px` }}
+                  style={{ width: '75px' }}
                 >
                   <div className="font-bold text-[11px] text-black">สัปดาห์ที่ {w}</div>
-                  {isBlankForm ? (
-                    <div style={{ color: '#000000', fontSize: '10px' }}>....................</div>
-                  ) : (
-                    <input
-                      type="text"
-                      value={wkDate}
-                      onChange={(e) => handleDateChange(w, e.target.value)}
-                      placeholder="ว/ด/ป"
-                      className="w-full text-center bg-transparent border-0 focus:ring-1 focus:ring-blue-500 rounded text-[10px] p-0 text-slate-800 font-semibold"
-                    />
-                  )}
+                  <div style={{ color: '#000000', fontSize: '10px' }}>
+                    {isBlankForm ? 'วันที่ ...../...../.....' : (wkDate || 'ว/ด/ป')}
+                  </div>
                 </th>
               );
             })}
@@ -567,25 +566,29 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
                           <td
                             key={w}
                             className={`border border-slate-300 p-0 text-center ${
-                              currentWeek === w ? 'bg-blue-50/40' : ''
+                              currentWeek === w && !isBlankForm ? 'bg-blue-50/40' : ''
                             }`}
-                            style={{ textAlign: 'center', width: `${375 / totalWednesdays}px` }}
+                            style={{ textAlign: 'center', width: '75px' }}
                           >
-                            <input
-                              type="text"
-                              value={isBlankForm ? '' : (isValEmpty ? '' : displayVal)}
-                              placeholder={isBlankForm ? "" : "-"}
-                              onChange={(e) => handleCellValChange(itemKey, w, e.target.value)}
-                              className={`w-full h-8 text-center bg-transparent border-0 focus:ring-1 focus:ring-blue-500 rounded text-xs p-1 outline-none font-bold ${
-                                isValBad
-                                  ? 'text-rose-700 text-sm font-bold'
-                                  : isValEmpty
-                                  ? 'text-slate-400'
-                                  : 'text-black text-sm font-bold'
-                              }`}
-                              style={{ color: isValBad ? '#be123c' : isValEmpty ? '#94a3b8' : '#000000 !important' }}
-                              title={`สัปดาห์ที่ ${w}`}
-                            />
+                            {isBlankForm ? (
+                              <div className="h-8"></div>
+                            ) : (
+                              <input
+                                type="text"
+                                value={isValEmpty ? '' : displayVal}
+                                placeholder="-"
+                                onChange={(e) => handleCellValChange(itemKey, w, e.target.value)}
+                                className={`w-full h-8 text-center bg-transparent border-0 focus:ring-1 focus:ring-blue-500 rounded text-xs p-1 outline-none font-bold ${
+                                  isValBad
+                                    ? 'text-rose-700 text-sm font-bold'
+                                    : isValEmpty
+                                    ? 'text-slate-400'
+                                    : 'text-black text-sm font-bold'
+                                }`}
+                                style={{ color: isValBad ? '#be123c' : isValEmpty ? '#94a3b8' : '#000000 !important' }}
+                                title={`สัปดาห์ที่ ${w}`}
+                              />
+                            )}
                           </td>
                         );
                       })}
@@ -644,21 +647,25 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
                 -
               </td>
               {weeks.map((w) => {
-                const hasActivity = !!resolvedWeekDates[w] || items.some((it) => {
+                const hasActivity = !!resolvedWeekDates[w] && resolvedWeekDates[w] !== '...../...../.....' && !!items.some((it) => {
                   const ik = `${it.name}|${it.code || ''}`;
                   return it.weekVals?.[w] || resolvedWeekValues[ik]?.[w];
                 });
                 const val = isBlankForm ? '' : (inspectors1[w] !== undefined && inspectors1[w] !== '' ? inspectors1[w] : (hasActivity ? defaultInspector1 : ''));
                 return (
-                  <td key={w} className="border border-slate-400 p-0 text-center" style={{ width: `${375 / totalWednesdays}px`, verticalAlign: 'middle' }}>
-                    <input
-                      type="text"
-                      value={val}
-                      placeholder=""
-                      onChange={(e) => setInspectors1((prev) => ({ ...prev, [w]: e.target.value }))}
-                      className="w-full h-8 text-center bg-transparent border-0 focus:ring-1 focus:ring-blue-500 rounded text-[10.5px] p-0.5 font-bold text-slate-800"
-                      title={`ผู้ตรวจสอบ 1 สัปดาห์ที่ ${w}`}
-                    />
+                  <td key={w} className="border border-slate-400 p-0 text-center" style={{ width: '75px', verticalAlign: 'middle' }}>
+                    {isBlankForm ? (
+                      <div className="h-8"></div>
+                    ) : (
+                      <input
+                        type="text"
+                        value={val}
+                        placeholder=""
+                        onChange={(e) => setInspectors1((prev) => ({ ...prev, [w]: e.target.value }))}
+                        className="w-full h-8 text-center bg-transparent border-0 focus:ring-1 focus:ring-blue-500 rounded text-[10.5px] p-0.5 font-bold text-slate-800"
+                        title={`ผู้ตรวจสอบ 1 สัปดาห์ที่ ${w}`}
+                      />
+                    )}
                   </td>
                 );
               })}
@@ -681,15 +688,19 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
               {weeks.map((w) => {
                 const val = isBlankForm ? '' : (inspectors2[w] || '');
                 return (
-                  <td key={w} className="border border-slate-400 p-0 text-center" style={{ width: `${375 / totalWednesdays}px`, verticalAlign: 'middle' }}>
-                    <input
-                      type="text"
-                      value={val}
-                      placeholder=""
-                      onChange={(e) => setInspectors2((prev) => ({ ...prev, [w]: e.target.value }))}
-                      className="w-full h-8 text-center bg-transparent border-0 focus:ring-1 focus:ring-blue-500 rounded text-[10.5px] p-0.5 font-bold text-slate-800"
-                      title={`ผู้ตรวจสอบ 2 สัปดาห์ที่ ${w}`}
-                    />
+                  <td key={w} className="border border-slate-400 p-0 text-center" style={{ width: '75px', verticalAlign: 'middle' }}>
+                    {isBlankForm ? (
+                      <div className="h-8"></div>
+                    ) : (
+                      <input
+                        type="text"
+                        value={val}
+                        placeholder=""
+                        onChange={(e) => setInspectors2((prev) => ({ ...prev, [w]: e.target.value }))}
+                        className="w-full h-8 text-center bg-transparent border-0 focus:ring-1 focus:ring-blue-500 rounded text-[10.5px] p-0.5 font-bold text-slate-800"
+                        title={`ผู้ตรวจสอบ 2 สัปดาห์ที่ ${w}`}
+                      />
+                    )}
                   </td>
                 );
               })}
@@ -732,9 +743,12 @@ export function generateEmergencyPrintHtml(
   } = options;
 
   const wedInfo = getWednesdaysInfoForMonth(date || new Date().toISOString());
-  const { dates: defaultPrintWednesdays, totalWednesdays, weeks, monthNameThai, yearBE } = wedInfo;
+  const { dates: defaultPrintWednesdays, monthNameThai, yearBE } = wedInfo;
 
-  const activeWeek = options.activeWeek && options.activeWeek <= totalWednesdays ? options.activeWeek : 1;
+  const totalWednesdays = 5;
+  const weeks = [1, 2, 3, 4, 5];
+
+  const activeWeek = options.activeWeek && options.activeWeek <= 5 ? options.activeWeek : 1;
 
   const effectiveStoredName = typeof window !== 'undefined' ? localStorage.getItem('user_display_name') : null;
   const printInspectorRaw = (effectiveStoredName || inspector || currentUser?.name || 'สาธิต').trim();
@@ -749,8 +763,8 @@ export function generateEmergencyPrintHtml(
     return a;
   })();
 
-  const month = monthNameThai || getMonthAndYearThai(date || new Date().toISOString()).month;
-  const year = String(yearBE || getMonthAndYearThai(date || new Date().toISOString()).year);
+  const month = isBlankForm ? '....................................................' : (monthNameThai || getMonthAndYearThai(date || new Date().toISOString()).month);
+  const year = isBlankForm ? '............' : String(yearBE || getMonthAndYearThai(date || new Date().toISOString()).year);
 
   const headingTitle =
     type === 'cart'
@@ -760,7 +774,9 @@ export function generateEmergencyPrintHtml(
   const resolvedPrintWeekDates: Record<number, string> = {};
   for (let w = 1; w <= totalWednesdays; w++) {
     const rawVal = weekDates[w];
-    if (rawVal && rawVal.trim() && rawVal !== '-' && !rawVal.includes('....')) {
+    if (isBlankForm) {
+      resolvedPrintWeekDates[w] = 'วันที่ ...../...../.....';
+    } else if (rawVal && rawVal.trim() && rawVal !== '-' && !rawVal.includes('....')) {
       resolvedPrintWeekDates[w] = formatShortDmy(rawVal);
     } else {
       resolvedPrintWeekDates[w] = defaultPrintWednesdays[w] || '';
@@ -902,7 +918,9 @@ export function generateEmergencyPrintHtml(
                 ? 'color: #94a3b8;'
                 : 'color: #000000; font-weight: bold; font-size: 10.5pt;';
 
-              return `<td style="text-align: center; border: 1px solid #000; ${cellStyle}">${displayVal}</td>`;
+              const finalDisplayVal = isBlankForm ? '' : displayVal;
+
+              return `<td style="text-align: center; border: 1px solid #000; width: 75px; ${cellStyle}">${finalDisplayVal}</td>`;
             })
             .join('');
 
@@ -930,14 +948,14 @@ export function generateEmergencyPrintHtml(
       ${weeks.map((w) => {
         const isWeekActive = !!weekDates[w] || items.some((it) => it.weekVals?.[w] || weekItemValues[`${it.name}|${it.code || ''}`]?.[w]);
         const val = isBlankForm ? '' : (isWeekActive ? printInspectorRaw : '');
-        return `<td style="text-align: center; border: 1px solid #000; font-size: 9pt;">${val}</td>`;
+        return `<td style="text-align: center; border: 1px solid #000; width: 75px; font-size: 9pt;">${val}</td>`;
       }).join('')}
       <td style="text-align: center; border: 1px solid #000;">-</td>
     </tr>
     <tr style="background-color: #f8fafc; font-weight: bold;">
       <td style="text-align: left; padding-left: 8px; border: 1px solid #000; font-weight: bold; height: 28px;">ผู้ตรวจสอบ 2</td>
       <td style="text-align: center; border: 1px solid #000;">-</td>
-      ${weeks.map(() => `<td style="text-align: center; border: 1px solid #000; font-size: 9pt;">${isBlankForm ? '' : '-'}</td>`).join('')}
+      ${weeks.map(() => `<td style="text-align: center; border: 1px solid #000; width: 75px; font-size: 9pt;">${isBlankForm ? '' : '-'}</td>`).join('')}
       <td style="text-align: center; border: 1px solid #000;">-</td>
     </tr>
   `;
@@ -970,12 +988,12 @@ export function generateEmergencyPrintHtml(
           <thead>
             <tr>
               <th rowspan="2" style="width: 280px;">รายการ</th>
-              <th rowspan="2" style="width: 85px;">จำนวนตั้งต้น</th>
+              <th rowspan="2" style="width: 90px;">จำนวนตั้งต้น</th>
               <th colspan="${totalWednesdays}">สัปดาห์ที่ตรวจ</th>
-              <th rowspan="2" style="width: 100px;">วันหมดอายุ (EXP)</th>
+              <th rowspan="2" style="width: 130px;">วันหมดอายุ (EXP)</th>
             </tr>
             <tr>
-              ${weeks.map(w => `<th style="width: ${375 / totalWednesdays}px;">สัปดาห์ที่ ${w}<br><small style="font-size:8.5pt; font-weight:normal;">${resolvedPrintWeekDates[w] || 'วัน,เดือน,ปี'}</small></th>`).join('')}
+              ${weeks.map(w => `<th style="width: 75px;">สัปดาห์ที่ ${w}<br><small style="font-size:8.5pt; font-weight:normal;">${resolvedPrintWeekDates[w] || 'ว/ด/ป'}</small></th>`).join('')}
             </tr>
           </thead>
           <tbody>

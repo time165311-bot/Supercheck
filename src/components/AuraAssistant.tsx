@@ -1177,7 +1177,7 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
                   ref={fileInputRef}
                   className="hidden"
                   accept="image/*"
-                  onChange={handleImageUpload}
+                  onChange={handleImageSelect}
                 />
                 <button
                   type="button"
