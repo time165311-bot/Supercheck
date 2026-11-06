@@ -22,9 +22,18 @@ import { formatAcquiredDate } from './OfficialReportModal';
 import { EditItemModal } from './EditItemModal';
 import { getWednesdaysInfoForMonth } from '../utils/wednesdayUtils';
 
-import { getItemSizes, parseSubExps, getItemSubItemsInfo, extractQuantityNumbers, getItemQuantityClassification, getRealTargetCheckValue } from '../utils/itemUtils';
+import {
+  getItemSizes,
+  parseSubExps,
+  getItemSubItemsInfo,
+  extractQuantityNumbers,
+  getItemQuantityClassification,
+  getRealTargetCheckValue,
+  sanitizeItemName,
+  sortItemsNaturally
+} from '../utils/itemUtils';
 export type { SubExpItemInfo as SubExpItem } from '../utils/itemUtils';
-export { getItemSizes, parseSubExps, getRealTargetCheckValue };
+export { getItemSizes, parseSubExps, getRealTargetCheckValue, sanitizeItemName, sortItemsNaturally };
 
 export function getDeviceTodayDateStr(): string {
   const d = new Date();
@@ -283,8 +292,25 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
         });
       });
     });
+    
+    // Group and Sort Naturally
+    const finalItems: typeof itemsList = [];
+    const groupedByLocation: Record<string, typeof itemsList> = {};
+    
+    itemsList.forEach(item => {
+      if (!groupedByLocation[item.groupName]) {
+        groupedByLocation[item.groupName] = [];
+      }
+      groupedByLocation[item.groupName].push(item);
+    });
+    
+    // Sort each group and flatten
+    Object.keys(groupedByLocation).forEach(groupName => {
+      const sortedGroup = sortItemsNaturally(groupedByLocation[groupName]);
+      finalItems.push(...sortedGroup);
+    });
 
-    return itemsList;
+    return finalItems;
   }, [listConfig, type]);
 
   // Filtered Items based on group filter and search query
@@ -682,7 +708,7 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
             ไม่พบรายการอุปกรณ์ตรงตามคำค้นหา
           </div>
         ) : (
-          filteredItems.map((item) => {
+          filteredItems.map((item, idx) => {
             const check = checks[item.itemKey];
             const weekVal = check?.weekVals?.[selectedWeek];
 
@@ -833,7 +859,7 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
                     </div>
 
                     <h3 className="text-sm font-bold text-slate-900 leading-snug">
-                      {item.name}
+                      {idx + 1}. {sanitizeItemName(item.name)}
                     </h3>
 
                     {item.spec && (

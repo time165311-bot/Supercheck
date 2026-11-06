@@ -14,7 +14,7 @@ import { getMonthAndYearThai } from './DrugInventoryReportPreview';
 import { Calendar, User as UserIcon } from 'lucide-react';
 import { User } from '../types';
 import { getWednesdaysInfoForMonth } from '../utils/wednesdayUtils';
-import { getItemQuantityClassification, getRealTargetCheckValue } from '../utils/itemUtils';
+import { getItemQuantityClassification, getRealTargetCheckValue, sanitizeItemName, sortItemsNaturally } from '../utils/itemUtils';
 
 export function getWeekOfMonth(dateStr?: string): number {
   if (!dateStr) return 1;
@@ -117,9 +117,9 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
 
   const { dates: defaultWednesdays, totalWednesdays: actualWednesdays, monthNameThai, yearBE } = wedInfo;
 
-  // Force 5 weeks support for both preview and blank form
-  const totalWednesdays = 5;
-  const weeks = [1, 2, 3, 4, 5];
+  // Dynamic Wednesday Calculation for selected month/year
+  const totalWednesdays = isBlankForm ? 5 : actualWednesdays;
+  const weeks = Array.from({ length: totalWednesdays }, (_, i) => i + 1);
 
   const currentWeek = useMemo(() => {
     const rawWk = propActiveWeek || getWeekOfMonth(surveyDate);
@@ -229,6 +229,12 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
       if (!groups[gName]) groups[gName] = [];
       groups[gName].push(item);
     });
+
+    // Natural Sort within each group
+    Object.keys(groups).forEach(gName => {
+      groups[gName] = sortItemsNaturally(groups[gName]);
+    });
+
     return groups;
   }, [items]);
 
@@ -492,7 +498,7 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
                       className="border border-slate-300"
                       style={{ textAlign: 'left', paddingLeft: '10px', lineHeight: '1.4 !important', padding: '6px 4px !important' }}
                     >
-                      {item.name || '-'}
+                      {idx + 1}. {sanitizeItemName(item.name || '-')}
                     </td>
                     {/* Col 2: จำนวนตั้งต้น (ตรงกลาง, nowrap) - Render full unit text */}
                     <td
@@ -745,8 +751,8 @@ export function generateEmergencyPrintHtml(
   const wedInfo = getWednesdaysInfoForMonth(date || new Date().toISOString());
   const { dates: defaultPrintWednesdays, monthNameThai, yearBE } = wedInfo;
 
-  const totalWednesdays = 5;
-  const weeks = [1, 2, 3, 4, 5];
+  const totalWednesdays = isBlankForm ? 5 : (wedInfo.totalWednesdays || 5);
+  const weeks = Array.from({ length: totalWednesdays }, (_, i) => i + 1);
 
   const activeWeek = options.activeWeek && options.activeWeek <= 5 ? options.activeWeek : 1;
 
@@ -796,6 +802,11 @@ export function generateEmergencyPrintHtml(
     groups[gName].push(item);
   });
 
+  // Natural Sort within each group
+  Object.keys(groups).forEach(gName => {
+    groups[gName] = sortItemsNaturally(groups[gName]);
+  });
+
   const tableBodyHtml = Object.entries(groups)
     .map(([gName, groupRows]) => {
       const groupHeader = `
@@ -807,7 +818,7 @@ export function generateEmergencyPrintHtml(
       `;
 
       const rowsHtml = groupRows
-        .map((item) => {
+        .map((item, idx) => {
           const itemKey = `${item.name}|${item.code || ''}`;
           const isOk = item.res ? item.res.includes('ใช้งานได้') : (item as any).status === 'normal' || (item as any).checked;
           const isBad = item.res ? item.res.includes('ไม่ได้') : false;
@@ -926,7 +937,7 @@ export function generateEmergencyPrintHtml(
 
           return `
             <tr>
-              <td style="text-align: left; padding-left: 8px; border: 1px solid #000;">${item.name || '-'}</td>
+              <td style="text-align: left; padding-left: 8px; border: 1px solid #000;">${idx + 1}. ${sanitizeItemName(item.name || '-')}</td>
               <td style="text-align: center; border: 1px solid #000; white-space: nowrap !important; font-weight: bold;">${(item as any).initialQtyText || (item as any).unitText || (item.qty && String(item.qty).trim() ? String(item.qty).trim() : '1')}</td>
               ${weekCells}
               <td style="text-align: center; border: 1px solid #000; font-size: 9pt; line-height: 1.3; padding: 4px 2px;">

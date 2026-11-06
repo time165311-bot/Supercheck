@@ -21,7 +21,13 @@ import {
   generateEmergencyPrintHtml,
 } from './EmergencyChecklistReportPreview';
 import { EquipmentReportPreview, generateEquipmentPrintHtml } from './EquipmentReportPreview';
-import { extractQuantityNumbers, getItemQuantityClassification, getRealTargetCheckValue } from '../utils/itemUtils';
+import {
+  extractQuantityNumbers,
+  getItemQuantityClassification,
+  getRealTargetCheckValue,
+  sanitizeItemName,
+  sortItemsNaturally
+} from '../utils/itemUtils';
 import { useDataContext } from '../context/DataContext';
 
 export interface OfficialReportItemRow {
@@ -729,6 +735,20 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
         });
       } else if (selectedCategory === 'bag' || selectedCategory === 'cart') {
         const uniqueSheet = selectedCategory === 'bag' ? `กระเป๋า_EMER_${dateFormatted}` : `รถ_EMER_${dateFormatted}`;
+        
+        // Group and Sort Naturally for Sheets
+        const groups: Record<string, OfficialReportItemRow[]> = {};
+        activeItems.forEach(item => {
+          const g = item.group || '-';
+          if (!groups[g]) groups[g] = [];
+          groups[g].push(item);
+        });
+        
+        const sortedItems: OfficialReportItemRow[] = [];
+        Object.keys(groups).forEach(g => {
+          sortedItems.push(...sortItemsNaturally(groups[g]));
+        });
+
         await sendInspectionToGas(apiUrl, {
           type: selectedCategory,
           sheet: selectedCategory === 'bag' ? 'กระเป๋า Emergency' : 'รถ Emergency',
@@ -737,8 +757,8 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
           date: displayDate,
           who: displayInspector || currentUser?.name || 'ผู้ดูแลระบบ',
           user: currentUser?.username || 'user',
-          rows: activeItems.map((item) => ({
-            name: item.name,
+          rows: sortedItems.map((item, idx) => ({
+            name: `${idx + 1}. ${sanitizeItemName(item.name)}`,
             qty: String(item.qty || '1'),
             exp: item.exp || item.date || '-',
             group: item.group || '-',
@@ -751,6 +771,10 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
         const roomNameMatch = (mainDocHeading + ' ' + (activeItems[0]?.location || '')).match(/OR\s*\d|PACU|Sterile|MINOR\s*\d/i);
         const locCode = roomNameMatch ? roomNameMatch[0].replace(/\s+/g, '').toUpperCase() : 'ทุกห้อง';
         const uniqueSheet = `ครุภัณฑ์_${locCode}_${dateFormatted}`;
+        
+        // Natural Sort for Equipment
+        const sortedEq = sortItemsNaturally(activeItems);
+
         await sendInspectionToGas(apiUrl, {
           type: 'equipment',
           sheet: 'ครุภัณฑ์',
@@ -762,11 +786,11 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
           user: currentUser?.username || 'user',
           tax: '7',
           startNo: 1,
-          rows: activeItems.map((item, idx) => ({
-            no: String(item.no || idx + 1),
+          rows: sortedEq.map((item, idx) => ({
+            no: String(idx + 1),
             code: item.code || '-',
             sap: item.sap || '-',
-            name: item.name,
+            name: sanitizeItemName(item.name),
             spec: item.spec || '-',
             source: item.source || '-',
             date: item.date || '-',

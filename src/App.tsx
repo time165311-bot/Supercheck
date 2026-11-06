@@ -123,6 +123,7 @@ export default function App() {
 
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [zoomedImgUrl, setZoomedImgUrl] = useState<string | null>(null);
+  const [isAuraOpen, setIsAuraOpen] = useState(false);
 
   // Current Logged-in User
   const [currentUser, setCurrentUser] = useState<User | null>(() => {
@@ -547,7 +548,8 @@ export default function App() {
     zoomedImgUrl ||
     isKeyboardOpen ||
     isExternalModalOpen ||
-    isChannelModalOpen
+    isChannelModalOpen ||
+    isAuraOpen
   );
 
   const shouldShowBottomBar = isBottomBarVisible && !isAnyModalActive && !isKeyboardOpen;
@@ -2185,6 +2187,7 @@ export default function App() {
         isDarkMode={isDark}
         isBottomBarVisible={shouldShowBottomBar}
         isAnyModalOpen={isAnyModalActive || isKeyboardOpen || !shouldShowBottomBar}
+        onOpenChange={(open) => setIsAuraOpen(open)}
       />
 
       {/* 📍 Channel Selector Modal */}

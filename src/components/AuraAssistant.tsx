@@ -51,6 +51,7 @@ interface AuraAssistantProps {
   isDarkMode?: boolean;
   isBottomBarVisible?: boolean;
   isAnyModalOpen?: boolean;
+  onOpenChange?: (isOpen: boolean) => void;
 }
 
 type StepType = 'idle' | 'category' | 'quantity' | 'exp' | 'confirm_delete';
@@ -92,6 +93,7 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
   isDarkMode = false,
   isBottomBarVisible = true,
   isAnyModalOpen = false,
+  onOpenChange,
 }) => {
   const {
     channels,
@@ -104,6 +106,11 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
     reRenderData,
   } = useDataContext();
   const [isOpen, setIsOpen] = useState(false);
+
+  useEffect(() => {
+    if (onOpenChange) onOpenChange(isOpen);
+  }, [isOpen, onOpenChange]);
+
   const [isAnimating, setIsAnimating] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [stagedImage, setStagedImage] = useState<{
@@ -276,6 +283,7 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
         // 3. Immediately switch view to bag_check so the cards render right away
         if (onNavigate) {
           onNavigate('bag_check', 'bag');
+          handleClose();
         }
 
         const note = data.isQuotaExceeded ? `\n(${data.message})` : '';
@@ -482,6 +490,7 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
               } else {
                 onNavigate('bag_check', 'bag');
               }
+              handleClose(); // Auto-close chat after navigation
             }
 
             const targetName = targetType === 'cart' ? 'รถฉุกเฉิน (Crash Cart)' : 'กระเป๋าฉุกเฉิน (Emergency Bag)';
@@ -663,6 +672,7 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
       ) {
         if (onNavigate) {
           onNavigate('cart_check', 'cart');
+          handleClose(); // Auto-close chat after navigation
         }
         addMessage(
           'ai',
@@ -686,6 +696,7 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
       ) {
         if (onNavigate) {
           onNavigate('bag_check', 'bag');
+          handleClose(); // Auto-close chat after navigation
         }
         addMessage(
           'ai',
@@ -707,6 +718,7 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
       ) {
         if (onNavigate) {
           onNavigate('drug_check', 'medicine');
+          handleClose(); // Auto-close chat after navigation
         }
         addMessage(
           'ai',
@@ -727,6 +739,7 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
       ) {
         if (onNavigate) {
           onNavigate('room_check', 'equipment');
+          handleClose(); // Auto-close chat after navigation
         }
         addMessage(
           'ai',
@@ -747,6 +760,7 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
       ) {
         if (onNavigate) {
           onNavigate('home');
+          handleClose(); // Auto-close chat after navigation
         }
         addMessage(
           'ai',
@@ -1040,7 +1054,7 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
 
       {isOpen && (
         <div
-          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200"
+          className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200"
           onClick={handleClose}
         >
           <div
@@ -1152,10 +1166,42 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
 
             {/* Input Form */}
             <div className="p-4 border-t border-slate-100 dark:border-white/10 bg-slate-50/50 dark:bg-slate-900/50 rounded-b-[2.5rem]">
+              {/* Requirement 2: Image Staging Preview Area */}
+              {stagedImage && (
+                <div className="mb-3 p-2 bg-white dark:bg-slate-800 rounded-2xl border border-purple-200 dark:border-purple-900/50 shadow-sm flex items-center gap-3 animate-in fade-in slide-in-from-bottom-2">
+                  <div className="relative w-14 h-14 rounded-xl overflow-hidden border border-slate-200 shadow-inner">
+                    <img src={stagedImage.previewUrl} alt="Staged" className="w-full h-full object-cover" />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        URL.revokeObjectURL(stagedImage.previewUrl);
+                        setStagedImage(null);
+                      }}
+                      className="absolute top-[4px] right-[4px] z-50 p-1 bg-rose-500/90 text-white rounded-lg shadow-md hover:bg-rose-600 transition backdrop-blur-sm border border-white/20"
+                      title="ลบรูปภาพ"
+                    >
+                      <X size={12} className="stroke-[3]" />
+                    </button>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[10px] font-bold text-purple-600 dark:text-purple-400 mb-0.5 flex items-center gap-1">
+                      <Sparkles size={10} />
+                      <span>รูปถ่ายรอประมวลผล</span>
+                    </p>
+                    <p className="text-[9px] text-slate-500 truncate">{stagedImage.name}</p>
+                  </div>
+                </div>
+              )}
+
               <form
                 onSubmit={(e) => {
                   e.preventDefault();
-                  processCommand(inputMessage);
+                  if (stagedImage) {
+                    handleProcessImageWithFilter(stagedImage.file, inputMessage);
+                    setInputMessage('');
+                  } else if (inputMessage.trim()) {
+                    processCommand(inputMessage);
+                  }
                 }}
                 className="flex items-center gap-2"
               >
@@ -1200,7 +1246,7 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
                 />
                 <button
                   type="submit"
-                  disabled={!inputMessage.trim() || isLoading}
+                  disabled={(!inputMessage.trim() && !stagedImage) || isLoading}
                   className="p-3 rounded-2xl bg-gradient-to-r from-pink-500 to-purple-600 text-white hover:opacity-90 disabled:opacity-50 transition shadow-md cursor-pointer"
                   title="ส่งข้อความ"
                 >

@@ -447,4 +447,30 @@ export function resolveItemUnitText(item?: {
   return '1';
 }
 
+/**
+ * Strips leading numeric prefixes from item names (e.g., "1. Name" -> "Name", "1.1. Name" -> "Name")
+ */
+export function sanitizeItemName(name: string): string {
+  if (!name) return '';
+  // Remove patterns like "1. ", "1.1. ", "1. 1. ", "1) ", "1.2.3 " at the start of the string
+  return name.replace(/^[\d\s.)-]+\.?\s*/, '').trim();
+}
+
+/**
+ * Sorts an array of items naturally by name (e.g., No. 4 < No. 10)
+ */
+export function sortItemsNaturally<T extends { name: string }>(items: T[]): T[] {
+  return [...items].sort((a, b) => {
+    const nameA = sanitizeItemName(a.name);
+    const nameB = sanitizeItemName(b.name);
+    
+    // Primary sort: Sanitized Name (Natural)
+    const nameComp = nameA.localeCompare(nameB, 'th', { numeric: true, sensitivity: 'base' });
+    if (nameComp !== 0) return nameComp;
+    
+    // Secondary sort: Original Name (just in case)
+    return a.name.localeCompare(b.name, 'th', { numeric: true });
+  });
+}
+
 

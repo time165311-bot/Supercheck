@@ -13,6 +13,7 @@ import {
   getStoredString,
   getInitialLists,
 } from '../services/storage';
+import { sanitizeItemName, sortItemsNaturally } from '../utils/itemUtils';
 
 // Helper to deep clone and sanitize lists for a channel (retains items & subItems, but completely strips any check results)
 export function sanitizeListsForChannel(sourceLists: Record<'bag' | 'cart', ListConfig>): Record<'bag' | 'cart', ListConfig> {
@@ -345,7 +346,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
         const formattedItem: EquipmentItem = {
           id: item.id || `${targetType}_${Date.now()}_${index}_${Math.random().toString(36).substring(2, 7)}`,
-          name: item.name || `รายการที่ ${index + 1}`,
+          name: sanitizeItemName(item.name || `รายการที่ ${index + 1}`),
           qty: String(item.unitText || item.qty || '1'),
           unitText: String(item.unitText || item.qty || '1'),
           groupName,
@@ -362,6 +363,11 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         };
 
         updatedGroups[groupName].push(formattedItem);
+      });
+
+      // Natural Sort within each group
+      Object.keys(updatedGroups).forEach(groupName => {
+        updatedGroups[groupName] = sortItemsNaturally(updatedGroups[groupName]);
       });
 
       const updatedLists = {
