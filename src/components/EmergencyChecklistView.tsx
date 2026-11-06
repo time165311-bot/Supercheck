@@ -361,10 +361,12 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
 
   const handleTogglePassAll = () => {
     if (areAllPassed) {
+      // If already all passed, toggle them back to unchecked state
       filteredItems.forEach((item) => {
         onToggleCheck(item.itemKey, 'ปกติ', item.name, selectedWeek, true, '');
       });
     } else {
+      // Mark all filtered items as passed with their real target quantities (including sub-items)
       filteredItems.forEach((item) => {
         const passVal = getRealTargetCheckValue(item);
         onToggleCheck(item.itemKey, 'ปกติ', item.name, selectedWeek, true, passVal);

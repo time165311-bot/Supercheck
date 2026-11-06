@@ -452,8 +452,9 @@ export function resolveItemUnitText(item?: {
  */
 export function sanitizeItemName(name: string): string {
   if (!name) return '';
-  // Remove patterns like "1. ", "1.1. ", "1. 1. ", "1) ", "1.2.3 " at the start of the string
-  return name.replace(/^[\d\s.)-]+\.?\s*/, '').trim();
+  // Remove leading numbers ONLY if followed by a clear separator (e.g., "1. ", "1: ", "1- ")
+  // This prevents stripping numbers from names like "5% D/N/2" or "0.9% NSS"
+  return name.replace(/^\d+\s*[\.\:\-]\s*/, '').trim();
 }
 
 /**

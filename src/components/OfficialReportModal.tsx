@@ -386,8 +386,8 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
       if (initialDrugSubCategory) {
         setDrugSubCategory(initialDrugSubCategory);
       }
-      if (initialWeek) {
-        setActiveWeek(initialWeek);
+      if (initialWeek !== undefined && initialWeek !== null) {
+        setActiveWeek(Number(initialWeek));
       }
       if (initialWeekDates) {
         setWeekDates(initialWeekDates);
@@ -1230,7 +1230,7 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
                     return acc;
                   }, {} as any)}
                   weekDates={selectedRecord ? selectedRecord.weekDates : weekDates}
-                  activeWeek={selectedRecord ? (Object.keys(selectedRecord.rows[0]?.weekVals || {}).map(Number)[0] || 1) : activeWeek}
+                  activeWeek={activeWeek}
                   currentUser={currentUser ? { ...currentUser, name: activeUserName } : ({ name: activeUserName } as any)}
                   isBlankForm={isBlankForm}
                 />
