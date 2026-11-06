@@ -17,10 +17,12 @@ import {
   Compass,
   FileText,
   CheckCheck,
+  Camera,
 } from 'lucide-react';
 import { speakWithAura, stopSpeech } from '../utils/textToSpeech';
 import { getWednesdaysInfoForMonth, getWeekOfMonth } from '../utils/wednesdayUtils';
 import { useDataContext } from '../context/DataContext';
+import { applyUserFiltering } from '../services/aiEngine';
 
 interface AuraAssistantProps {
   equipment?: Record<string, any[]>;
@@ -91,9 +93,24 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
   isBottomBarVisible = true,
   isAnyModalOpen = false,
 }) => {
-  const { channels, activeChannel, setActiveChannelId, addChannel } = useDataContext();
+  const {
+    channels,
+    activeChannelId,
+    activeChannel,
+    setActiveChannelId,
+    addChannel,
+    batchAddItems,
+    addBatchItemsToChannel,
+    reRenderData,
+  } = useDataContext();
   const [isOpen, setIsOpen] = useState(false);
   const [isAnimating, setIsAnimating] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [stagedImage, setStagedImage] = useState<{
+    file: File;
+    previewUrl: string;
+    name: string;
+  } | null>(null);
   const [inputMessage, setInputMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isListening, setIsListening] = useState(false);
@@ -211,6 +228,82 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
       return;
     }
     speakWithAura(text, voices);
+  };
+
+  const handleImageSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const previewUrl = URL.createObjectURL(file);
+    setStagedImage({ file, previewUrl, name: file.name });
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const handleProcessImageWithFilter = async (file: File, userInstruction: string) => {
+    setIsLoading(true);
+    const promptText = userInstruction.trim();
+    const userDisplayMsg = promptText
+      ? `📸 แนบรูปตารางอุปกรณ์: "${promptText}"`
+      : '📸 แนบรูปภาพตารางอุปกรณ์ไปให้ช่วยวิเคราะห์...';
+
+    addMessage('user', userDisplayMsg);
+
+    const formData = new FormData();
+    formData.append('image', file);
+    if (promptText) {
+      formData.append('prompt', promptText);
+      formData.append('filterInstructions', promptText);
+    }
+
+    try {
+      const response = await fetch('/api/ai/vision', {
+        method: 'POST',
+        body: formData,
+      });
+
+      const data = await response.json();
+      let extractedItems = data.items || [];
+      if (promptText && extractedItems.length > 0) {
+        extractedItems = applyUserFiltering(extractedItems, promptText);
+      }
+
+      if (data.success && extractedItems.length > 0) {
+        // 1. Explicitly save to channel state and LocalStorage
+        addBatchItemsToChannel(activeChannelId, extractedItems, 'bag');
+
+        // 2. Trigger instant reactive UI re-render
+        reRenderData();
+
+        // 3. Immediately switch view to bag_check so the cards render right away
+        if (onNavigate) {
+          onNavigate('bag_check', 'bag');
+        }
+
+        const note = data.isQuotaExceeded ? `\n(${data.message})` : '';
+        addMessage(
+          'ai',
+          `✨ น้องออร่าทำการคัดกรองและเพิ่มรายการอุปกรณ์ให้ครบถ้วน ${extractedItems.length} รายการ ใน Channel [${activeChannel.name}] เรียบร้อยแล้วค่ะ!${note} ✨`,
+          false,
+          {
+            label: `💼 เปิดดูรายการในกระเป๋าฉุกเฉิน (${extractedItems.length} รายการ)`,
+            onClick: () => {
+              if (onNavigate) onNavigate('bag_check', 'bag');
+              handleClose();
+            },
+          }
+        );
+      } else {
+        addMessage('ai', 'น้องออร่าพยายามอ่านรูปภาพแล้ว แต่ไม่พบรายการอุปกรณ์ที่ตรงตามเงื่อนไขค่ะ รบกวนถ่ายรูปใหม่หรือปรับเปลี่ยนเงื่อนไขนะคะ');
+      }
+    } catch (err) {
+      console.warn('Vision analysis client warning:', err);
+      addMessage('ai', 'เกิดข้อผิดพลาดในการวิเคราะห์รูปภาพค่ะ');
+    } finally {
+      setIsLoading(false);
+      if (stagedImage?.previewUrl) {
+        URL.revokeObjectURL(stagedImage.previewUrl);
+      }
+      setStagedImage(null);
+    }
   };
 
   const addMessage = (
@@ -1077,6 +1170,22 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
                   title={isListening ? 'หยุดฟัง' : 'สั่งการด้วยเสียง'}
                 >
                   {isListening ? <MicOff size={18} /> : <Mic size={18} />}
+                </button>
+
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  className="hidden"
+                  accept="image/*"
+                  onChange={handleImageUpload}
+                />
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="p-3 rounded-2xl bg-purple-100 text-purple-600 dark:bg-purple-900/40 hover:bg-purple-200 transition cursor-pointer flex items-center justify-center"
+                  title="ถ่ายรูปหรือแนบภาพตารางอุปกรณ์ (OCR Vision)"
+                >
+                  <Camera size={18} />
                 </button>
                 <input
                   type="text"

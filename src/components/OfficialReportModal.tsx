@@ -936,129 +936,97 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
             </button>
           </div>
 
-          {/* Action Toolbar */}
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-xl border border-slate-200">
-              <select
-                value={selectedRoundId}
-                onChange={(e) => setSelectedRoundId(e.target.value)}
-                className="bg-transparent text-xs font-bold text-slate-800 px-2 py-1 outline-none cursor-pointer"
-              >
-                <option value="current">🟢 รอบปัจจุบัน (Live)</option>
-                {filteredHistoryRecords.map((rec) => (
-                  <option key={rec.id} value={rec.id}>
-                    📜 {rec.timestamp} ({rec.who || 'ผู้ตรวจ'})
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="flex items-center gap-2">
-              {/* ปุ่มสลับขนาดพอดีจอ (Fit Screen) / ขนาดจริง 100% */}
-              <div className="flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200 text-xs font-bold shadow-xs">
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (!isFitToScreen) handleToggleFitToScreen();
-                  }}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition cursor-pointer active:scale-95 ${
-                    isFitToScreen
-                      ? 'bg-white text-blue-600 shadow-xs font-extrabold'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                  title="ย่อตาราง A4 ให้พอดีกับความกว้างหน้าจอ (Fit to Screen)"
+          {/* Action Toolbar: Responsive 2-Tier Layout for Mobile & Desktop */}
+          <div className="flex flex-col gap-2.5 w-full">
+            {/* แถวที่ 1: เลือกรอบการตรวจ + ปุ่มเปลี่ยนสวิตช์ [แสดงฟอร์มเปล่า] เดี่ยวๆ ชัดเจน */}
+            <div className="flex items-center justify-between gap-2 w-full flex-wrap sm:flex-nowrap">
+              <div className="flex-1 min-w-[140px] max-w-full bg-slate-100 dark:bg-slate-800 p-1 rounded-xl border border-slate-200 dark:border-slate-700">
+                <select
+                  value={selectedRoundId}
+                  onChange={(e) => setSelectedRoundId(e.target.value)}
+                  className="w-full bg-transparent text-xs font-bold text-slate-800 dark:text-slate-100 px-2 py-1 outline-none cursor-pointer"
                 >
-                  <Scaling className="w-3.5 h-3.5" />
-                  <span>พอดีจอ</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (isFitToScreen) handleToggleFitToScreen();
-                  }}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition cursor-pointer active:scale-95 ${
-                    !isFitToScreen
-                      ? 'bg-white text-blue-600 shadow-xs font-extrabold'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                  title="แสดงขนาดจริง 100% (สามารถคลิกลากเมาส์เลื่อนดูตารางได้)"
-                >
-                  <span>100% ขนาดจริง</span>
-                </button>
+                  <option value="current">🟢 รอบปัจจุบัน (Live)</option>
+                  {filteredHistoryRecords.map((rec) => (
+                    <option key={rec.id} value={rec.id}>
+                      📜 {rec.timestamp} ({rec.who || 'ผู้ตรวจ'})
+                    </option>
+                  ))}
+                </select>
               </div>
 
-              {/* Toggle & Button for Blank Form Mode */}
+              {/* Toggle Button เดี่ยวๆ สำหรับเปิด/ปิดโหมดแสดงฟอร์มเปล่า */}
               {(selectedCategory === 'bag' || selectedCategory === 'cart') && (
-                <div className="flex items-center gap-1.5">
-                  <label className="flex items-center gap-1.5 px-2.5 py-1.5 bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 rounded-xl text-xs font-bold text-amber-900 dark:text-amber-200 cursor-pointer shadow-2xs select-none">
-                    <input
-                      type="checkbox"
-                      checked={isBlankForm}
-                      onChange={(e) => {
-                        const checked = e.target.checked;
-                        setIsBlankForm(checked);
-                        setFeedback({
-                          type: 'info',
-                          message: checked
-                            ? '🧹 เปิดโหมดแสดงแบบฟอร์มเปล่า (ซ่อนผลการตรวจเช็กเพื่อพิมพ์แจกวอร์ด)'
-                            : '📋 สลับกลับเป็นโหมดแสดงผลการตรวจเช็กปกติ',
-                        });
-                      }}
-                      className="w-4 h-4 text-amber-600 rounded focus:ring-amber-500 accent-amber-600 cursor-pointer"
-                    />
-                    <span>แสดงแบบฟอร์มเปล่าสำหรับพิมพ์</span>
-                  </label>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const next = !isBlankForm;
-                      setIsBlankForm(next);
-                      setFeedback({
-                        type: 'info',
-                        message: next
-                          ? '🧹 ล้างค่าการตรวจเช็กชั่วคราว เพื่อพิมพ์เป็นแบบฟอร์มเปล่าสำหรับแจกวอร์ด'
-                          : '📋 คืนค่าการตรวจเช็กเรียบร้อยแล้ว',
-                      });
-                    }}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-xl border transition cursor-pointer active:scale-95 ${
-                      isBlankForm
-                        ? 'bg-amber-600 text-white border-amber-700 shadow-md font-extrabold'
-                        : 'bg-amber-50 text-amber-800 hover:bg-amber-100 border-amber-300'
-                    }`}
-                    title="ล้างค่าการตรวจเช็กในตารางเพื่อพิมพ์เป็นแบบฟอร์มเปล่าแจกวอร์ด"
-                  >
-                    <span className="text-sm">🧹</span>
-                    <span>{isBlankForm ? 'ฟอร์มเปล่า (เปิดอยู่)' : 'ล้างค่า / ฟอร์มเปล่า'}</span>
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = !isBlankForm;
+                    setIsBlankForm(next);
+                    setFeedback({
+                      type: 'info',
+                      message: next
+                        ? '🧹 เปิดโหมดแสดงแบบฟอร์มเปล่า (ซ่อนผลการตรวจเช็กและ EXP เพื่อพิมพ์แจกวอร์ด)'
+                        : '📋 สลับกลับเป็นโหมดแสดงผลการตรวจเช็กปกติ',
+                    });
+                  }}
+                  className={`flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition cursor-pointer active:scale-95 shrink-0 ${
+                    isBlankForm
+                      ? 'bg-amber-600 text-white border-amber-700 shadow-sm font-extrabold ring-2 ring-amber-400'
+                      : 'bg-amber-50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200 hover:bg-amber-100 border-amber-300 dark:border-amber-800'
+                  }`}
+                  title="เปิด/ปิด โหมดแบบฟอร์มเปล่าสำหรับพิมพ์แจกวอร์ด"
+                >
+                  <span className="text-sm">{isBlankForm ? '☑' : '☐'}</span>
+                  <span>{isBlankForm ? 'แบบฟอร์มเปล่า (เปิดอยู่)' : 'แสดงฟอร์มเปล่า'}</span>
+                </button>
               )}
+            </div>
+
+            {/* แถวที่ 2: รวมปุ่ม Action หลักเรียงใน Grid/Flexbox พอดีหน้าจอ 100% ไม่หลุดขอบ */}
+            <div className="grid grid-cols-3 sm:flex sm:items-center sm:justify-end gap-2 w-full">
+              {/* 🔍 [ย่อ-ขยาย/พอดีจอ] (ปุ่มไอคอนกะทัดรัด) */}
+              <button
+                type="button"
+                onClick={handleToggleFitToScreen}
+                className={`flex items-center justify-center gap-1.5 px-2.5 py-2 rounded-xl text-xs font-bold border transition cursor-pointer active:scale-95 ${
+                  isFitToScreen
+                    ? 'bg-blue-50 text-blue-700 border-blue-300 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800'
+                    : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700'
+                }`}
+                title={isFitToScreen ? 'สลับเป็นขนาดจริง 100%' : 'ย่อตาราง A4 ให้พอดีกับหน้าจอ (Fit Screen)'}
+              >
+                <Scaling className="w-3.5 h-3.5 shrink-0" />
+                <span className="truncate">{isFitToScreen ? 'พอดีจอ' : '100% ขนาดจริง'}</span>
+              </button>
+
+              {/* 📊 [ส่ง Sheets] (ปุ่มสีเขียว) */}
               <button
                 type="button"
                 onClick={handleSendReportToGas}
                 disabled={isExportingGas}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-md transition cursor-pointer active:scale-95 disabled:opacity-50"
+                className="flex items-center justify-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-bold rounded-xl shadow-md transition cursor-pointer disabled:opacity-50"
               >
                 {isExportingGas ? (
-                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin shrink-0" />
                 ) : (
-                  <FileSpreadsheet className="w-3.5 h-3.5" />
+                  <FileSpreadsheet className="w-3.5 h-3.5 shrink-0" />
                 )}
-                <span>ส่ง Sheets</span>
+                <span className="truncate">ส่ง Sheets</span>
               </button>
 
+              {/* 🖨️ [พิมพ์ PDF] (ปุ่มเน้นสีฟ้า ล็อคตำแหน่งให้กดง่าย) */}
               <button
                 type="button"
                 onClick={handlePrintPdf}
                 disabled={isPrinting}
-                className="flex items-center gap-1.5 px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-md transition cursor-pointer active:scale-95 disabled:opacity-50"
+                className="flex items-center justify-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white text-xs font-bold rounded-xl shadow-md transition cursor-pointer disabled:opacity-50"
               >
                 {isPrinting ? (
-                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin shrink-0" />
                 ) : (
-                  <Printer className="w-3.5 h-3.5" />
+                  <Printer className="w-3.5 h-3.5 shrink-0" />
                 )}
-                <span>พิมพ์ / PDF</span>
+                <span className="truncate">พิมพ์ PDF</span>
               </button>
             </div>
           </div>

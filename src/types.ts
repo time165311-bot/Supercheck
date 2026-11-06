@@ -42,6 +42,7 @@ export interface EquipmentItem {
   note?: string;
   type?: string;
   category?: string;
+  groupName?: string;
   roomId?: string;
   subExps?: Array<{ label?: string; exp?: string; qty?: number; hasNoExp?: boolean }>;
   subItemQuantities?: number[];

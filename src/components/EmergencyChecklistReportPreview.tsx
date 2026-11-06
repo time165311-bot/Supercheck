@@ -599,7 +599,9 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
                           lineHeight: '1.3',
                         }}
                       >
-                        {((item.name?.toLowerCase().includes('tank') || item.name?.includes('ถัง')) && 
+                        {isBlankForm ? (
+                          <span className="text-slate-300 dark:text-slate-600 font-normal">........................</span>
+                        ) : ((item.name?.toLowerCase().includes('tank') || item.name?.includes('ถัง')) && 
                           (item.name?.toLowerCase().includes('o2') || item.name?.toLowerCase().includes('oxygen') || item.name?.includes('ออกซิเจน')) &&
                           !(item.name?.toLowerCase().includes('cannula') || item.name?.toLowerCase().includes('mask') || item.name?.includes('หน้ากาก') || item.name?.includes('สาย')))
                           ? 'ปริมาณแรงดันไม่ต่ำกว่า 500 psi'
@@ -814,9 +816,11 @@ export function generateEmergencyPrintHtml(
               .join(', ');
           }
 
-          const expCellHtml = ((item.name?.toLowerCase().includes('tank') || item.name?.includes('ถัง')) && 
-            (item.name?.toLowerCase().includes('o2') || item.name?.toLowerCase().includes('oxygen') || item.name?.includes('ออกซิเจน')) &&
-            !(item.name?.toLowerCase().includes('cannula') || item.name?.toLowerCase().includes('mask') || item.name?.includes('หน้ากาก') || item.name?.includes('สาย')))
+          const expCellHtml = isBlankForm
+            ? '<span style="color: #94a3b8; font-weight: normal;">........................</span>'
+            : ((item.name?.toLowerCase().includes('tank') || item.name?.includes('ถัง')) && 
+              (item.name?.toLowerCase().includes('o2') || item.name?.toLowerCase().includes('oxygen') || item.name?.includes('ออกซิเจน')) &&
+              !(item.name?.toLowerCase().includes('cannula') || item.name?.toLowerCase().includes('mask') || item.name?.includes('หน้ากาก') || item.name?.includes('สาย')))
             ? 'ปริมาณแรงดันไม่ต่ำกว่า 500 psi'
             : (() => {
                 const subItems = parseSubExpItems(expStr);

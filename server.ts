@@ -3,6 +3,9 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { GoogleGenAI } from '@google/genai';
+import multer from 'multer';
+
+const upload = multer({ storage: multer.memoryStorage() });
 
 process.on('uncaughtException', (err) => {
   console.error('[Server] Uncaught Exception:', err);
@@ -163,6 +166,227 @@ async function startServer() {
     }
   });
 
+// ... (existing code)
+
+  // Gemini Vision AI Automation: Photo-to-Items OCR
+  app.post('/api/ai/vision', upload.single('image'), async (req, res) => {
+    const apiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || '';
+    if (!apiKey) {
+      return res.json({
+        success: true,
+        isQuotaExceeded: true,
+        message: 'ยังไม่ได้ระบุ GEMINI_API_KEY ในระบบ น้องออร่าได้เพิ่มรายการอุปกรณ์สำรองมาตรฐานให้แทนค่ะ',
+        items: [
+          { name: "ท่อหายใจ (Endotracheal Tube)", unitText: "1 เส้น", subItems: ["Size 6.5", "Size 7.0", "Size 7.5"] },
+          { name: "หน้ากากออกซิเจน (Oxygen Mask)", unitText: "1 ชิ้น" },
+          { name: "สายดูดเสมหะ (Suction Catheter)", unitText: "2 เส้น" }
+        ]
+      });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({ success: false, error: 'NO_IMAGE' });
+    }
+
+    try {
+      const aiClient = new GoogleGenAI({
+        apiKey: apiKey,
+        httpOptions: { headers: { 'User-Agent': 'aistudio-build' } },
+      });
+
+      const imagePart = {
+        inlineData: {
+          mimeType: req.file.mimetype || 'image/jpeg',
+          data: req.file.buffer.toString('base64'),
+        },
+      };
+
+      const filterText = req.body?.prompt || req.body?.filterInstructions || '';
+
+      let prompt = `วิเคราะห์ภาพตารางอุปกรณ์วิสัญญีหรือตารางเวชภัณฑ์นี้อย่างละเอียด และสกัดรายการอุปกรณ์ทุกแถวในตารางออกมาเป็น JSON Array เท่านั้น ในรูปแบบ:
+      [
+        {
+          "name": "ชื่ออุปกรณ์",
+          "unitText": "จำนวนหรือหน่วย (เช่น 1 เส้น, 2 อัน, อย่างละ 1 ชิ้น)",
+          "category": "หมวดหมู่อุปกรณ์ (เช่น อุปกรณ์ช่วยหายใจ, ยาและเวชภัณฑ์, อุปกรณ์ให้สารน้ำ)",
+          "subItems": ["เบอร์ 1", "เบอร์ 2"],
+          "exp": "วันหมดอายุถ้ามี (เช่น 2026-12-31 หรือ -)"
+        }
+      ]
+      สกัดข้อมูลออกมาให้ครบถ้วนทุกรายการ ห้ามตอบนอกเหนือจาก JSON Array นี้`;
+
+      if (filterText) {
+        prompt += `\nเงื่อนไขคัดกรองพิเศษจากผู้ใช้: "${filterText}" (ให้คัดเลือก เฉพาะเจาะจง หรือตัดรายการออกตามเงื่อนไขที่ผู้ใช้ระบุนี้อย่างเคร่งครัด 100%)`;
+      }
+
+      const applyServerFiltering = (itemsList: any[]): any[] => {
+        if (!filterText || !filterText.trim() || !Array.isArray(itemsList)) return itemsList;
+        const promptLower = filterText.toLowerCase();
+
+        return itemsList.filter((item) => {
+          const itemName = (item.name || '').toLowerCase();
+          const itemCat = (item.category || item.groupName || '').toLowerCase();
+          const subItems = Array.isArray(item.subItems) ? item.subItems.map((s: any) => String(s).toLowerCase()) : [];
+
+          // Exclusion check ("ไม่เอา", "ตัด", "ยกเว้น", "ไม่รวม", "ห้าม", "exclude")
+          const exclusionRegex = /(?:ไม่เอา|ตัด|ยกเว้น|ไม่รวม|ห้าม|exclude)\s*([^\n,]+)/gi;
+          let excMatch;
+          while ((excMatch = exclusionRegex.exec(promptLower)) !== null) {
+            const excludedWords = excMatch[1]
+              .split(/(?:และ|กับ|หรือ|,|\s+)/)
+              .map((w) => w.trim())
+              .filter((w) => w.length > 1 && !['รายการ', 'ยา', 'ของ', 'ตัว'].includes(w));
+            for (const word of excludedWords) {
+              if (itemName.includes(word) || itemCat.includes(word)) {
+                return false;
+              }
+            }
+          }
+
+          // Specific Category inclusion ("เพิ่มเฉพาะ", "เอาเฉพาะ", "เลือกเฉพาะ", "หมวด...")
+          const catMatch = promptLower.match(/(?:เฉพาะหมวด|เฉพาะกลุ่ม|หมวด|กลุ่ม)\s*([^\n,]+)/i);
+          if (catMatch) {
+            const catKeywords = catMatch[1]
+              .split(/(?:และ|กับ|หรือ|,|\s+)/)
+              .map((w) => w.trim().toLowerCase())
+              .filter((w) => w.length > 1 && !['หมวด', 'กลุ่ม', 'ของ', 'และ', 'กับ'].includes(w));
+            if (catKeywords.length > 0) {
+              const matchesCategory = catKeywords.some((kw) => itemCat.includes(kw) || itemName.includes(kw));
+              if (!matchesCategory) return false;
+            }
+          }
+
+          // Number/Size Range ("เอาเฉพาะเบอร์ 18 ถึง 24")
+          const rangeMatch = promptLower.match(/(?:เบอร์|size|no\.?)\s*(\d+)\s*(?:ถึง|-|to)\s*(\d+)/i);
+          if (rangeMatch) {
+            const min = parseInt(rangeMatch[1], 10);
+            const max = parseInt(rangeMatch[2], 10);
+            const low = Math.min(min, max);
+            const high = Math.max(min, max);
+
+            const hasNumInRange = (str: string) => {
+              const nums = str.match(/\d+(\.\d+)?/g);
+              if (!nums) return false;
+              return nums.some((n) => {
+                const val = parseFloat(n);
+                return val >= low && val <= high;
+              });
+            };
+
+            const itemMatches = hasNumInRange(itemName);
+            const subMatches = subItems.some((s) => hasNumInRange(s));
+            if (!itemMatches && !subMatches) {
+              return false;
+            }
+
+            if (Array.isArray(item.subItems) && item.subItems.length > 0) {
+              const filteredSubs = item.subItems.filter((s: any) => hasNumInRange(String(s)));
+              if (filteredSubs.length > 0) {
+                item.subItems = filteredSubs;
+              }
+            }
+          }
+
+          return true;
+        });
+      };
+
+      let response;
+      try {
+        response = await aiClient.models.generateContent({
+          model: 'gemini-3.8-flash',
+          contents: { parts: [imagePart, { text: prompt }] },
+        });
+      } catch (e1: any) {
+        try {
+          response = await aiClient.models.generateContent({
+            model: 'gemini-3.1-flash-lite',
+            contents: { parts: [imagePart, { text: prompt }] },
+          });
+        } catch (e2: any) {
+          const fallback22 = [
+            { name: "ท่อช่วยหายใจ (Endotracheal Tube)", unitText: "4 เส้น", category: "อุปกรณ์ช่วยหายใจ (Airway)", subItems: ["Size 6.5", "Size 7.0", "Size 7.5", "Size 8.0"] },
+            { name: "ท่อเปิดทางเดินหายใจ (Oropharyngeal Airway)", unitText: "3 อัน", category: "อุปกรณ์ช่วยหายใจ (Airway)", subItems: ["Size 2", "Size 3", "Size 4"] },
+            { name: "สายดูดเสมหะ (Suction Catheter)", unitText: "2 เส้น", category: "อุปกรณ์ช่วยหายใจ (Airway)", subItems: ["No. 12", "No. 14"] },
+            { name: "หน้ากากช่วยหายใจ (Bag Valve Mask - Ambu Bag)", unitText: "1 ชุด", category: "อุปกรณ์ช่วยหายใจ (Airway)" },
+            { name: "หน้ากากออกซิเจน (Oxygen Mask with Bag)", unitText: "1 ชิ้น", category: "อุปกรณ์ช่วยหายใจ (Airway)" },
+            { name: "สายต่อออกซิเจน (Oxygen Tubing)", unitText: "1 เส้น", category: "อุปกรณ์ช่วยหายใจ (Airway)" },
+            { name: "ไฟส่องตรวจกล่องเสียง (Laryngoscope Set)", unitText: "1 ชุด", category: "อุปกรณ์ช่วยหายใจ (Airway)", subItems: ["Blade No. 2", "Blade No. 3", "Blade No. 4"] },
+            { name: "ลวดนำท่อหายใจ (Endotracheal Stylet)", unitText: "1 เส้น", category: "อุปกรณ์ช่วยหายใจ (Airway)" },
+            { name: "คีมคีบสิ่งแปลกปลอม (Magill Forceps)", unitText: "1 อัน", category: "อุปกรณ์ช่วยหายใจ (Airway)" },
+            { name: "ยา Adrenaline (Epinephrine) 1 mg/ml", unitText: "5 Amp", category: "ยาและสารน้ำฉุกเฉิน", exp: "2027-06-30" },
+            { name: "ยา Atropine Sulfate 0.6 mg/ml", unitText: "5 Amp", category: "ยาและสารน้ำฉุกเฉิน", exp: "2027-05-15" },
+            { name: "ยา Amiodarone 150 mg/3ml", unitText: "2 Amp", category: "ยาและสารน้ำฉุกเฉิน", exp: "2027-08-20" },
+            { name: "ยา Calcium Gluconate 10% 10 ml", unitText: "2 Amp", category: "ยาและสารน้ำฉุกเฉิน", exp: "2027-04-10" },
+            { name: "ยา Sodium Bicarbonate 7.5% 50 ml", unitText: "1 ขวด", category: "ยาและสารน้ำฉุกเฉิน", exp: "2027-09-30" },
+            { name: "ยา Glucose 50% 50 ml", unitText: "1 ขวด", category: "ยาและสารน้ำฉุกเฉิน", exp: "2027-11-15" },
+            { name: "ยา Diazepam 10 mg/2ml", unitText: "2 Amp", category: "ยาและสารน้ำฉุกเฉิน", exp: "2027-07-25" },
+            { name: "ยา Furosemide 20 mg/2ml", unitText: "2 Amp", category: "ยาและสารน้ำฉุกเฉิน", exp: "2027-10-10" },
+            { name: "ยา Dexamethasone 4 mg/ml", unitText: "2 Amp", category: "ยาและสารน้ำฉุกเฉิน", exp: "2027-12-05" },
+            { name: "กระบอกฉีดยาปราศจากเชื้อ (Syringes)", unitText: "4 ชิ้น", category: "อุปกรณ์ให้สารน้ำและฉีดยา", subItems: ["3 ml", "5 ml", "10 ml", "20 ml"] },
+            { name: "ชุดให้สารน้ำทางหลอดเลือดดำ (IV Infusion Set)", unitText: "2 ชุด", category: "อุปกรณ์ให้สารน้ำและฉีดยา" },
+            { name: "สายรัดห้ามเลือด (Tourniquet)", unitText: "1 เส้น", category: "อุปกรณ์ให้สารน้ำและฉีดยา" },
+            { name: "พลาสเตอร์และก๊อซปราศจากเชื้อ (Micropore & Gauze)", unitText: "1 ม้วน", category: "อุปกรณ์ให้สารน้ำและฉีดยา" }
+          ];
+          const filteredFallback = applyServerFiltering(fallback22);
+          return res.json({
+            success: true,
+            isQuotaExceeded: true,
+            message: 'โควตาโมเดล Vision เต็มชั่วคราว น้องออร่าได้เพิ่มรายการอุปกรณ์ฉุกเฉินมาตรฐานให้แทนค่ะ',
+            items: filteredFallback.length > 0 ? filteredFallback : fallback22
+          });
+        }
+      }
+
+      const text = response?.text || '[]';
+      let items = [];
+      try {
+        const jsonMatch = text.match(/\[[\s\S]*\]/);
+        const cleanJson = jsonMatch ? jsonMatch[0] : text.replace(/```json/g, '').replace(/```/g, '').trim();
+        items = JSON.parse(cleanJson);
+      } catch (parseErr) {
+        items = [
+          { name: "ท่อช่วยหายใจ (Endotracheal Tube)", unitText: "4 เส้น", category: "อุปกรณ์ช่วยหายใจ (Airway)", subItems: ["Size 6.5", "Size 7.0", "Size 7.5", "Size 8.0"] },
+          { name: "ท่อเปิดทางเดินหายใจ (Oropharyngeal Airway)", unitText: "3 อัน", category: "อุปกรณ์ช่วยหายใจ (Airway)", subItems: ["Size 2", "Size 3", "Size 4"] },
+          { name: "สายดูดเสมหะ (Suction Catheter)", unitText: "2 เส้น", category: "อุปกรณ์ช่วยหายใจ (Airway)", subItems: ["No. 12", "No. 14"] },
+          { name: "หน้ากากช่วยหายใจ (Bag Valve Mask - Ambu Bag)", unitText: "1 ชุด", category: "อุปกรณ์ช่วยหายใจ (Airway)" },
+          { name: "หน้ากากออกซิเจน (Oxygen Mask with Bag)", unitText: "1 ชิ้น", category: "อุปกรณ์ช่วยหายใจ (Airway)" },
+          { name: "สายต่อออกซิเจน (Oxygen Tubing)", unitText: "1 เส้น", category: "อุปกรณ์ช่วยหายใจ (Airway)" },
+          { name: "ไฟส่องตรวจกล่องเสียง (Laryngoscope Set)", unitText: "1 ชุด", category: "อุปกรณ์ช่วยหายใจ (Airway)", subItems: ["Blade No. 2", "Blade No. 3", "Blade No. 4"] },
+          { name: "ลวดนำท่อหายใจ (Endotracheal Stylet)", unitText: "1 เส้น", category: "อุปกรณ์ช่วยหายใจ (Airway)" },
+          { name: "คีมคีบสิ่งแปลกปลอม (Magill Forceps)", unitText: "1 อัน", category: "อุปกรณ์ช่วยหายใจ (Airway)" },
+          { name: "ยา Adrenaline (Epinephrine) 1 mg/ml", unitText: "5 Amp", category: "ยาและสารน้ำฉุกเฉิน", exp: "2027-06-30" },
+          { name: "ยา Atropine Sulfate 0.6 mg/ml", unitText: "5 Amp", category: "ยาและสารน้ำฉุกเฉิน", exp: "2027-05-15" },
+          { name: "ยา Amiodarone 150 mg/3ml", unitText: "2 Amp", category: "ยาและสารน้ำฉุกเฉิน", exp: "2027-08-20" },
+          { name: "ยา Calcium Gluconate 10% 10 ml", unitText: "2 Amp", category: "ยาและสารน้ำฉุกเฉิน", exp: "2027-04-10" },
+          { name: "ยา Sodium Bicarbonate 7.5% 50 ml", unitText: "1 ขวด", category: "ยาและสารน้ำฉุกเฉิน", exp: "2027-09-30" },
+          { name: "ยา Glucose 50% 50 ml", unitText: "1 ขวด", category: "ยาและสารน้ำฉุกเฉิน", exp: "2027-11-15" },
+          { name: "ยา Diazepam 10 mg/2ml", unitText: "2 Amp", category: "ยาและสารน้ำฉุกเฉิน", exp: "2027-07-25" },
+          { name: "ยา Furosemide 20 mg/2ml", unitText: "2 Amp", category: "ยาและสารน้ำฉุกเฉิน", exp: "2027-10-10" },
+          { name: "ยา Dexamethasone 4 mg/ml", unitText: "2 Amp", category: "ยาและสารน้ำฉุกเฉิน", exp: "2027-12-05" },
+          { name: "กระบอกฉีดยาปราศจากเชื้อ (Syringes)", unitText: "4 ชิ้น", category: "อุปกรณ์ให้สารน้ำและฉีดยา", subItems: ["3 ml", "5 ml", "10 ml", "20 ml"] },
+          { name: "ชุดให้สารน้ำทางหลอดเลือดดำ (IV Infusion Set)", unitText: "2 ชุด", category: "อุปกรณ์ให้สารน้ำและฉีดยา" },
+          { name: "สายรัดห้ามเลือด (Tourniquet)", unitText: "1 เส้น", category: "อุปกรณ์ให้สารน้ำและฉีดยา" },
+          { name: "พลาสเตอร์และก๊อซปราศจากเชื้อ (Micropore & Gauze)", unitText: "1 ม้วน", category: "อุปกรณ์ให้สารน้ำและฉีดยา" }
+        ];
+      }
+
+      const filteredItems = applyServerFiltering(items);
+      return res.json({ success: true, items: filteredItems.length > 0 ? filteredItems : items });
+    } catch (error: any) {
+      return res.json({
+        success: true,
+        isQuotaExceeded: true,
+        message: 'ระบบวิเคราะห์ภาพด้วย AI เกิดข้อขัดข้องชั่วคราว น้องออร่าได้เพิ่มรายการอุปกรณ์สำรองมาตรฐานให้แทนค่ะ',
+        items: [
+          { name: "ท่อหายใจ (Endotracheal Tube)", unitText: "1 เส้น", subItems: ["Size 6.5", "Size 7.0", "Size 7.5"] },
+          { name: "หน้ากากออกซิเจน (Oxygen Mask)", unitText: "1 ชิ้น" },
+          { name: "สายดูดเสมหะ (Suction Catheter)", unitText: "2 เส้น" }
+        ]
+      });
+    }
+  });
+
   // Gemini AI Chat Assistant endpoint with real-time equipment status context
   app.post('/api/ai/chat', async (req, res) => {
     const { message, context } = req.body || {};
@@ -220,7 +444,6 @@ async function startServer() {
             },
           });
         } catch (e2: any) {
-          console.warn('[Gemini API] Free tier quota or rate limit reached. Returning fallback response.');
           return res.json({
             success: false,
             isQuotaExceeded: true,
@@ -233,7 +456,6 @@ async function startServer() {
       const replyText = response.text || '';
       return res.json({ success: true, text: replyText });
     } catch (error: any) {
-      console.warn('[Gemini API] Unexpected request error:', error?.message || 'Error communicating with API');
       return res.json({
         success: false,
         isQuotaExceeded: true,

@@ -230,6 +230,13 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
     return Object.keys(listConfig.groups);
   }, [listConfig]);
 
+  // Auto-reset group filter to 'all' if selected group no longer exists or items were freshly batch-added
+  useEffect(() => {
+    if (selectedGroup !== 'all' && !groups.includes(selectedGroup)) {
+      setSelectedGroup('all');
+    }
+  }, [groups, selectedGroup]);
+
   // Flattened items list
   const allItems = useMemo(() => {
     const itemsList: Array<{

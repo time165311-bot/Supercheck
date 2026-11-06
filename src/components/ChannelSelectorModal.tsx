@@ -111,6 +111,10 @@ export const ChannelSelectorModal: React.FC<ChannelSelectorModalProps> = ({
                 <div
                   key={channel.id}
                   onClick={() => handleSelectChannel(channel.id)}
+                  onDoubleClick={() => {
+                    onSelectChannel(channel.id);
+                    onClose();
+                  }}
                   className={`p-3.5 rounded-2xl border transition flex items-center justify-between gap-3 cursor-pointer active:scale-98 ${
                     isActive
                       ? 'bg-blue-50/90 dark:bg-blue-950/40 border-blue-500 dark:border-blue-500 text-blue-950 dark:text-blue-100 ring-2 ring-blue-500/20 shadow-xs'
@@ -171,7 +175,7 @@ export const ChannelSelectorModal: React.FC<ChannelSelectorModalProps> = ({
                           )}
                           {isActive && (
                             <span className="px-2 py-0.5 rounded-md bg-blue-600 text-white text-[10px] font-extrabold shrink-0 animate-in fade-in">
-                              ✓ กำลังใช้งาน
+                              ✓ กำลังเลือก
                             </span>
                           )}
                         </div>
@@ -182,9 +186,23 @@ export const ChannelSelectorModal: React.FC<ChannelSelectorModalProps> = ({
                   {/* Actions for Non-editing state */}
                   {!isEditing && (
                     <div
-                      className="flex items-center gap-1 shrink-0"
+                      className="flex items-center gap-1.5 shrink-0"
                       onClick={(e) => e.stopPropagation()}
                     >
+                      {isActive && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onSelectChannel(channel.id);
+                            onClose();
+                          }}
+                          className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold cursor-pointer transition shadow-xs active:scale-95"
+                          title="ยืนยันเลือกใช้วอร์ดนี้ทันที"
+                        >
+                          เลือกใช้วอร์ดนี้
+                        </button>
+                      )}
+
                       <button
                         type="button"
                         onClick={() => {
