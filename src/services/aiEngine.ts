@@ -211,6 +211,69 @@ export function addBatchItemsToChannel(
 }
 
 /**
+ * Clears all items in a category ('bag' | 'cart') for the specified channel
+ */
+export function clearChannelCategory(
+  channelId: string,
+  targetType: 'bag' | 'cart'
+): { nextChannelData: ChannelData; clearedCount: number } {
+  const activeId = channelId || 'channel_master';
+  const key = getChannelDbKey(activeId);
+
+  const currentChannelData = getStored<ChannelData | null>(key, null) || {
+    lists: {
+      bag: { title: 'กระเป๋าฉุกเฉิน', sheet: 'กระเป๋า Emergency', groups: {} },
+      cart: { title: 'รถฉุกเฉิน', sheet: 'รถ Emergency', groups: {} },
+    },
+    globalChecks: {},
+    emergencyWeekDates: {},
+  };
+
+  const currentList = currentChannelData.lists?.[targetType] || {
+    title: targetType === 'bag' ? 'กระเป๋าฉุกเฉิน' : 'รถฉุกเฉิน',
+    sheet: targetType === 'bag' ? 'กระเป๋า Emergency' : 'รถ Emergency',
+    groups: {},
+  };
+
+  let clearedCount = 0;
+  if (currentList.groups) {
+    Object.values(currentList.groups).forEach((items: any) => {
+      if (Array.isArray(items)) clearedCount += items.length;
+    });
+  }
+
+  const updatedLists = {
+    ...currentChannelData.lists,
+    [targetType]: {
+      ...currentList,
+      groups: {}, // Empty groups
+    },
+  };
+
+  const nextChannelData: ChannelData = {
+    ...currentChannelData,
+    lists: updatedLists,
+  };
+
+  // Synchronously persist
+  setStored(key, nextChannelData);
+  setStored(getChannelListsKey(activeId), updatedLists);
+  if (activeId === 'channel_master') {
+    setStored(STORAGE_KEYS.CUSTOM_LISTS, updatedLists);
+  }
+
+  // Dispatch real-time events
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('channel_data_updated', { detail: { channelId: activeId, data: nextChannelData } }));
+    window.dispatchEvent(new CustomEvent('items_updated', { detail: { type: targetType, count: 0 } }));
+    window.dispatchEvent(new Event('storage'));
+  }
+
+  return { nextChannelData, clearedCount };
+}
+
+
+/**
  * Triggers instant re-render of inspection and checklist UI
  */
 export function reRenderData(): void {

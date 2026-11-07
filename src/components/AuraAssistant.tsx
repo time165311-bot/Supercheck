@@ -23,7 +23,7 @@ import { speakWithAura, stopSpeech } from '../utils/textToSpeech';
 import { getWednesdaysInfoForMonth, getWeekOfMonth } from '../utils/wednesdayUtils';
 import { normalizeExpDate } from '../utils/itemUtils';
 import { useDataContext } from '../context/DataContext';
-import { applyUserFiltering, parseAutoCheckIntent, normalizeText, resolveTargetCategory } from '../services/aiEngine';
+import { applyUserFiltering, parseAutoCheckIntent, normalizeText, resolveTargetCategory, clearChannelCategory } from '../services/aiEngine';
 
 interface AuraAssistantProps {
   equipment?: Record<string, any[]>;
@@ -123,6 +123,57 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
   >([]);
   const [inputMessage, setInputMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [scanProgress, setScanProgress] = useState<{
+    current: number;
+    total: number;
+    text: string;
+  } | null>(null);
+
+  const compressAndResizeImage = (
+    file: File,
+    maxWidth = 1024,
+    maxHeight = 1024,
+    quality = 0.7
+  ): Promise<Blob> => {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = (event) => {
+        const img = new Image();
+        img.src = event.target?.result as string;
+        img.onload = () => {
+          let width = img.width;
+          let height = img.height;
+          if (width > maxWidth || height > maxHeight) {
+            if (width > height) {
+              height = Math.round((height * maxWidth) / width);
+              width = maxWidth;
+            } else {
+              width = Math.round((width * maxHeight) / height);
+              height = maxHeight;
+            }
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            return resolve(file);
+          }
+          ctx.drawImage(img, 0, 0, width, height);
+          canvas.toBlob(
+            (blob) => {
+              resolve(blob || file);
+            },
+            'image/jpeg',
+            quality
+          );
+        };
+        img.onerror = () => resolve(file);
+      };
+      reader.onerror = () => resolve(file);
+    });
+  };
   const [isListening, setIsListening] = useState(false);
   const [isVoiceEnabled, setIsVoiceEnabled] = useState(true);
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
@@ -275,15 +326,33 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
 
     addMessage('user', userDisplayMsg);
 
-    let allExtractedItems: any[] = [];
+    setScanProgress({
+      current: 0,
+      total: count,
+      text: `น้องออร่ากำลังอ่านรูปภาพที่ 0/${count}...`,
+    });
+
+    let completedCount = 0;
     let isQuotaExceeded = false;
     let quotaMsg = '';
 
-    for (const imgObj of images) {
+    const processSingleImage = async (imgObj: typeof images[0]) => {
+      let imageBlob: Blob = imgObj.file;
+      try {
+        imageBlob = await compressAndResizeImage(imgObj.file, 1024, 1024, 0.7);
+      } catch (e) {
+        console.warn('Image compression fallback:', e);
+      }
+
       const formData = new FormData();
-      formData.append('image', imgObj.file);
+      formData.append('image', imageBlob, imgObj.name || 'image.jpg');
+
+      const strictPrompt =
+        `วิเคราะห์ภาพตารางอุปกรณ์อย่างละเอียดแบบบรรทัดต่อบรรทัด (Line-by-line strict extraction) สกัดรายการอุปกรณ์ทุกแถวในตารางออกมาให้ครบถ้วน 100% ห้ามข้ามรายการเด็ดขาด แม้ข้อความจะเบลอหรือตัวเล็ก ให้สแกนหา "รายการ / ชื่ออุปกรณ์", "จำนวน/เช็ก", และ "วันหมดอายุ / EXP" สรุปรายการทั้งหมดกลับมาเป็น JSON Array เท่านั้น` +
+        (promptText ? `\nเงื่อนไขคัดกรองพิเศษ: "${promptText}"` : '');
+
+      formData.append('prompt', strictPrompt);
       if (promptText) {
-        formData.append('prompt', promptText);
         formData.append('filterInstructions', promptText);
       }
 
@@ -302,11 +371,30 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
         if (promptText && items.length > 0) {
           items = applyUserFiltering(items, promptText);
         }
-        allExtractedItems = [...allExtractedItems, ...items];
+
+        completedCount++;
+        setScanProgress({
+          current: completedCount,
+          total: count,
+          text: `น้องออร่ากำลังอ่านรูปภาพที่ ${completedCount}/${count}...`,
+        });
+
+        return items;
       } catch (err) {
-        console.warn('Vision analysis client warning for file:', imgObj.name, err);
+        console.warn('Vision analysis client error for file:', imgObj.name, err);
+        completedCount++;
+        setScanProgress({
+          current: completedCount,
+          total: count,
+          text: `น้องออร่ากำลังอ่านรูปภาพที่ ${completedCount}/${count}...`,
+        });
+        return [];
       }
-    }
+    };
+
+    // Parallel processing with Promise.all for ultra-fast response (3-5s)
+    const results = await Promise.all(images.map((img) => processSingleImage(img)));
+    const allExtractedItems = results.flat();
 
     // Smart EXP Date Normalization
     const normalizedItems = allExtractedItems.map((item) => {
@@ -319,28 +407,43 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
       };
     });
 
+    // Determine target category based on user instruction/promptText
+    let targetType: 'bag' | 'cart' = 'bag';
+    if (promptText) {
+      const resolvedTarget = resolveTargetCategory(promptText);
+      if (resolvedTarget === 'cart') {
+        targetType = 'cart';
+      } else if (resolvedTarget === 'bag') {
+        targetType = 'bag';
+      }
+    }
+
     if (normalizedItems.length > 0) {
-      // 1. Explicitly save to channel state and LocalStorage
-      addBatchItemsToChannel(activeChannelId, normalizedItems, 'bag');
+      // 1. Explicitly save to channel state and LocalStorage for resolved targetType
+      addBatchItemsToChannel(activeChannelId, normalizedItems, targetType);
 
       // 2. Trigger instant reactive UI re-render
       reRenderData();
 
-      // 3. Immediately switch view to bag_check so the cards render right away
+      const targetLabelName = targetType === 'cart' ? 'รถฉุกเฉิน' : 'กระเป๋าฉุกเฉิน';
+      const navView = targetType === 'cart' ? 'cart_check' : 'bag_check';
+      const iconEmoji = targetType === 'cart' ? '🚗' : '💼';
+
+      // 3. Immediately switch view so the cards render right away
       if (onNavigate) {
-        onNavigate('bag_check', 'bag');
+        onNavigate(navView, targetType);
         handleClose();
       }
 
       const note = isQuotaExceeded ? `\n(${quotaMsg})` : '';
       addMessage(
         'ai',
-        `✨ น้องออร่าสแกนรูปภาพ ${count} รูป อ่านรายการอุปกรณ์ได้ทั้งหมด ${normalizedItems.length} รายการ และบันทึกข้อมูลพร้อมปรับวันที่ EXP เป็นวันที่ 1 ของเดือนเรียบร้อยค่ะ!${note} ✨`,
+        `✨ น้องออร่าสแกนรูปภาพ ${count} รูป อ่านรายการอุปกรณ์ได้ทั้งหมด ${normalizedItems.length} รายการ และบันทึกข้อมูลเข้า [${targetLabelName}] พร้อมปรับวันที่ EXP เป็นวันที่ 1 ของเดือนเรียบร้อยค่ะ!${note} ✨`,
         false,
         {
-          label: `💼 เปิดดูรายการในกระเป๋าฉุกเฉิน (${normalizedItems.length} รายการ)`,
+          label: `${iconEmoji} เปิดดูรายการใน${targetLabelName} (${normalizedItems.length} รายการ)`,
           onClick: () => {
-            if (onNavigate) onNavigate('bag_check', 'bag');
+            if (onNavigate) onNavigate(navView, targetType);
             handleClose();
           },
         }
@@ -357,6 +460,7 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
       if (img.previewUrl) URL.revokeObjectURL(img.previewUrl);
     });
     setStagedImages([]);
+    setScanProgress(null);
     setIsLoading(false);
   };
 
@@ -571,6 +675,43 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
           setIsLoading(false);
           return;
         }
+      }
+
+      // -------------------------------------------------------------
+      // 1.2 CLEAR ALL ITEMS COMMAND (ลบของในเป๋า/รถทั้งหมด)
+      // -------------------------------------------------------------
+      const isClearAllCmd =
+        (q.includes('ลบ') || q.includes('เคลียร์') || q.includes('clear')) &&
+        (q.includes('ทั้งหมด') || q.includes('ตาราง') || q.includes('ทุกอย่าง') || q.includes('ยกชุด') || q.includes('หมด'));
+
+      if (isClearAllCmd) {
+        const resolvedTarget = resolveTargetCategory(query);
+        let targetsToClear: ('bag' | 'cart')[] = [];
+        if (resolvedTarget === 'both') {
+          targetsToClear = ['bag', 'cart'];
+        } else {
+          targetsToClear = [resolvedTarget];
+        }
+
+        let totalCleared = 0;
+        targetsToClear.forEach((cat) => {
+          const { clearedCount } = clearChannelCategory(activeChannelId, cat);
+          totalCleared += clearedCount;
+        });
+
+        reRenderData();
+
+        const namesThai = targetsToClear
+          .map((c) => (c === 'bag' ? 'กระเป๋าฉุกเฉิน' : 'รถฉุกเฉิน'))
+          .join(' และ ');
+
+        addMessage(
+          'ai',
+          `🗑️ น้องออร่าทำการเคลียร์รายการอุปกรณ์ใน ${namesThai} ทั้งหมด (ลบออก ${totalCleared} รายการ) เพื่อให้พี่ๆ ตั้งต้นใหม่เรียบร้อยแล้วค่ะ! ✨`
+        );
+
+        setIsLoading(false);
+        return;
       }
 
       // -------------------------------------------------------------
@@ -1168,13 +1309,17 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
     <>
       {!isOpen && !isAnyModalOpen && (
         <div
-          className="fixed z-[99] select-none"
-          style={{ right: '16px', bottom: '140px' }}
+          className="fixed z-[9999] select-none pointer-events-auto"
+          style={{
+            right: '16px',
+            bottom: 'calc(80px + env(safe-area-inset-bottom, 0px))',
+            zIndex: 9999,
+          }}
         >
           <button
             type="button"
             onClick={handleOpen}
-            className="w-13 h-13 flex items-center justify-center bg-gradient-to-br from-purple-500 to-cyan-400 text-white rounded-full shadow-lg hover:scale-105 active:scale-95 transition-all duration-300 cursor-pointer border border-white/20"
+            className="w-13 h-13 flex items-center justify-center bg-gradient-to-br from-purple-500 to-cyan-400 text-white rounded-full shadow-2xl hover:scale-105 active:scale-95 transition-all duration-300 cursor-pointer border border-white/30 ring-2 ring-purple-500/30"
             title="คุยกับน้องออร่า AI"
           >
             <Sparkles size={22} className="animate-pulse" />
@@ -1281,11 +1426,33 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
                 </div>
               ))}
               {isLoading && (
-                <div className="flex items-center gap-2 text-slate-400 text-xs p-2">
-                  <div className="w-6 h-6 rounded-full bg-purple-100 dark:bg-purple-900/40 flex items-center justify-center text-purple-600 animate-spin">
-                    <Sparkles size={14} />
+                <div className="flex flex-col gap-2 bg-purple-50/80 dark:bg-purple-950/40 p-3.5 rounded-2xl border border-purple-200 dark:border-purple-800/60 text-xs animate-in fade-in">
+                  <div className="flex items-center justify-between font-bold text-purple-700 dark:text-purple-300">
+                    <div className="flex items-center gap-1.5">
+                      <Sparkles size={14} className="animate-spin text-purple-600 dark:text-purple-400" />
+                      <span>
+                        {scanProgress ? scanProgress.text : 'น้องออร่ากำลังประมวลผล...'}
+                      </span>
+                    </div>
+                    {scanProgress && scanProgress.total > 0 && (
+                      <span className="text-[11px] font-mono font-extrabold text-purple-600 dark:text-purple-300">
+                        {Math.round((scanProgress.current / scanProgress.total) * 100)}%
+                      </span>
+                    )}
                   </div>
-                  <span>น้องออร่ากำลังประมวลผล...</span>
+                  {scanProgress && scanProgress.total > 0 && (
+                    <div className="w-full h-2 bg-purple-200 dark:bg-purple-900/60 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-gradient-to-r from-pink-500 via-purple-500 to-indigo-600 transition-all duration-300 rounded-full"
+                        style={{
+                          width: `${Math.max(
+                            5,
+                            Math.round((scanProgress.current / scanProgress.total) * 100)
+                          )}%`,
+                        }}
+                      />
+                    </div>
+                  )}
                 </div>
               )}
               <div ref={messagesEndRef} />

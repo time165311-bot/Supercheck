@@ -56,11 +56,11 @@ export const GlobalScrollButtons: React.FC<GlobalScrollButtonsProps> = ({
     <div
       style={{
         position: 'fixed',
-        right: '16px',
-        bottom: '80px',
-        zIndex: 99,
+        right: '18px',
+        bottom: 'calc(145px + env(safe-area-inset-bottom, 0px))',
+        zIndex: 9998,
       }}
-      className="flex flex-col gap-2 items-center select-none pointer-events-auto"
+      className="flex flex-col gap-2 items-center select-none pointer-events-auto transition-all duration-300"
     >
       {/* 1. ปุ่ม [↑] (Scroll to Top) - Minimal Clean Circular Icon */}
       <button
