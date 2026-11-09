@@ -73,6 +73,7 @@ export interface DataContextType {
   renameChannel: (id: string, newName: string) => void;
   batchAddItems: (type: 'bag' | 'cart', items: any[]) => void;
   addBatchItemsToChannel: (channelId: string, items: any[], type?: 'bag' | 'cart') => void;
+  batchUpdateItemQuantities: (channelId: string, updates: Array<{ itemName: string; newQty: string }>, targetType?: 'bag' | 'cart') => void;
   setItems: (type: 'bag' | 'cart', items: any[]) => void;
   reRenderData: () => void;
 
@@ -401,6 +402,69 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     });
   };
 
+  const batchUpdateItemQuantities = (
+    channelId: string,
+    updates: Array<{ itemName: string; newQty: string }>,
+    targetType: 'bag' | 'cart' = 'bag'
+  ) => {
+    const targetChannelId = channelId || activeChannelId || 'channel_master';
+    const key = getChannelDbKey(targetChannelId);
+
+    setChannelData((prev) => {
+      const currentChannelData = targetChannelId === activeChannelId ? prev : (getStored<ChannelData | null>(key, null) || prev);
+      const currentList = currentChannelData.lists?.[targetType];
+      if (!currentList || !currentList.groups) return prev;
+
+      const updatedGroups: Record<string, EquipmentItem[]> = {};
+
+      Object.entries(currentList.groups).forEach(([groupName, items]) => {
+        updatedGroups[groupName] = items.map((it) => {
+          const matchingUpdate = updates.find(
+            (u) =>
+              u.itemName.toLowerCase().trim() === it.name.toLowerCase().trim() ||
+              it.name.toLowerCase().includes(u.itemName.toLowerCase().trim()) ||
+              u.itemName.toLowerCase().includes(it.name.toLowerCase().trim())
+          );
+          if (matchingUpdate) {
+            return {
+              ...it,
+              qty: matchingUpdate.newQty,
+              unitText: matchingUpdate.newQty,
+            };
+          }
+          return it;
+        });
+      });
+
+      const updatedLists = {
+        ...currentChannelData.lists,
+        [targetType]: {
+          ...currentList,
+          groups: updatedGroups,
+        },
+      };
+
+      const nextChannelData: ChannelData = {
+        ...currentChannelData,
+        lists: updatedLists,
+      };
+
+      setStored(key, nextChannelData);
+      setStored(getChannelListsKey(targetChannelId), updatedLists);
+      if (targetChannelId === 'channel_master') {
+        setStored(STORAGE_KEYS.CUSTOM_LISTS, updatedLists);
+      }
+
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('channel_data_updated', { detail: { channelId: targetChannelId, data: nextChannelData } }));
+        window.dispatchEvent(new CustomEvent('items_updated', { detail: { type: targetType, count: updates.length } }));
+        window.dispatchEvent(new Event('storage'));
+      }
+
+      return targetChannelId === activeChannelId ? nextChannelData : prev;
+    });
+  };
+
   const batchAddItems = (type: 'bag' | 'cart', items: any[]) => {
     addBatchItemsToChannel(activeChannelId, items, type);
   };
@@ -525,6 +589,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         renameChannel,
         batchAddItems,
         addBatchItemsToChannel,
+        batchUpdateItemQuantities,
         setItems,
         reRenderData,
         channelData,
@@ -579,6 +644,7 @@ export const useDataContext = (): DataContextType => {
           window.dispatchEvent(new CustomEvent('items_updated', { detail: { type, count: items.length } }));
         }
       },
+      batchUpdateItemQuantities: () => {},
       setItems: (type, items) => {
         if (typeof window !== 'undefined') {
           window.dispatchEvent(new CustomEvent('items_updated', { detail: { type, count: items.length } }));

@@ -17,7 +17,7 @@ import {
   writeBatch,
 } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
-import { User, AuditLogEntry, InspectionHistoryRecord, EquipmentItem, DrugItem } from '../types';
+import { User, AuditLogEntry, HaAuditLogEntry, InspectionHistoryRecord, EquipmentItem, DrugItem } from '../types';
 
 // Initialize Firebase App
 export const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
@@ -84,10 +84,12 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
     errMsg.includes('Could not reach Cloud Firestore backend') ||
     errMsg.includes('securetoken.googleapis.com') ||
     errMsg.includes('token-service-api') ||
-    errMsg.includes('Fetching auth token failed');
+    errMsg.includes('Fetching auth token failed') ||
+    errMsg.includes('Missing or insufficient permissions') ||
+    errMsg.includes('permission-denied');
 
   const errInfo: FirestoreErrorInfo = {
-    error: isOfflineOrAuth ? 'Firestore is currently in offline mode' : errMsg,
+    error: isOfflineOrAuth ? (errMsg.includes('permission') ? 'Firestore permission denied (unauthenticated)' : 'Firestore is currently in offline mode') : errMsg,
     authInfo: {
       userId: auth.currentUser?.uid,
       email: auth.currentUser?.email,
@@ -95,7 +97,7 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
     operationType,
     path,
   };
-  console.warn('Firestore Log: ', JSON.stringify(errInfo));
+  console.warn('Firestore Warning: ', JSON.stringify(errInfo));
   if (!isOfflineOrAuth) {
     throw new Error(JSON.stringify(errInfo));
   }
@@ -289,5 +291,76 @@ export async function loadSettingsFromFirebase(): Promise<any> {
   } catch (e) {
     handleFirestoreError(e, OperationType.GET, path);
     return null;
+  }
+}
+
+// --- HA / JCI AUDIT TRAIL LOGGING (APPEND-ONLY) ---
+
+export async function recordHaAuditLog(entry: HaAuditLogEntry): Promise<string> {
+  const id = entry.id || `audit_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+  const path = `audit_logs/${id}`;
+  const record: HaAuditLogEntry = {
+    ...entry,
+    id,
+    timestamp: entry.timestamp || new Date().toISOString(),
+    ipAddress: entry.ipAddress || (typeof window !== 'undefined' ? window.location.hostname : '127.0.0.1'),
+  };
+
+  try {
+    const cleanPayload = sanitizeForFirestore(record);
+    await setDoc(doc(db, 'audit_logs', id), cleanPayload);
+    
+    // Also broadcast custom window event for instant reactive UI updates
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('ha_audit_log_added', { detail: record }));
+    }
+    return id;
+  } catch (e) {
+    handleFirestoreError(e, OperationType.WRITE, path);
+    return id;
+  }
+}
+
+export async function fetchHaAuditLogs(limitCount = 100): Promise<HaAuditLogEntry[]> {
+  const path = 'audit_logs';
+  try {
+    const q = query(collection(db, path), orderBy('timestamp', 'desc'), limit(limitCount));
+    const snap = await getDocs(q);
+    const logs: HaAuditLogEntry[] = [];
+    snap.forEach((d) => logs.push({ ...d.data(), id: d.id } as HaAuditLogEntry));
+    return logs;
+  } catch (e) {
+    handleFirestoreError(e, OperationType.LIST, path);
+    // Offline local cache fallback
+    if (typeof window !== 'undefined') {
+      try {
+        const cached = localStorage.getItem('ha_audit_logs_cache');
+        if (cached) return JSON.parse(cached);
+      } catch {}
+    }
+    return [];
+  }
+}
+
+export function subscribeHaAuditLogs(callback: (logs: HaAuditLogEntry[]) => void, limitCount = 100) {
+  const path = 'audit_logs';
+  try {
+    const q = query(collection(db, path), orderBy('timestamp', 'desc'), limit(limitCount));
+    return onSnapshot(q, (snapshot) => {
+      const logs: HaAuditLogEntry[] = [];
+      snapshot.forEach((d) => logs.push({ ...d.data(), id: d.id } as HaAuditLogEntry));
+      callback(logs);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, path);
+      // Local fallback on snapshot error
+      if (typeof window !== 'undefined') {
+        try {
+          const cached = localStorage.getItem('ha_audit_logs_cache');
+          if (cached) callback(JSON.parse(cached));
+        } catch {}
+      }
+    });
+  } catch (e) {
+    return () => {};
   }
 }

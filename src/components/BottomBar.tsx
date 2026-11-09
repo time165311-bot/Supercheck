@@ -30,18 +30,18 @@ export const BottomBar: React.FC<BottomBarProps> = ({
 
   return (
     <nav
-      className={`fixed bottom-0 left-0 right-0 z-40 px-4 py-2.5 lg:hidden ${
+      className={`fixed bottom-0 left-0 right-0 z-40 px-4 py-2.5 md:hidden transform-gpu will-change-transform ${
         isVisible ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0'
       }`}
       style={{
         paddingBottom: 'calc(10px + env(safe-area-inset-bottom, 0px))',
-        transform: isVisible ? 'translateY(0)' : 'translateY(150%)',
-        transition: 'transform 0.3s ease, opacity 0.3s ease, visibility 0.3s ease',
+        transform: isVisible ? 'translate3d(0, 0, 0)' : 'translate3d(0, 150%, 0)',
+        transition: 'transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.2s ease',
         visibility: isVisible ? 'visible' : 'hidden',
       }}
     >
       <div
-        className={`max-w-md mx-auto px-5 py-2 rounded-[2rem] border backdrop-blur-2xl shadow-2xl transition-colors duration-300 ${
+        className={`max-w-md mx-auto px-5 py-2 rounded-[2rem] border shadow-2xl transition-colors duration-200 transform-gpu ${
           isDark
             ? 'bg-[#181A20]/95 border-white/10 text-white shadow-black/60'
             : 'bg-white/95 border-slate-200/80 text-slate-800 shadow-slate-200/60'
@@ -76,16 +76,16 @@ export const BottomBar: React.FC<BottomBarProps> = ({
             <span className="text-[10px] font-bold mt-0.5 whitespace-nowrap">รายงาน</span>
           </button>
 
-          {/* 3. Center Elevated Floating Barcode Scan Pill Button (One UI Style) */}
-          <div className="relative -top-6 flex items-center justify-center">
+          {/* 3. Center Balanced Barcode Scan Button (Leveled with others) */}
+          <div className="flex-1 flex items-center justify-center">
             <button
               onClick={onOpenBarcodeScanner}
               type="button"
-              className="flex flex-col items-center justify-center w-14 h-14 bg-gradient-to-br from-[#3B82F6] to-cyan-500 text-white rounded-full shadow-lg shadow-blue-500/40 ring-4 ring-blue-500/20 active:scale-90 transition cursor-pointer group"
-              title="สแกนบาร์โค้ดด่วน (One UI Scanner)"
+              className="flex flex-col items-center justify-center w-11 h-11 bg-gradient-to-tr from-[#3B82F6] to-indigo-600 text-white rounded-2xl shadow-md shadow-blue-500/30 ring-2 ring-blue-500/10 active:scale-95 transition-all duration-150 ease-out cursor-pointer group"
+              title="สแกนบาร์โค้ดด่วน (Balanced Scanner)"
             >
-              <Barcode size={22} className="text-white group-hover:scale-110 transition-transform" />
-              <span className="text-[9px] font-black text-white mt-0.2 tracking-tight">สแกน</span>
+              <Barcode size={20} className="text-white group-hover:scale-105 transition-transform" />
+              <span className="text-[8px] font-bold text-white tracking-tight uppercase">สแกน</span>
             </button>
           </div>
 

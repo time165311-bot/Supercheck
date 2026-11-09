@@ -1,6 +1,7 @@
 import { getChannelDbKey, getChannelListsKey, getStored, setStored, STORAGE_KEYS } from './storage';
 import { ChannelData } from '../context/DataContext';
-import { EquipmentItem } from '../types';
+import { EquipmentItem, DrugItem } from '../types';
+import { categoryCovers } from '../assets/categoryCovers';
 
 export interface VisionExtractionResult {
   success: boolean;
@@ -16,6 +17,60 @@ export interface VisionExtractionResult {
   isQuotaExceeded?: boolean;
   message?: string;
   error?: string;
+}
+
+/**
+ * Fuzzy Matching Logic (Levenshtein Distance)
+ */
+export function isSimilar(input: string, target: string, threshold: number = 2): boolean {
+  if (!input || !target) return false;
+  const s1 = input.toLowerCase().replace(/[^a-z0-9ก-๙]/g, '').trim();
+  const s2 = target.toLowerCase().replace(/[^a-z0-9ก-๙]/g, '').trim();
+  
+  if (s1.length < 2) return false;
+  if (s2.includes(s1) || s1.includes(s2)) return true;
+
+  const m = s1.length;
+  const n = s2.length;
+  if (Math.abs(m - n) > threshold) return false;
+
+  const dp = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0));
+
+  for (let i = 0; i <= m; i++) dp[i][0] = i;
+  for (let j = 0; j <= n; j++) dp[0][j] = j;
+
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      if (s1[i - 1] === s2[j - 1]) {
+        dp[i][j] = dp[i - 1][j - 1];
+      } else {
+        dp[i][j] = 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
+      }
+    }
+  }
+
+  return dp[m][n] <= threshold;
+}
+
+/**
+ * Find Closest Matches for Suggestions
+ */
+export function findClosestMatches(query: string, data: ChannelData, drugs: DrugItem[], limit: number = 3): string[] {
+  const q = normalizeText(query);
+  const candidates: string[] = [];
+  
+  drugs.forEach(d => candidates.push(d.name));
+  ['bag', 'cart'].forEach(cat => {
+    const groups = data.lists?.[cat as 'bag' | 'cart']?.groups || {};
+    Object.values(groups).forEach((items: any) => {
+      items.forEach((it: any) => candidates.push(it.name));
+    });
+  });
+
+  const uniqueCandidates = Array.from(new Set(candidates));
+  return uniqueCandidates
+    .filter(c => isSimilar(q, c, 3))
+    .slice(0, limit);
 }
 
 /**
@@ -476,3 +531,275 @@ export function parseAutoCheckIntent(queryStr: string, currentWeekNum: number = 
 }
 
 
+
+export type AuraIntent =
+  | 'QUERY_MEDIA'
+  | 'LOCATION_QUERY'
+  | 'AUDIT_ZONE'
+  | 'CHECK_STOCK_EXPIRY'
+  | 'NAVIGATE'
+  | 'ADD'
+  | 'DELETE'
+  | 'CLEAR'
+  | 'TRANSFER'
+  | 'CHANNEL_OPS'
+  | 'AUTO_CHECK'
+  | 'CHAT';
+
+export interface DetectedIntent {
+  intent: AuraIntent;
+  confidence: number;
+  entities: {
+    item?: string;
+    location?: string;
+    category?: 'bag' | 'cart' | 'medicine' | 'equipment';
+    week?: number[];
+    isFullMonth?: boolean;
+    action?: string;
+  };
+}
+
+/**
+ * Advanced Intent & Semantic Understanding Engine (NLP)
+ */
+export function detectAuraIntent(query: string): DetectedIntent {
+  const q = normalizeText(query);
+  const entities: DetectedIntent['entities'] = {};
+
+  // 1. QUERY_MEDIA: Patterns for images, visual appearance
+  const mediaPatterns = [
+    'ขอดูรูป', 'ขอรูป', 'หน้าตาแบบไหน', 'รูปถ่าย', 'โชว์รูป', 'ขอดูไอเทม', 'ขอดูของ', 'ภาพถ่าย', 'หน้าตาเป็นไง'
+  ];
+  if (mediaPatterns.some(p => q.includes(p))) {
+    const pattern = mediaPatterns.find(p => q.includes(p)) || '';
+    entities.item = q.replace(pattern, '').replace(/(ออร่า|น้องออร่า|ให้หน่อย|ที|นะ|ครับ|ค่ะ|ขอดู)/gi, '').trim();
+    return { intent: 'QUERY_MEDIA', confidence: 0.9, entities };
+  }
+
+  // 1.5 LOCATION_QUERY: Ask for where something is or warehouse code
+  const locPatterns = [
+    'อยู่ตรงไหน', 'รหัสคลัง', 'รหัสอะไร', 'วางไว้ไหน', 'จอดที่ไหน', 'เก็บไว้ไหน', 'พิกัด', 'อยู่ตู้ไหน', 'อยู่ชั้นไหน'
+  ];
+  if (locPatterns.some(p => q.includes(p))) {
+    const pattern = locPatterns.find(p => q.includes(p)) || '';
+    entities.item = q.replace(pattern, '').replace(/(ออร่า|น้องออร่า|ให้หน่อย|ที|นะ|ครับ|ค่ะ|เช็ก)/gi, '').trim();
+    return { intent: 'LOCATION_QUERY', confidence: 0.9, entities };
+  }
+
+  // 2. AUDIT_ZONE: Scan for anomalies/defects in specific zones
+  const auditPatterns = [
+    'มีห้องไหนผิดปกติ', 'เช็กพวกรถ', 'มีไรต้องแก้ไหม', 'เช็กกระเป๋าเดือนนี้',
+    'ตรวจความผิดปกติ', 'ตรวจวอร์ด', 'ห้องไหนพัง', 'มีอะไรเสียไหม', 'เช็คความเรียบร้อย'
+  ];
+  if (auditPatterns.some(p => q.includes(p))) {
+    if (q.includes('รถ')) entities.location = 'cart';
+    else if (q.includes('กระเป๋า') || q.includes('เป๋า')) entities.location = 'bag';
+    else if (q.includes('ห้อง') || q.includes('or')) entities.location = 'equipment';
+    else entities.location = 'all';
+
+    return { intent: 'AUDIT_ZONE', confidence: 0.85, entities };
+  }
+
+  // 3. CHECK_STOCK_EXPIRY: Check stock levels or expiry
+  const stockPatterns = [
+    'ใกล้หมดอายุ', 'เหลือเท่าไหร่', 'ของขาดไหม', 'เช็กของ', 'สต็อก', 'คงเหลือ', 'exp', 'วันหมดอายุ'
+  ];
+  if (stockPatterns.some(p => q.includes(p))) {
+    entities.item = q.replace(new RegExp(`(${stockPatterns.join('|')}|ออร่า|น้องออร่า|ให้หน่อย|ที|นะ|ครับ|ค่ะ|เช็ก|ตรวจสอบ)`, 'gi'), '').trim();
+    return { intent: 'CHECK_STOCK_EXPIRY', confidence: 0.8, entities };
+  }
+
+  // 4. CHANNEL_OPS: Ward/Channel management
+  if (q.includes('channel') || q.includes('แชนแนล') || q.includes('วอร์ด')) {
+    return { intent: 'CHANNEL_OPS', confidence: 0.95, entities };
+  }
+
+  // 5. AUTO_CHECK: Bulk updates
+  if (q.includes('ตรวจผ่าน') || q.includes('เช็กผ่าน') || q.includes('auto-check')) {
+    return { intent: 'AUTO_CHECK', confidence: 0.9, entities };
+  }
+
+  // 6. CLEAR / RESET
+  if ((q.includes('ลบ') || q.includes('เคลียร์')) && (q.includes('ทั้งหมด') || q.includes('ตาราง'))) {
+    return { intent: 'CLEAR', confidence: 0.9, entities };
+  }
+
+  // 7. TRANSFER: Move items
+  if (q.includes('ย้าย') || q.includes('สลับ') || q.includes('transfer')) {
+    return { intent: 'TRANSFER', confidence: 0.85, entities };
+  }
+
+  // 8. NAVIGATION
+  if (q.includes('เปิดหน้า') || q.includes('ไปที่') || q.includes('ไปหน้า') || q.includes('กลับหน้า')) {
+    return { intent: 'NAVIGATE', confidence: 0.9, entities };
+  }
+
+  // 9. ADD / DELETE (Simple)
+  if (q.includes('เพิ่ม') || q.includes('add') || q.includes('บันทึก')) return { intent: 'ADD', confidence: 0.8, entities };
+  if (q.includes('ลบ') || q.includes('delete') || q.includes('เอาออก')) return { intent: 'DELETE', confidence: 0.8, entities };
+
+  return { intent: 'CHAT', confidence: 0.5, entities };
+}
+
+/**
+ * Core Intelligence Pillar 2: Deep Inventory Query & Visual Return
+ */
+export function queryItemDetails(
+  itemQuery: string, 
+  data: ChannelData, 
+  drugs: DrugItem[], 
+  equipment: Record<string, EquipmentItem[]> = {},
+  currentContext?: string
+): { 
+  found: boolean; 
+  item?: any; 
+  image?: string; 
+  location?: string;
+  code?: string;
+  stock?: string;
+  suggestions?: string[];
+  categoryType?: string;
+} {
+  const q = normalizeText(itemQuery);
+  if (q.length < 2) return { found: false };
+
+  // 0. Build Global Index with Context Bias
+  // Bias order: Current View -> Drugs -> Bag -> Cart -> Equipment
+  const searchOrder: Array<{
+    type: string;
+    items: any[];
+    searchFn: (it: any) => boolean;
+    formatFn: (it: any) => any;
+  }> = [
+    {
+      type: 'ยา/สารน้ำ',
+      items: drugs,
+      searchFn: (d) => normalizeText(d.name).includes(q) || isSimilar(q, d.name) || (d.barcode && String(d.barcode).includes(q)),
+      formatFn: (d) => ({
+        found: true,
+        item: d,
+        image: categoryCovers.drugs,
+        location: 'คลังยา OR',
+        code: d.barcode || 'N/A',
+        stock: `${d.remaining || 0} ${d.unit || 'Unit'}`,
+        categoryType: 'ยา/สารน้ำ'
+      })
+    },
+    {
+      type: 'กระเป๋าฉุกเฉิน',
+      items: Object.entries(data.lists?.bag?.groups || {}).flatMap(([g, its]) => its.map(it => ({ ...it, groupName: g }))),
+      searchFn: (it) => normalizeText(it.name).includes(q) || isSimilar(q, it.name) || (it.code && normalizeText(it.code).includes(q)),
+      formatFn: (it) => ({
+        found: true,
+        item: it,
+        image: categoryCovers.bag,
+        location: `กระเป๋าฉุกเฉิน (${it.groupName})`,
+        code: it.code || 'N/A',
+        stock: it.qty || '1',
+        categoryType: 'กระเป๋าฉุกเฉิน'
+      })
+    },
+    {
+      type: 'รถฉุกเฉิน',
+      items: Object.entries(data.lists?.cart?.groups || {}).flatMap(([g, its]) => its.map(it => ({ ...it, groupName: g }))),
+      searchFn: (it) => normalizeText(it.name).includes(q) || isSimilar(q, it.name) || (it.code && normalizeText(it.code).includes(q)),
+      formatFn: (it) => ({
+        found: true,
+        item: it,
+        image: categoryCovers.cart,
+        location: `รถฉุกเฉิน (${it.groupName})`,
+        code: it.code || 'N/A',
+        stock: it.qty || '1',
+        categoryType: 'รถฉุกเฉิน'
+      })
+    },
+    {
+      type: 'ครุภัณฑ์ห้องผ่าตัด',
+      items: Object.entries(equipment).flatMap(([room, its]) => its.map(it => ({ ...it, roomId: room }))),
+      searchFn: (it) => normalizeText(it.name).includes(q) || isSimilar(q, it.name) || (it.code && normalizeText(it.code).includes(q)),
+      formatFn: (it) => ({
+        found: true,
+        item: it,
+        image: categoryCovers.equipment,
+        location: `ห้องผ่าตัด ${it.roomId.toUpperCase()}`,
+        code: it.code || 'N/A',
+        stock: it.qty || '1',
+        categoryType: 'ครุภัณฑ์ห้องผ่าตัด'
+      })
+    }
+  ];
+
+  // Apply context bias: Move current context to front of search order
+  if (currentContext) {
+    const contextMap: Record<string, string> = {
+      'drug_check': 'ยา/สารน้ำ',
+      'room_check': 'ครุภัณฑ์ห้องผ่าตัด',
+      'bag_check': 'กระเป๋าฉุกเฉิน',
+      'cart_check': 'รถฉุกเฉิน'
+    };
+    const targetType = contextMap[currentContext];
+    if (targetType) {
+      const idx = searchOrder.findIndex(s => s.type === targetType);
+      if (idx > -1) {
+        const [target] = searchOrder.splice(idx, 1);
+        searchOrder.unshift(target);
+      }
+    }
+  }
+
+  // Execute Search
+  for (const provider of searchOrder) {
+    const match = provider.items.find(provider.searchFn);
+    if (match) return provider.formatFn(match);
+  }
+
+  // 3. Not found, return suggestions from entire system
+  const suggestions = findClosestMatches(itemQuery, data, drugs);
+  return { found: false, suggestions };
+}
+
+/**
+ * Core Intelligence Pillar 3: Proactive Anomaly Auditor
+ */
+export function scanAnomalies(data: ChannelData, drugs: DrugItem[], locationFilter: string = 'all'): string[] {
+  const anomalies: string[] = [];
+  const checks = data.globalChecks || {};
+
+  // 1. Scan Equipment/Rooms
+  if (locationFilter === 'all' || locationFilter === 'equipment') {
+    Object.entries(checks).forEach(([roomId, roomChecks]) => {
+      if (['bag', 'cart', 'drugs'].includes(roomId)) return;
+      Object.entries(roomChecks || {}).forEach(([itemKey, val]) => {
+        if (val && val.result === 'ผิดปกติ') {
+          const itemName = itemKey.split('|')[1] || itemKey;
+          anomalies.push(`📍 **OR ${roomId.toUpperCase()}**: ${itemName} (${val.note || 'พบข้อบกพร่อง'})`);
+        }
+      });
+    });
+  }
+
+  // 2. Scan Bag/Cart
+  if (locationFilter === 'all' || locationFilter === 'bag' || locationFilter === 'cart') {
+    ['bag', 'cart'].forEach(cat => {
+      if (locationFilter !== 'all' && locationFilter !== cat) return;
+      const catChecks = checks[cat] || {};
+      Object.entries(catChecks).forEach(([itemKey, val]) => {
+        if (val && val.result === 'ผิดปกติ') {
+          const itemName = itemKey.split('|')[1] || itemKey;
+          anomalies.push(`📍 **${cat === 'bag' ? 'กระเป๋า' : 'รถ'}ฉุกเฉิน**: ${itemName} (${val.note || 'พบข้อบกพร่อง'})`);
+        }
+      });
+    });
+  }
+
+  // 3. Scan Low Stock
+  if (locationFilter === 'all' || locationFilter === 'medicine') {
+    drugs.forEach(d => {
+      if (d.remaining <= 2) {
+        anomalies.push(`⚠️ **คลังยา**: ${d.name} ใกล้หมดสต็อก (คงเหลือ ${d.remaining} ${d.unit || 'Amp'})`);
+      }
+    });
+  }
+
+  return anomalies;
+}

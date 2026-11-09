@@ -96,6 +96,24 @@
         "lastSubmitted": { "type": "object" },
         "updatedAt": { "type": "string", "format": "date-time" }
       }
+    },
+    "AuditLog": {
+      "title": "Audit Log",
+      "description": "Immutable append-only activity and audit trail record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "userId": { "type": "string", "maxLength": 100 },
+        "userName": { "type": "string", "maxLength": 100 },
+        "role": { "type": "string", "maxLength": 50 },
+        "action": { "type": "string", "maxLength": 100 },
+        "targetCollection": { "type": "string", "maxLength": 100 },
+        "targetId": { "type": "string", "maxLength": 100 },
+        "details": { "type": "object" },
+        "ipAddress": { "type": "string", "maxLength": 100 }
+      },
+      "required": ["timestamp", "userId", "action", "targetCollection"]
     }
   },
   "firestore": {
@@ -118,6 +136,10 @@
     "/settings/config": {
       "schema": "Settings",
       "description": "Global application configuration"
+    },
+    "/audit_logs/{logId}": {
+      "schema": "AuditLog",
+      "description": "Append-only immutable audit trail and activity log"
     }
   }
 }

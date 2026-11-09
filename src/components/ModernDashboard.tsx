@@ -10,6 +10,17 @@ import {
   Sun,
   Moon,
   User as UserIcon,
+  FileText,
+  Search,
+  X,
+  RefreshCw,
+  Home,
+  ClipboardList,
+  Package,
+  ArrowRight,
+  ShieldAlert,
+  Truck,
+  Stethoscope,
 } from 'lucide-react';
 import { CheckItemState, DrugItem, EquipmentItem, ExpiryAlertItem, ListConfig, User } from '../types';
 import { categoryCovers } from '../assets/categoryCovers';
@@ -82,6 +93,7 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
   const { activeChannel } = useDataContext();
   const isDarkMode = theme ? theme === 'dark' : true;
   const swiperRef = React.useRef<any>(null);
+  const [dashSearchTerm, setDashSearchTerm] = useState('');
 
   // Listen for user profile updates in real-time
   const [, setProfileTrigger] = useState(0);
@@ -97,7 +109,8 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
 
   const effectiveDisplayName = (typeof window !== 'undefined' ? localStorage.getItem('user_display_name') : null) || currentUser?.name || 'สาธิต';
 
-  // Map category ID to Swiper slide index (in second cycle of looped categories)
+
+  // Helper to map category ID to Swiper slide index (in second cycle of looped categories)
   const getCategorySlideIndex = (catId?: string) => {
     if (catId === 'medicine') return 4;
     if (catId === 'equipment') return 5;
@@ -106,7 +119,7 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
     return 6; // Default to Emergency Bag
   };
 
-  const initialSlideIndex = React.useMemo(() => getCategorySlideIndex(activeCategory), [activeCategory]);
+  const initialSlideIndex = useMemo(() => getCategorySlideIndex(activeCategory), [activeCategory]);
 
   React.useEffect(() => {
     if (swiperRef.current && activeCategory) {
@@ -352,36 +365,75 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
     return list;
   }, [equipment, globalChecks, lists, drugs]);
 
+  const dashSearchResults = useMemo(() => {
+    const q = dashSearchTerm.trim().toLowerCase();
+    if (!q) return [];
+    const results: Array<{ name: string; location: string; targetView: 'home' | 'eq_overview' | 'room_check' | 'bag_check' | 'cart_check' | 'users' | 'drug_check' }> = [];
+
+    (drugs || []).forEach((d: any) => {
+      if (d && (d.name.toLowerCase().includes(q) || (d.barcode && String(d.barcode).toLowerCase().includes(q)))) {
+        results.push({ name: d.name, location: 'คลังยา OR', targetView: 'drug_check' });
+      }
+    });
+
+    Object.entries(equipment || {}).forEach(([roomId, items]) => {
+      (items || []).forEach((item) => {
+        if (item && (item.name.toLowerCase().includes(q) || (item.code && item.code.toLowerCase().includes(q)))) {
+          results.push({ name: item.name, location: `ห้องผ่าตัด ${roomId.toUpperCase()}`, targetView: 'room_check' });
+        }
+      });
+    });
+
+    ['bag', 'cart'].forEach((typeKey) => {
+      const config = lists?.[typeKey as 'bag' | 'cart'];
+      if (config && config.groups) {
+        Object.entries(config.groups).forEach(([grp, items]) => {
+          (items || []).forEach((it) => {
+            if (it && (it.name.toLowerCase().includes(q) || (it.code && it.code.toLowerCase().includes(q)))) {
+              results.push({
+                name: it.name,
+                location: typeKey === 'bag' ? 'กระเป๋า Emergency' : 'รถเข็นฉุกเฉิน',
+                targetView: typeKey === 'bag' ? 'bag_check' : 'cart_check',
+              });
+            }
+          });
+        });
+      }
+    });
+
+    return results.slice(0, 10);
+  }, [dashSearchTerm, drugs, equipment, lists]);
+
   const categories = [
     {
       id: 'medicine',
-      title: 'คลังยา & สารน้ำ',
-      count: `${drugs.length} รายการ`,
-      icon: '💊',
+      title: 'คลังยา & สารน้ำฉุกเฉิน',
+      count: `${drugs.length} รายการตรวจ`,
+      icon: <Package className="w-4 h-4 text-emerald-400" />,
       bg: categoryCovers.drugs,
       targetView: 'drug_check' as const,
     },
     {
       id: 'equipment',
-      title: 'ครุภัณฑ์ห้องผ่าตัด',
-      count: `${stats.grandTotal} รายการ`,
-      icon: '🩺',
+      title: 'ครุภัณฑ์ห้องผ่าตัด (OR)',
+      count: `${stats.grandTotal} รายการตรวจ`,
+      icon: <Stethoscope className="w-4 h-4 text-blue-400" />,
       bg: categoryCovers.equipment,
       targetView: 'room_check' as const,
     },
     {
       id: 'bag',
-      title: 'กระเป๋าฉุกเฉิน',
-      count: `${bagCount} รายการ`,
-      icon: '🎒',
+      title: 'กระเป๋าฉุกเฉิน (Emergency Bag)',
+      count: `${bagCount} รายการตรวจ`,
+      icon: <ShieldAlert className="w-4 h-4 text-amber-400" />,
       bg: categoryCovers.bag,
       targetView: 'bag_check' as const,
     },
     {
       id: 'cart',
-      title: 'รถฉุกเฉิน (Crash Cart)',
-      count: `${cartCount} รายการ`,
-      icon: '🛒',
+      title: 'รถพยาบาลฉุกเฉิน (Ambulance)',
+      count: `${cartCount} รายการตรวจ`,
+      icon: <Truck className="w-4 h-4 text-purple-400" />,
       bg: categoryCovers.cart,
       targetView: 'cart_check' as const,
     },
@@ -506,34 +558,73 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
         />
       </div>
 
-      {/* Main Container (Expanded 50% Wider Container Stretch) */}
-      <div className="p-3 sm:p-6 pt-3 space-y-5 relative z-10 w-full max-w-full sm:max-w-2xl md:max-w-4xl lg:max-w-[1680px] xl:max-w-[1760px] mx-auto lg:grid lg:grid-cols-2 lg:gap-6">
+      {/* Main Container (Aligned Max-Width Container) */}
+      <div className="p-3 sm:p-6 pt-3 space-y-5 relative z-10 w-full max-w-7xl mx-auto lg:grid lg:grid-cols-2 lg:gap-6">
         
         {/* 📱 1. Samsung One UI Header Card & Weather Widget with Vibrant Royal Blue Gradient */}
         <div
           style={{
             background: 'linear-gradient(135deg, #1d4ed8 0%, #2563eb 50%, #3b82f6 100%)',
           }}
-          className="w-full p-4 sm:p-6 rounded-[2rem] border border-blue-400/40 shadow-2xl transition-all duration-300 space-y-4 lg:col-span-2 relative overflow-hidden backdrop-blur-2xl text-white"
+          className="w-full p-4 sm:p-6 rounded-[2.2rem] border border-blue-400/40 shadow-2xl transition-all duration-300 space-y-5 lg:col-span-2 relative overflow-hidden backdrop-blur-2xl text-white"
         >
           {/* Subtle Ambient Pulse Light */}
           <div className="absolute -top-12 -right-12 w-48 h-48 bg-cyan-300/30 rounded-full blur-3xl pointer-events-none animate-pulse" />
           <div className="absolute -bottom-10 -left-10 w-44 h-44 bg-blue-300/30 rounded-full blur-3xl pointer-events-none animate-pulse" />
 
-          {/* Top Row: Title + User Profile + Notifications + Theme Toggle */}
-          <div className="flex flex-wrap sm:flex-nowrap justify-between items-center relative z-10 gap-3">
-            {/* Title / Brand & User Profile Badge */}
-            <div className="flex items-center gap-3 shrink-0 flex-wrap">
-              <div className="flex items-center gap-2 font-valorant text-2xl sm:text-3xl lg:text-4xl font-bold tracking-wider shrink-0">
+          {/* ========================================================= */}
+          {/* แถบที่ 1: Header บรรทัดบนสุด (ชื่อระบบ + Badge + เมนูคอม + ไอคอนโปรไฟล์/ธีม) */}
+          {/* ========================================================= */}
+          <div className="flex lg:flex-row lg:items-center justify-between gap-4 pb-5 border-b border-white/15 relative z-10">
+            
+            {/* ฝั่งซ้าย: ชื่อระบบ + ปุ่ม Admin กดได้ (ย้ายจากขวามาซ้ายอันเดียวจบ) */}
+            <div className="flex items-center justify-between lg:justify-start w-full lg:w-auto gap-3 shrink-0 flex-wrap">
+              <div className="flex items-center gap-2 font-valorant text-xl sm:text-3xl lg:text-4xl font-bold tracking-wider shrink-0">
                 <span className="text-[#67e8f9] drop-shadow-[0_2px_8px_rgba(103,232,249,0.5)]">ANESTHESIA</span>
                 <span className="text-white drop-shadow-sm">CARE</span>
               </div>
+
+              {/* Mobile Header Icons: Theme & Notifications (Visible on Mobile Only) */}
+              <div className="flex lg:hidden items-center gap-2">
+                {onToggleTheme && (
+                  <button
+                    type="button"
+                    onClick={onToggleTheme}
+                    className="p-2 rounded-full bg-white/15 hover:bg-white/25 border border-white/20 text-white transition active:scale-90"
+                    title={isDarkMode ? 'เปลี่ยนเป็นโหมดสว่าง' : 'เปลี่ยนเป็นโหมดมืด'}
+                  >
+                    {isDarkMode ? <Sun size={18} /> : <Moon size={18} />}
+                  </button>
+                )}
+                {onOpenNotifications && (
+                  <button
+                    type="button"
+                    onClick={onOpenNotifications}
+                    className="relative p-2 rounded-full bg-white/15 hover:bg-white/25 border border-white/20 text-white transition active:scale-90"
+                    title="การแจ้งเตือน"
+                  >
+                    <Bell size={18} />
+                    <span className="absolute top-0 right-0 w-2 h-2 bg-rose-500 rounded-full animate-ping" />
+                    <span className="absolute top-0 right-0 w-2 h-2 bg-rose-500 rounded-full" />
+                  </button>
+                )}
+              </div>
+
+              {currentUser?.role === 'admin' && (
+                <button
+                  type="button"
+                  onClick={() => onNavigate('users')}
+                  className="hidden lg:inline-block px-3.5 py-1.5 rounded-full bg-white/15 hover:bg-white/25 backdrop-blur-md text-white text-xs font-semibold shadow-sm transition-all border border-white/20 whitespace-nowrap active:scale-95 cursor-pointer"
+                >
+                  ผู้ดูแลระบบ (Admin)
+                </button>
+              )}
 
               {currentUser && (
                 <button
                   type="button"
                   onClick={onOpenProfile}
-                  className="flex items-center gap-2 px-3 py-1.5 rounded-full border border-white/30 bg-white/20 hover:bg-white/30 text-white transition active:scale-95 cursor-pointer shadow-sm backdrop-blur-md"
+                  className="hidden lg:flex items-center gap-2 px-3 py-1.5 rounded-full border border-white/30 bg-white/20 hover:bg-white/30 text-white transition active:scale-95 cursor-pointer shadow-sm backdrop-blur-md"
                   title="คลิกเพื่อแก้ไขโปรไฟล์และชื่อผู้ใช้งาน"
                 >
                   <div className="w-5 h-5 rounded-full bg-cyan-400 text-blue-900 font-black flex items-center justify-center text-[10px] shadow-xs overflow-hidden shrink-0">
@@ -543,173 +634,265 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
                       effectiveDisplayName ? effectiveDisplayName.charAt(0) : 'U'
                     )}
                   </div>
-                  <span className="text-xs font-bold truncate max-w-[130px] text-white drop-shadow-xs">
+                  <span className="text-xs font-bold truncate max-w-[130px] text-white drop-shadow-xs whitespace-nowrap">
                     {effectiveDisplayName}
                   </span>
                 </button>
               )}
             </div>
 
-            {/* Controls Right: Notifications & Theme Toggle */}
-            <div className="flex items-center gap-2 shrink-0">
-              {/* Notifications Bell */}
-              {onOpenNotifications && (
+            {/* ฝั่งขวา (เฉพาะจอคอม mdขึ้นไป): เมนู 3 ปุ่ม [หน้าแรก] [รายงาน] [ชีต] */}
+            <div className="hidden md:flex items-center gap-3">
+              
+              {/* แถบเมนู 3 ปุ่ม (จัด whitespace-nowrap ไม่ให้คำตัดบรรทัด) */}
+              <nav className="flex items-center gap-1 bg-white/10 backdrop-blur-md p-1.5 rounded-2xl border border-white/15">
                 <button
                   type="button"
-                  onClick={onOpenNotifications}
-                  className="relative p-2 rounded-full border border-white/30 bg-white/20 hover:bg-white/30 text-white transition active:scale-90 cursor-pointer shadow-sm backdrop-blur-md"
-                  title="การแจ้งเตือน"
+                  onClick={() => onNavigate('home')}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${
+                    activeCategory === 'bag' || activeCategory === 'cart' || activeCategory === 'equipment' || activeCategory === 'medicine'
+                      ? 'text-white/90 hover:bg-white/10'
+                      : 'bg-white text-blue-700 shadow-md'
+                  }`}
                 >
-                  <Bell size={15} />
-                  <span className="absolute top-1 right-1 w-2 h-2 bg-rose-500 rounded-full animate-ping" />
-                  <span className="absolute top-1 right-1 w-2 h-2 bg-rose-500 rounded-full" />
+                  <Home className="w-4 h-4" />
+                  <span>หน้าแรก</span>
                 </button>
-              )}
 
-              {/* Theme Toggle */}
-              {onToggleTheme && (
                 <button
                   type="button"
-                  onClick={onToggleTheme}
-                  className="p-2 rounded-full border border-white/30 bg-white/20 hover:bg-white/30 text-white transition active:scale-90 cursor-pointer shadow-sm backdrop-blur-md"
-                  title={isDarkMode ? 'เปลี่ยนเป็นโหมดสว่าง' : 'เปลี่ยนเป็นโหมดมืด'}
+                  onClick={() => onNavigate('room_check')}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${
+                    activeCategory === 'equipment'
+                      ? 'bg-white text-blue-700 shadow-md'
+                      : 'text-white/90 hover:bg-white/10'
+                  }`}
                 >
-                  {isDarkMode ? <Sun size={15} /> : <Moon size={15} />}
+                  <ClipboardList className="w-4 h-4" />
+                  <span>รายงาน</span>
+                </button>
+
+                {onOpenReport && (
+                  <button
+                    type="button"
+                    onClick={onOpenReport}
+                    className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-all text-white/90 hover:bg-white/10 cursor-pointer shrink-0"
+                  >
+                    <FileText className="w-4 h-4" />
+                    <span>ชีต</span>
+                  </button>
+                )}
+              </nav>
+
+              {/* Controls Right: Notifications & Theme Toggle */}
+              <div className="flex items-center gap-2 pl-2 shrink-0 border-l border-white/20">
+                {onOpenNotifications && (
+                  <button
+                    type="button"
+                    onClick={onOpenNotifications}
+                    className="relative p-2.5 rounded-2xl bg-white/10 hover:bg-white/20 border border-white/15 text-white transition active:scale-90 cursor-pointer shadow-sm backdrop-blur-md"
+                    title="การแจ้งเตือน"
+                  >
+                    <Bell size={15} />
+                    <span className="absolute top-1 right-1 w-2 h-2 bg-rose-500 rounded-full animate-ping" />
+                    <span className="absolute top-1 right-1 w-2 h-2 bg-rose-500 rounded-full" />
+                  </button>
+                )}
+
+                {onToggleTheme && (
+                  <button
+                    type="button"
+                    onClick={onToggleTheme}
+                    className="p-2.5 rounded-2xl bg-white/10 hover:bg-white/20 border border-white/15 text-white transition active:scale-90 cursor-pointer shadow-sm backdrop-blur-md"
+                    title={isDarkMode ? 'เปลี่ยนเป็นโหมดสว่าง' : 'เปลี่ยนเป็นโหมดมืด'}
+                  >
+                    {isDarkMode ? <Sun size={15} /> : <Moon size={15} />}
+                  </button>
+                )}
+              </div>
+            </div>
+
+          </div>
+
+          {/* ========================================================= */}
+          {/* แถบที่ 2: ช่องเลือก Channel / วอร์ด และสภาพอากาศด้านล่าง  */}
+          {/* ========================================================= */}
+          <div className="relative z-10 pt-1 flex flex-col md:flex-row md:items-center justify-between gap-3 sm:gap-4">
+            
+            {/* ข้อมูล Channel / วอร์ด */}
+            <div className="flex items-center justify-between gap-3 w-full lg:w-auto bg-white/15 backdrop-blur-md px-3.5 py-2 rounded-2xl border border-white/20">
+              <div className="flex items-center gap-1.5 truncate">
+                <span className="text-[10px] sm:text-xs text-blue-100 opacity-80 uppercase font-bold">วอร์ด:</span>
+                <span className="text-xs sm:text-sm font-bold text-white truncate">{activeChannel?.name || 'คลินิกวิสัญญี (Master)'}</span>
+                {activeChannel?.isDefault && (
+                  <span className="px-1.5 py-0.5 rounded bg-white/20 text-white text-[9px] font-bold uppercase border border-white/20 shrink-0">
+                    Master
+                  </span>
+                )}
+              </div>
+
+              {onOpenChannelSelector && (
+                <button
+                  type="button"
+                  onClick={onOpenChannelSelector}
+                  className="px-2.5 py-1 rounded-lg bg-amber-400 text-slate-900 text-[10px] font-black uppercase transition-all shrink-0 active:scale-95 cursor-pointer shadow-sm"
+                >
+                  สลับ
                 </button>
               )}
             </div>
-          </div>
 
-          {/* 📍 Embedded Ward Channel Selector Box inside Header Card */}
-          <div className="relative z-10 w-full p-3 sm:p-3.5 rounded-[1.3rem] border border-white/25 bg-black/20 text-white backdrop-blur-md flex flex-wrap items-center justify-between gap-2.5 shadow-inner">
-            <div className="flex items-center gap-2.5 min-w-0">
-              <div className="w-8 h-8 rounded-xl bg-cyan-400/20 text-cyan-300 border border-cyan-300/30 flex items-center justify-center font-bold text-xs shrink-0 backdrop-blur-xs">
-                📍
-              </div>
-              <div className="min-w-0">
-                <div className="text-[10px] font-bold text-cyan-200/90 uppercase tracking-wider truncate">
-                  CHANNEL / วอร์ดที่กำลังตรวจเช็ก
-                </div>
-                <div className="text-sm font-extrabold text-white flex items-center gap-2 truncate drop-shadow-xs">
-                  <span className="truncate">{activeChannel?.name || 'คลินิกวิสัญญี (Master)'}</span>
-                  {activeChannel?.isDefault && (
-                    <span className="px-2 py-0.5 rounded-md bg-amber-400/90 text-amber-950 text-[9px] font-black shrink-0 shadow-xs">
-                      Master
-                    </span>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {onOpenChannelSelector && (
-              <button
-                type="button"
-                onClick={onOpenChannelSelector}
-                className="px-3.5 py-1.5 rounded-xl bg-white/20 hover:bg-white/30 text-white text-xs font-bold transition flex items-center gap-1.5 border border-white/30 cursor-pointer active:scale-95 shadow-sm backdrop-blur-md shrink-0"
-              >
-                <span>🔄 สลับ / เพิ่ม Channel</span>
-              </button>
-            )}
-          </div>
-
-          {/* Weather Squircle Widget (Pure White Text & Clean Backdrop) */}
-          <div
-            style={{
-              width: '100%',
-              boxSizing: 'border-box',
-              overflow: 'hidden',
-              padding: '12px 16px',
-            }}
-            className="rounded-[1.5rem] border border-white/20 bg-black/20 text-white backdrop-blur-md flex items-center justify-between gap-3 transition-all relative z-10 shadow-inner"
-          >
-            <div className="flex items-center gap-3 min-w-0 shrink">
-              <span className="text-2xl sm:text-3xl filter drop-shadow shrink-0">🌤️</span>
-              <div className="min-w-0">
-                <div className="flex items-baseline gap-2 flex-wrap">
-                  <span className="text-xl sm:text-2xl font-black nowrap-unit text-white drop-shadow-sm">
-                    {weatherData.temp}°C
-                  </span>
-                  <span className="text-[11px] sm:text-xs font-bold text-cyan-100 truncate">
-                    {weatherData.locationName}
-                  </span>
-                </div>
-                <div className="text-[10px] sm:text-xs text-cyan-200/90 font-medium truncate">
-                  {weatherData.condition}
-                </div>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2 text-[11px] sm:text-xs px-3 py-1.5 rounded-xl border border-white/20 bg-white/10 text-white shrink-0 overflow-hidden shadow-xs backdrop-blur-xs">
-              <span className="nowrap-unit">ความชื้น {weatherData.humidity}%</span>
-              <span className="border-l border-white/30 pl-2 nowrap-unit">ลม 12 km/h</span>
+            <div className="flex items-center gap-3 bg-white/10 backdrop-blur-md px-4 py-2 rounded-2xl border border-white/15 text-xs text-blue-100">
+              <Sun className="w-4 h-4 text-amber-300" />
+              <span className="font-bold text-white">31°C</span>
+              <span className="opacity-80">กรุงเทพฯ (ท้องฟ้าโปร่ง)</span>
             </div>
           </div>
+
         </div>
 
+        {/* 🔍 1.5 Samsung One UI Full-Width Search Bar */}
+        <div className="lg:col-span-2 w-full space-y-2">
+          <div className={`w-full rounded-2xl p-3 sm:p-3.5 border shadow-sm backdrop-blur-md flex items-center justify-between gap-3 transition-colors ${
+            isDarkMode
+              ? 'bg-[#14161D]/90 border-slate-800 text-white'
+              : 'bg-white/95 border-slate-200 text-slate-800'
+          }`}>
+            <div className="flex items-center gap-2.5 flex-1 min-w-0">
+              <Search size={18} className="text-blue-500 shrink-0" />
+              <input
+                type="text"
+                value={dashSearchTerm}
+                onChange={(e) => setDashSearchTerm(e.target.value)}
+                placeholder="ค้นหาอุปกรณ์, ยา, กระเป๋าฉุกเฉิน, รถฉุกเฉิน..."
+                className="w-full bg-transparent border-none outline-none text-xs sm:text-sm font-medium placeholder:text-slate-400"
+              />
+              {dashSearchTerm && (
+                <button
+                  type="button"
+                  onClick={() => setDashSearchTerm('')}
+                  className="text-slate-400 hover:text-slate-600 cursor-pointer p-1 shrink-0"
+                >
+                  <X size={14} />
+                </button>
+              )}
+            </div>
+            <div className="shrink-0 flex items-center gap-2">
+              <span className={`text-xs font-bold px-3.5 py-1.5 rounded-full border ${
+                isDarkMode
+                  ? 'bg-blue-950/60 border-blue-800/60 text-blue-300'
+                  : 'bg-blue-50 border-blue-200 text-blue-700'
+              }`}>
+                {stats.grandTotal} รายการ
+              </span>
+            </div>
+          </div>
 
+          {/* Live Search Results Dropdown */}
+          {dashSearchTerm.trim() !== '' && (
+            <div className={`p-3.5 rounded-2xl border shadow-xl space-y-2 max-h-64 overflow-y-auto ${
+              isDarkMode ? 'bg-[#181A20] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-800'
+            }`}>
+              <div className="flex justify-between items-center text-xs font-bold text-slate-400 px-1 pb-1 border-b border-slate-700/20">
+                <span>ผลการค้นหา ({dashSearchResults.length} รายการ)</span>
+                <button onClick={() => setDashSearchTerm('')} className="text-xs text-blue-400 hover:underline cursor-pointer">ปิด</button>
+              </div>
+              {dashSearchResults.length === 0 ? (
+                <p className="text-xs text-slate-400 py-3 text-center">ไม่พบรายการที่ตรงกับคำค้นหา "{dashSearchTerm}"</p>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                  {dashSearchResults.map((resItem, i) => (
+                    <div
+                      key={`sr_${i}`}
+                      onClick={() => {
+                        onNavigate(resItem.targetView);
+                        setDashSearchTerm('');
+                      }}
+                      className={`p-2.5 rounded-xl border flex items-center justify-between text-xs cursor-pointer hover:border-blue-500 transition active:scale-98 ${
+                        isDarkMode ? 'bg-[#101216] border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-200 text-slate-800'
+                      }`}
+                    >
+                      <div className="min-w-0 pr-2">
+                        <p className="font-bold truncate text-xs">{resItem.name}</p>
+                        <p className="text-[10px] text-slate-400 truncate">📍 {resItem.location}</p>
+                      </div>
+                      <ChevronRight size={14} className="text-blue-500 shrink-0" />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
 
         {/* 🤖 AI Summary consolidated into AuraAssistant floating button */}
         <div className="lg:col-span-2 invisible h-0 overflow-hidden">
           {/* AiInsightsWidget removed to avoid duplicate bots */}
         </div>
 
-        {/* 🗂️ 2. หมวดหมู่ตรวจเช็ก (Large Responsive Category Cards with Inset Arrow Navigation) */}
-        <div className="space-y-3 lg:col-span-2 relative">
-          <div className="flex justify-between items-center px-2">
-            <h2 className={`text-lg sm:text-xl font-bold flex items-center gap-2 ${isDarkMode ? 'text-slate-100' : 'text-slate-900'}`}>
-              <span>หมวดหมู่ตรวจเช็ก</span>
-            </h2>
-            <span
-              className={`text-xs sm:text-sm font-bold px-3.5 py-1 rounded-full border ${
-                isDarkMode
-                  ? 'bg-slate-800/80 border-slate-700 text-slate-300'
-                  : 'bg-white border-slate-200 text-slate-700'
-              }`}
-            >
-              4 หมวดหลัก
-            </span>
+        {/* 🗂️ 2. หมวดหมู่ตรวจเช็ก (Large Responsive Category Cards with Header Arrow Navigation) */}
+        <div className="space-y-6 lg:col-span-2 relative">
+          <div className="flex justify-between items-end px-1">
+            <div>
+              <h2 className={`text-lg sm:text-2xl font-extrabold tracking-tight flex items-center gap-2 ${isDarkMode ? 'text-slate-100' : 'text-slate-900'}`}>
+                <span>หมวดหมู่ตรวจเช็กหลัก</span>
+              </h2>
+              <p className={`text-xs mt-1 font-medium ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>เลือกหมวดหมู่ที่ต้องการเริ่มทำการตรวจเช็กประเมินความพร้อม</p>
+            </div>
+            <div className="flex flex-col items-end gap-2">
+              <span
+                className={`text-[10px] sm:text-xs font-bold px-3.5 py-1 rounded-xl border whitespace-nowrap shadow-xs hidden lg:inline-block ${
+                  isDarkMode
+                    ? 'bg-blue-950/40 border-blue-800/40 text-blue-300'
+                    : 'bg-blue-50 border-blue-100 text-blue-600'
+                }`}
+              >
+                4 หมวดหมู่พร้อมใช้งาน
+              </span>
+              
+              {/* Carousel Arrows (Visible only on Desktop for layout reasons) */}
+              <div className="hidden lg:flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => swiperRef.current?.slidePrev()}
+                  className={`w-8 h-8 rounded-full border flex items-center justify-center transition active:scale-90 cursor-pointer ${
+                    isDarkMode
+                      ? 'bg-slate-800/90 border-slate-700 text-slate-200 hover:bg-slate-700'
+                      : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'
+                  } shadow-xs`}
+                >
+                  <ChevronLeft size={18} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => swiperRef.current?.slideNext()}
+                  className={`w-8 h-8 rounded-full border flex items-center justify-center transition active:scale-90 cursor-pointer ${
+                    isDarkMode
+                      ? 'bg-slate-800/90 border-slate-700 text-slate-200 hover:bg-slate-700'
+                      : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'
+                  } shadow-xs`}
+                >
+                  <ChevronRight size={18} />
+                </button>
+              </div>
+            </div>
           </div>
 
-          {/* Carousel Wrapper with White Glassmorphic Side-by-Side Arrows */}
-          <div className="relative w-full">
-            {/* Left Arrow Button [<] */}
+          {/* Swiper Carousel View for all screens */}
+          <div className="relative w-full group">
+            {/* Mobile-Only Edge Arrows */}
             <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                swiperRef.current?.slidePrev();
-              }}
-              style={{
-                background: 'rgba(255, 255, 255, 0.88)',
-                backdropFilter: 'blur(8px)',
-                border: '1px solid rgba(255, 255, 255, 0.7)',
-                boxShadow: '0 4px 14px rgba(0, 0, 0, 0.12)',
-              }}
-              className="absolute left-1 sm:left-3 top-1/2 -translate-y-1/2 z-40 w-11 h-11 sm:w-13 sm:h-13 rounded-full text-slate-800 hover:text-blue-600 hover:bg-white flex items-center justify-center transition active:scale-90 cursor-pointer hover:scale-110"
-              title="เลื่อนซ้าย"
+              onClick={() => swiperRef.current?.slidePrev()}
+              className="lg:hidden absolute left-1 top-1/2 -translate-y-1/2 z-40 w-10 h-10 rounded-full bg-black/30 backdrop-blur-md text-white flex items-center justify-center active:scale-90 transition-all border border-white/10 shadow-lg"
             >
-              <ChevronLeft size={24} className="stroke-[2.5]" />
+              <ChevronLeft size={24} />
             </button>
-
-            {/* Right Arrow Button [>] */}
             <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                swiperRef.current?.slideNext();
-              }}
-              style={{
-                background: 'rgba(255, 255, 255, 0.88)',
-                backdropFilter: 'blur(8px)',
-                border: '1px solid rgba(255, 255, 255, 0.7)',
-                boxShadow: '0 4px 14px rgba(0, 0, 0, 0.12)',
-              }}
-              className="absolute right-1 sm:right-3 top-1/2 -translate-y-1/2 z-40 w-11 h-11 sm:w-13 sm:h-13 rounded-full text-slate-800 hover:text-blue-600 hover:bg-white flex items-center justify-center transition active:scale-90 cursor-pointer hover:scale-110"
-              title="เลื่อนขวา"
+              onClick={() => swiperRef.current?.slideNext()}
+              className="lg:hidden absolute right-1 top-1/2 -translate-y-1/2 z-40 w-10 h-10 rounded-full bg-black/30 backdrop-blur-md text-white flex items-center justify-center active:scale-90 transition-all border border-white/10 shadow-lg"
             >
-              <ChevronRight size={24} className="stroke-[2.5]" />
+              <ChevronRight size={24} />
             </button>
-
             <Swiper
               onSwiper={(swiper) => (swiperRef.current = swiper)}
               onTouchStart={(_swiper, e) => handlePointerDown(e as any)}
@@ -744,9 +927,7 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
               breakpoints={{
                 320: { slidesPerView: 1.15, spaceBetween: 14, centeredSlides: true },
                 640: { slidesPerView: 1.8, spaceBetween: 18, centeredSlides: true },
-                1024: { slidesPerView: 2.3, spaceBetween: 24, centeredSlides: true },
-                1280: { slidesPerView: 2.7, spaceBetween: 28, centeredSlides: true },
-                1600: { slidesPerView: 3.3, spaceBetween: 32, centeredSlides: true },
+                1024: { slidesPerView: 2.2, spaceBetween: 30, centeredSlides: true },
               }}
               coverflowEffect={{
                 rotate: 0,
@@ -756,49 +937,22 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
                 slideShadows: false,
               }}
               pagination={{ clickable: true, dynamicBullets: true }}
-              onClick={(_swiper, event) => {
-                if (Date.now() < dragSuppressionUntilRef.current || isDragActionRef.current) return;
-                const target = event.target as HTMLElement;
-                if (!target) return;
-                const cardEl = target.closest('[data-target-view]') as HTMLElement | null;
-                if (cardEl) {
-                  const view = cardEl.getAttribute('data-target-view') as any;
-                  if (view) {
-                    handleCategorySelect(view);
-                  }
-                }
-              }}
               className="focus-carousel-swiper w-full px-6 sm:px-12 card-grab-cursor select-none"
             >
               {loopedCategories.map((item) => (
                 <SwiperSlide key={item.uniqueId} className="select-none pointer-events-auto">
                   {({ isActive }) => (
                     <div
-                      data-target-view={item.targetView}
                       onPointerDown={handlePointerDown}
                       onPointerMove={handlePointerMove}
                       onPointerUp={(e) => handlePointerUp(e, item.targetView)}
-                      onClick={(e) => {
-                        // Only handle click if not dragging
+                      onClick={() => {
                         if (!isDragActionRef.current && Date.now() >= dragSuppressionUntilRef.current) {
                           handleCategorySelect(item.targetView);
                         }
                       }}
-                      style={{
-                        pointerEvents: 'auto',
-                        position: 'relative',
-                        zIndex: isActive ? 30 : 10,
-                        transform: isActive ? 'scale(1.08)' : 'scale(0.88)',
-                        opacity: isActive ? 1 : 0.5,
-                        filter: isActive ? 'blur(0px)' : 'blur(2px)',
-                        boxShadow: isActive ? '0 10px 25px rgba(0,0,0,0.25)' : 'none',
-                        transition: 'all 0.3s ease',
-                        touchAction: 'pan-y pinch-zoom',
-                      }}
-                      className={`focus-carousel-card card-grab-cursor relative h-72 sm:h-80 lg:h-84 rounded-[2.2rem] overflow-hidden select-none pointer-events-auto cursor-grab active:cursor-grabbing ${
-                        isActive
-                          ? 'ring-2 ring-white/40'
-                          : ''
+                      className={`focus-carousel-card card-grab-cursor relative h-72 sm:h-80 xl:h-96 rounded-[2.2rem] overflow-hidden select-none pointer-events-auto cursor-grab active:cursor-grabbing transition-all duration-300 ${
+                        isActive ? 'scale-[1.08] opacity-100 blur-none ring-2 ring-white/40 shadow-2xl' : 'scale-[0.88] opacity-50 blur-[2px] shadow-none'
                       }`}
                     >
                       <img
@@ -810,34 +964,17 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
                       <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/40 to-transparent pointer-events-none" />
 
                       <div className="absolute inset-0 p-6 sm:p-8 flex flex-col justify-between z-10 pointer-events-none">
-                        <span className="self-start bg-black/60 backdrop-blur-md text-white text-xs sm:text-sm px-4 py-1.5 rounded-full font-bold border border-white/20 shadow-md pointer-events-none">
+                        <span className="self-start bg-black/60 backdrop-blur-md text-white text-xs sm:text-sm px-4 py-2 rounded-full font-bold border border-white/20 shadow-md flex items-center gap-2">
                           {item.icon} {item.count}
                         </span>
 
-                        <div className="space-y-4 pointer-events-auto">
-                          <h3 className="text-2xl sm:text-3xl font-extrabold text-white leading-tight drop-shadow-md pointer-events-none">
+                        <div className="space-y-4">
+                          <h3 className="text-2xl sm:text-4xl font-extrabold text-white leading-tight drop-shadow-md">
                             {item.title}
                           </h3>
                           <button
                             type="button"
-                            data-target-view={item.targetView}
-                            onPointerDown={handlePointerDown}
-                            onPointerMove={handlePointerMove}
-                            onPointerUp={(e) => {
-                              e.stopPropagation();
-                              handlePointerUp(e, item.targetView);
-                            }}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleCategorySelect(item.targetView);
-                            }}
-                            style={{
-                              pointerEvents: 'auto',
-                              cursor: 'pointer',
-                              position: 'relative',
-                              zIndex: 40,
-                            }}
-                            className="carousel-action-btn w-full bg-[#3B82F6] hover:bg-blue-600 active:bg-blue-700 text-white font-bold text-sm sm:text-base py-3.5 px-6 rounded-2xl shadow-xl transition active:scale-95 cursor-pointer flex items-center justify-center gap-2 group-hover:bg-blue-600 relative z-40 pointer-events-auto"
+                            className="w-full bg-[#3B82F6] text-white font-bold text-sm sm:text-base py-3.5 px-6 rounded-2xl shadow-xl transition active:scale-95 flex items-center justify-center gap-2 pointer-events-auto"
                           >
                             <span>เข้าตรวจเช็ก &rarr;</span>
                           </button>
@@ -851,137 +988,97 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
           </div>
         </div>
 
-        {/* 📊 3. สถิติความพร้อมประจำวัน (One UI Minimalist Blue-Cyan-Green-White Glassmorphic Theme) */}
+        {/* 📊 3. สถิติความพร้อมประจำวัน (Premium Minimal Clean Tone) */}
         <div
-          style={{ width: '100%' }}
-          className={`w-full max-w-full rounded-[2.2rem] p-6 sm:p-8 border shadow-2xl space-y-5 transition-colors duration-500 lg:col-span-2 ${
+          className={`w-full max-w-full rounded-[2.2rem] p-6 sm:p-8 border shadow-sm space-y-5 transition-colors duration-500 lg:col-span-2 ${
             isDarkMode
-              ? 'bg-[#14161D]/95 backdrop-blur-2xl border-white/10 text-white'
-              : 'bg-white/95 backdrop-blur-2xl border-white/80 text-slate-800'
+              ? 'bg-[#181A20] border-white/5 text-white'
+              : 'bg-white border-slate-100 text-slate-800'
           }`}
         >
-          <div className="flex justify-between items-center border-b pb-4 border-slate-700/30">
-            <h3 className="text-base sm:text-xl font-bold flex items-center gap-2">
-              <span className="text-cyan-400">📊</span>
-              <span>สถิติความพร้อมประจำวัน</span>
-            </h3>
-            <span className="text-xs sm:text-sm bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 px-3.5 py-1 rounded-full font-bold flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
-              Real-time One UI
-            </span>
+          <div className="flex flex-col space-y-1">
+            <h2 className="text-base sm:text-lg font-extrabold tracking-tight text-slate-800 dark:text-slate-100">
+              สถิติความพร้อมประจำวัน
+            </h2>
+            <p className="text-[10px] sm:text-xs text-slate-400 font-medium">
+              สรุปสถานะความพร้อมอุปกรณ์และคลังยาภาพรวมประจำรอบ
+            </p>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center py-2">
-            {/* Donut Progress Chart & Total (Spans 4 columns on large screens) */}
-            <div
-              onClick={() => onNavigate('room_check')}
-              className={`lg:col-span-4 flex items-center justify-center sm:justify-start gap-5 p-5 sm:p-6 rounded-[1.8rem] border shadow-inner cursor-pointer hover:border-cyan-400/60 transition active:scale-98 ${
-                isDarkMode ? 'bg-[#0D0F14] border-cyan-500/20' : 'bg-cyan-50/50 border-cyan-200'
-              }`}
-              title="คลิกเพื่อดูรายละเอียดผังห้องผ่าตัด"
-            >
-              <div className="relative w-28 h-28 sm:w-32 sm:h-32 flex items-center justify-center shrink-0">
-                <svg className="w-full h-full transform -rotate-90" viewBox="0 0 36 36">
-                  {/* Track */}
-                  <path
-                    className={isDarkMode ? 'text-slate-800/80' : 'text-slate-200'}
-                    strokeWidth="3.8"
-                    stroke="currentColor"
-                    fill="none"
-                    d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                  />
-                  {/* Cyan-Mint Ready Stroke */}
-                  <path
-                    className="text-cyan-400"
-                    strokeDasharray={`${normalStroke}, 100`}
-                    strokeWidth="3.8"
+          <div className="flex flex-row items-center justify-start gap-4 sm:gap-8 pt-2 overflow-x-hidden">
+            {/* ฝั่งซ้าย: กราฟวงกลม SVG (Donut Chart) */}
+            <div className="relative w-28 h-28 sm:w-36 sm:h-36 shrink-0 flex items-center justify-center">
+              <svg className="w-full h-full transform -rotate-90 filter drop-shadow-lg" viewBox="0 0 36 36">
+                {/* Background Ring */}
+                <circle
+                  cx="18" cy="18" r="15.9155"
+                  className="text-slate-200 dark:text-slate-800"
+                  strokeWidth="3.2"
+                  fill="none"
+                  stroke="currentColor"
+                />
+                {/* Progress Ring (Success) */}
+                <circle
+                  cx="18" cy="18" r="15.9155"
+                  className="text-blue-500"
+                  strokeWidth="3.2"
+                  strokeDasharray={`${stats.completionPct}, 100`}
+                  strokeLinecap="round"
+                  fill="none"
+                  stroke="currentColor"
+                  style={{ transition: 'stroke-dasharray 1s ease-out' }}
+                />
+                {/* Defective Marker (Small slice at the end) */}
+                {stats.grandDefective > 0 && (
+                  <circle
+                    cx="18" cy="18" r="15.9155"
+                    className="text-rose-500"
+                    strokeWidth="3.2"
+                    strokeDasharray={`${(stats.grandDefective / stats.grandTotal) * 100}, 100`}
+                    strokeDashoffset={-stats.completionPct}
                     strokeLinecap="round"
-                    stroke="currentColor"
                     fill="none"
-                    d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                    stroke="currentColor"
                   />
-                  {/* Deep Navy/Indigo Defective Stroke */}
-                  {defectiveStroke > 0 && (
-                    <path
-                      className={isDarkMode ? 'text-slate-700' : 'text-indigo-950'}
-                      strokeDasharray={`${defectiveStroke}, 100`}
-                      strokeDashoffset={`-${normalStroke}`}
-                      strokeWidth="3.8"
-                      strokeLinecap="round"
-                      stroke="currentColor"
-                      fill="none"
-                      d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                    />
-                  )}
-                </svg>
-                <span className="absolute text-2xl sm:text-3xl font-black tabular-nums text-cyan-400">
+                )}
+              </svg>
+              <div className="absolute inset-0 flex flex-col items-center justify-center">
+                <span className="text-xl sm:text-2xl font-black text-blue-600 dark:text-blue-400 leading-none">
                   {stats.completionPct}%
                 </span>
-              </div>
-              <div className="space-y-1.5 text-left">
-                <p className="text-xs sm:text-sm font-bold text-slate-400">ระดับความพร้อมรวม</p>
-                <p className="text-base sm:text-lg font-black text-cyan-400 tabular-nums">
-                  {stats.grandNormal} / {stats.grandTotal} รายการ
-                </p>
-                <p className="text-xs text-slate-400">
-                  {stats.grandDefective > 0 ? `พบข้อบกพร่อง ${stats.grandDefective} รายการ` : 'อุปกรณ์พร้อมใช้งานสมบูรณ์ 100%'}
-                </p>
+                <span className="text-[8px] sm:text-[10px] font-bold text-slate-400 uppercase tracking-tighter">Ready</span>
               </div>
             </div>
 
-            {/* Detailed Breakdown Horizontal Cards Grid (Spans 8 columns on large screens) */}
-            <div className="lg:col-span-8 grid grid-cols-1 sm:grid-cols-3 gap-3.5">
-              {/* Card 1: Normal (Cyan/Mint) */}
-              <div
-                onClick={() => onNavigate('room_check')}
-                className={`p-4 sm:p-5 rounded-[1.5rem] border flex flex-col justify-between gap-3 cursor-pointer hover:border-cyan-400/50 transition active:scale-98 ${
-                  isDarkMode ? 'bg-[#101520] border-cyan-500/30' : 'bg-cyan-50/80 border-cyan-200'
-                }`}
-                title="ดูรายการครุภัณฑ์ปกติ"
-              >
-                <span className="font-bold text-xs sm:text-sm text-cyan-400 flex items-center gap-2">
-                  <CheckCircle2 size={18} className="text-cyan-400" />
-                  <span>ปกติพร้อมใช้</span>
-                </span>
-                <div className="flex items-baseline justify-between">
-                  <span className="font-black text-cyan-400 text-2xl sm:text-3xl tabular-nums">{stats.grandNormal}</span>
-                  <span className="text-xs text-slate-400 font-medium">รายการ</span>
+            {/* ฝั่งขวา: รายละเอียดสถิติ 3 บรรทัด */}
+            <div className="flex-1 space-y-2.5">
+              <div className={`flex justify-between items-center px-4 py-2.5 rounded-2xl border transition-all ${
+                isDarkMode ? 'bg-[#101216] border-white/5 hover:border-blue-500/30' : 'bg-slate-50 border-slate-100 hover:border-blue-200'
+              }`}>
+                <span className={`text-[11px] font-bold uppercase tracking-wider ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>ทั้งหมด</span>
+                <div className="flex items-baseline gap-1">
+                  <span className={`text-base sm:text-lg font-black ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>{stats.grandTotal}</span>
+                  <span className="text-[9px] text-slate-400 font-bold uppercase">รายการ</span>
                 </div>
               </div>
 
-              {/* Card 2: Defective (Deep Navy / Indigo) */}
-              <div
-                onClick={() => onNavigate('eq_overview')}
-                className={`p-4 sm:p-5 rounded-[1.5rem] border flex flex-col justify-between gap-3 cursor-pointer hover:border-indigo-400/50 transition active:scale-98 ${
-                  isDarkMode ? 'bg-[#0F1322] border-indigo-900/50' : 'bg-slate-100/90 border-slate-300'
-                }`}
-                title="ดูรายการข้อบกพร่อง/ชำรุด"
-              >
-                <span className="font-bold text-xs sm:text-sm text-indigo-400 flex items-center gap-2">
-                  <XCircle size={18} className="text-indigo-400" />
-                  <span>ต้องตรวจสอบ</span>
-                </span>
-                <div className="flex items-baseline justify-between">
-                  <span className="font-black text-indigo-400 text-2xl sm:text-3xl tabular-nums">{stats.grandDefective}</span>
-                  <span className="text-xs text-slate-400 font-medium">รายการ</span>
+              <div className={`flex justify-between items-center px-4 py-2.5 rounded-2xl border transition-all ${
+                isDarkMode ? 'bg-[#101216] border-white/5 hover:border-blue-500/30' : 'bg-slate-50 border-slate-100 hover:border-blue-200'
+              }`}>
+                <span className={`text-[11px] font-bold uppercase tracking-wider ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`}>พร้อมใช้</span>
+                <div className="flex items-baseline gap-1">
+                  <span className="text-base sm:text-lg font-black text-blue-600 dark:text-blue-400">{stats.grandNormal}</span>
+                  <span className="text-[9px] text-blue-400 font-bold uppercase">รายการ</span>
                 </div>
               </div>
 
-              {/* Card 3: Pending (Amber Accent) */}
-              <div
-                onClick={() => onNavigate('room_check')}
-                className={`p-4 sm:p-5 rounded-[1.5rem] border flex flex-col justify-between gap-3 cursor-pointer hover:border-amber-400/50 transition active:scale-98 ${
-                  isDarkMode ? 'bg-[#14161D] border-amber-500/30' : 'bg-amber-50/60 border-amber-200'
-                }`}
-                title="ดูรายการห้องค้างตรวจเช็ก"
-              >
-                <span className="font-bold text-xs sm:text-sm text-amber-400 flex items-center gap-2">
-                  <Clock size={18} className="text-amber-400" />
-                  <span>รอตรวจเช็ก</span>
-                </span>
-                <div className="flex items-baseline justify-between">
-                  <span className="font-black text-amber-400 text-2xl sm:text-3xl tabular-nums">{pendingCount}</span>
-                  <span className="text-xs text-slate-400 font-medium">รายการ</span>
+              <div className={`flex justify-between items-center px-4 py-2.5 rounded-2xl border transition-all ${
+                isDarkMode ? 'bg-[#101216] border-white/5 hover:border-blue-500/30' : 'bg-slate-50 border-slate-100 hover:border-blue-200'
+              }`}>
+                <span className={`text-[11px] font-bold uppercase tracking-wider ${isDarkMode ? 'text-rose-400' : 'text-rose-600'}`}>ชำรุด</span>
+                <div className="flex items-baseline gap-1">
+                  <span className="text-base sm:text-lg font-black text-rose-600 dark:text-rose-400">{stats.grandDefective}</span>
+                  <span className="text-[9px] text-rose-400 font-bold uppercase">รายการ</span>
                 </div>
               </div>
             </div>

@@ -2,34 +2,75 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Global Catch-all: default deny
+    // Global Catch-all: default deny all unhandled collections
     match /{document=**} {
       allow read, write: if false;
     }
 
-    // Users Collection
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
+      );
+    }
+
+    // Users Collection: Staff can read directory; users can only write their own profile; admins can manage all
     match /users/{userId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow create: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+      allow update: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+      allow delete: if isAdmin();
     }
 
-    // Equipment Collection
+    // Equipment Collection: Medical staff can read, log, and update equipment
     match /equipment/{itemId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow create, update: if true;
+      allow delete: if isAdmin();
     }
 
-    // Drugs Collection
+    // Drugs Collection: Medical staff can read and manage drug inventory
     match /drugs/{drugId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow create, update: if true;
+      allow delete: if isAdmin();
     }
 
-    // Inspection Records Collection
+    // Inspection Records Collection: Medical staff can read and record audit inspection rounds
     match /inspection_records/{recordId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow create: if true;
+      allow update: if isSignedIn() && (isOwner(resource.data.who) || isAdmin());
+      allow delete: if isAdmin();
     }
 
-    // Settings Collection
+    // Settings Collection: Global app settings (sheet URL, API config)
     match /settings/{docId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Admins Collection: List of verified administrators
+    match /admins/{adminId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // Audit Logs Collection: Strictly Append-Only (Create & Read allowed; Update & Delete Strictly Forbidden)
+    match /audit_logs/{logId} {
+      allow read, create: if true;
+      allow update, delete: if false; // Append-Only strictly enforced
     }
   }
 }
+

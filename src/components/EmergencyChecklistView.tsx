@@ -16,10 +16,12 @@ import {
   Image as ImageIcon,
   CheckCircle2,
   Home,
+  Sparkles,
 } from 'lucide-react';
 import { CheckItemState, ListConfig, EquipmentItem } from '../types';
 import { formatAcquiredDate } from './OfficialReportModal';
 import { EditItemModal } from './EditItemModal';
+import { PaperAuditModal } from './PaperAuditModal';
 import { getWednesdaysInfoForMonth } from '../utils/wednesdayUtils';
 
 import {
@@ -124,6 +126,7 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
 }) => {
   const [selectedGroup, setSelectedGroup] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [isPaperAuditOpen, setIsPaperAuditOpen] = useState<boolean>(false);
 
   // 1. Dynamic Wednesdays Per Current Month (4 or 5 Wednesdays)
   const wedInfo = useMemo(() => {
@@ -548,6 +551,17 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
                 <span>ตรวจผ่าน 5 สัปดาห์</span>
               </button>
             )}
+
+            {/* 📋 Paper Checklist vs Web Audit Button */}
+            <button
+              type="button"
+              onClick={() => setIsPaperAuditOpen(true)}
+              className="px-3 py-2 rounded-xl bg-gradient-to-r from-amber-500 via-pink-500 to-indigo-600 hover:opacity-95 text-white font-bold text-xs shadow-xs transition flex items-center gap-1.5 cursor-pointer active:scale-95"
+              title="ถ่ายภาพกระดาษตรวจเช็คเพื่อให้น้องออร่าเปรียบเทียบรายการที่ขาดหรือจำนวนไม่ตรง"
+            >
+              <Sparkles size={14} className="animate-pulse" />
+              <span>ตรวจเทียบกระดาษ (Audit)</span>
+            </button>
           </div>
         </div>
       </div>
@@ -806,7 +820,7 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
               <div
                 key={item.itemKey}
                 style={{ breakInside: 'avoid' }}
-                className={`break-inside-avoid mb-3.5 md:mb-4 inline-block w-full align-top p-2.5 sm:p-3 rounded-2xl border transition-all duration-200 space-y-2 ${
+                className={`break-inside-avoid mb-3.5 md:mb-4 inline-block w-full align-top p-2.5 sm:p-3 rounded-2xl border transition-all duration-150 space-y-2 transform-gpu contain-content ${
                   isBad
                     ? 'bg-rose-50/70 border-rose-300 shadow-xs text-slate-900'
                     : isOk
@@ -928,7 +942,7 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
 
                 {/* Sub-Items Dynamic Check Section (when item has multiple sub-items / sizes) */}
                 {hasMultipleSubItems ? (
-                  <div className="space-y-2 pt-2 border-t border-slate-100">
+                  <div className="space-y-2 pt-2 border-t border-slate-100 transition-all duration-200 ease-in-out overflow-hidden transform-gpu">
                     <div className="flex items-center justify-between text-[11px] text-slate-600 font-bold">
                       <span>ตรวจเช็กแยกตามชิ้นย่อย / แต่ละเบอร์:</span>
                       <span className="text-[10px] font-normal text-slate-500">
@@ -1255,6 +1269,13 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
           onDelete={handleDeleteItemInEdit}
         />
       )}
+
+      {/* 📋 Modal ตรวจเทียบกระดาษกับระบบเว็บ (Paper Checklist Audit) */}
+      <PaperAuditModal
+        isOpen={isPaperAuditOpen}
+        onClose={() => setIsPaperAuditOpen(false)}
+        initialCategory={type}
+      />
     </div>
   );
 };

@@ -509,5 +509,55 @@ export function sortItemsNaturally<T extends { name: string }>(items: T[]): T[] 
   });
 }
 
+/**
+ * Safely parses any date string (ISO, YYYY-MM-DD, DD/MM/YYYY, MM/YY) into a Date object,
+ * properly adjusting Thai Buddhist Era years (พ.ศ. >= 2400) to standard CE years (-543)
+ * so it never returns Invalid Date (NaN).
+ */
+export function parseExpDateObj(dateStr?: string): Date | null {
+  if (!dateStr || dateStr.trim() === '' || dateStr === '-' || /no\s*exp/i.test(dateStr) || /ไม่มี/i.test(dateStr)) {
+    return null;
+  }
+  const str = dateStr.trim();
 
+  // 1. Try ISO or YYYY-MM-DD / YYYY/MM/DD
+  const ymdMatch = str.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
+  if (ymdMatch) {
+    let year = parseInt(ymdMatch[1], 10);
+    if (year > 2400) year -= 543;
+    const month = parseInt(ymdMatch[2], 10) - 1;
+    const day = parseInt(ymdMatch[3], 10);
+    const d = new Date(year, month, day);
+    return isNaN(d.getTime()) ? null : d;
+  }
 
+  // 2. Try DD/MM/YYYY or DD-MM-YYYY
+  const dmyMatch = str.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})/);
+  if (dmyMatch) {
+    let year = parseInt(dmyMatch[3], 10);
+    if (year > 2400) year -= 543;
+    const month = parseInt(dmyMatch[2], 10) - 1;
+    const day = parseInt(dmyMatch[1], 10);
+    const d = new Date(year, month, day);
+    return isNaN(d.getTime()) ? null : d;
+  }
+
+  // 3. Try MM/YY or MM/YYYY
+  const myMatch = str.match(/^(\d{1,2})[-/.](\d{2,4})$/);
+  if (myMatch) {
+    let year = parseInt(myMatch[2], 10);
+    if (year < 100) {
+      if (year >= 50) year = 2500 + year - 543;
+      else year = 2000 + year;
+    } else if (year > 2400) {
+      year -= 543;
+    }
+    const month = parseInt(myMatch[1], 10) - 1;
+    const d = new Date(year, month, 1);
+    return isNaN(d.getTime()) ? null : d;
+  }
+
+  // Fallback to standard Date parser
+  const fallback = new Date(str);
+  return isNaN(fallback.getTime()) ? null : fallback;
+}

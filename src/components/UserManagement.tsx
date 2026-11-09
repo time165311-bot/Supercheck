@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { Role, User } from '../types';
 import { UserAvatarBadge } from './UserAvatarBadge';
+import { logAuditEvent } from '../services/auditLogger';
 
 interface UserManagementProps {
   currentUser: User;
@@ -282,6 +283,18 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                   value={u.role}
                   onChange={(e) => {
                     const newRole = e.target.value as Role;
+                    logAuditEvent({
+                      action: 'ROLE_CHANGE',
+                      targetCollection: 'users',
+                      targetId: u.id,
+                      details: {
+                        userName: u.name,
+                        targetUsername: u.username,
+                        oldRole: u.role,
+                        newRole,
+                      },
+                      currentUser,
+                    });
                     if (onUpdateRole) {
                       onUpdateRole(u.id, newRole);
                     } else if (onUsersChange) {

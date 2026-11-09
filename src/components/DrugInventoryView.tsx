@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { DrugCategory, DrugItem, User } from '../types';
 import { INITIAL_DRUGS_DATA } from '../constants/initialDrugs';
+import { parseExpDateObj } from '../utils/itemUtils';
 
 interface DrugInventoryViewProps {
   currentUser: User | null;
@@ -106,13 +107,13 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
     );
   };
 
-  // Calculate expiration status
+  // Calculate expiration status with robust Buddhist Era (พ.ศ.) and Gregorian parsing
   const getExpirationInfo = (expDate?: string) => {
-    if (!expDate) return { text: 'ไม่ระบุวันหมดอายุ', status: 'none' as const };
+    if (!expDate || expDate === '-' || expDate === 'null') return { text: 'ไม่ระบุวันหมดอายุ', status: 'none' as const };
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const exp = new Date(expDate);
-    if (isNaN(exp.getTime())) return { text: expDate, status: 'none' as const };
+    const exp = parseExpDateObj(expDate);
+    if (!exp || isNaN(exp.getTime())) return { text: expDate, status: 'none' as const };
     exp.setHours(0, 0, 0, 0);
     const diff = Math.ceil((exp.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
     if (diff < 0) return { text: 'หมดอายุแล้ว', status: 'expired' as const };
@@ -462,7 +463,7 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
             return (
               <div
                 key={item.id || idx}
-                className={`p-3 sm:p-3.5 rounded-2xl border transition-all duration-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs hover:border-blue-300 ${
+                className={`p-3 sm:p-3.5 rounded-2xl border transition-all duration-150 transform-gpu contain-content flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs hover:border-blue-300 ${
                   isExpired
                     ? 'bg-rose-50/70 border-rose-200'
                     : isExpiringSoon
@@ -498,8 +499,13 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
                         คงเหลือ: <b className="text-slate-900 font-extrabold">{item.remaining}</b> {item.unit || ''} (Min: {item.minStock})
                       </span>
                       {item.expDate && (
-                        <span className={`font-semibold ${isCurrentYear ? 'text-red-600 font-bold' : ''}`}>
-                          EXP: <span className={isCurrentYear ? 'text-red-600 font-bold underline' : ''}>{item.expDate}</span>
+                        <span className={`flex items-center gap-1 font-semibold ${isCurrentYear ? 'text-rose-600 font-bold' : ''}`}>
+                          <span>EXP: <span className={isCurrentYear ? 'underline' : ''}>{item.expDate}</span></span>
+                          {isCurrentYear && (
+                            <span className="px-1.5 py-0.2 rounded bg-rose-100 text-rose-700 text-[9px] font-bold border border-rose-200 shrink-0">
+                              EXP ปีนี้
+                            </span>
+                          )}
                         </span>
                       )}
                     </div>

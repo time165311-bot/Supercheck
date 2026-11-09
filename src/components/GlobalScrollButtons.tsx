@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { ArrowUp, ArrowDown } from 'lucide-react';
 
 interface GlobalScrollButtonsProps {
@@ -9,19 +9,38 @@ interface GlobalScrollButtonsProps {
 }
 
 export const GlobalScrollButtons: React.FC<GlobalScrollButtonsProps> = ({
-  isBottomBarVisible = true,
   isAnyModalOpen = false,
 }) => {
   const [showButtons, setShowButtons] = useState(false);
+  const [isScrolling, setIsScrolling] = useState(false);
+  const hideTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     let ticking = false;
 
     const handleScroll = () => {
+      // 1. Check if we have scrolled enough to even consider showing buttons
+      const isScrolledDown = window.scrollY > 150;
+      
+      if (isScrolledDown) {
+        setIsScrolling(true);
+        
+        // 2. Clear existing timer
+        if (hideTimerRef.current) {
+          clearTimeout(hideTimerRef.current);
+        }
+
+        // 3. Set timer to hide after 2 seconds of inactivity
+        hideTimerRef.current = setTimeout(() => {
+          setIsScrolling(false);
+        }, 2000);
+      } else {
+        setIsScrolling(false);
+      }
+
       if (!ticking) {
         window.requestAnimationFrame(() => {
-          // Show quick scroll buttons when scrolled down more than 70px
-          setShowButtons(window.scrollY > 70);
+          setShowButtons(isScrolledDown);
           ticking = false;
         });
         ticking = true;
@@ -29,10 +48,10 @@ export const GlobalScrollButtons: React.FC<GlobalScrollButtonsProps> = ({
     };
 
     window.addEventListener('scroll', handleScroll, { passive: true });
-    handleScroll(); // Initial check
-
+    
     return () => {
       window.removeEventListener('scroll', handleScroll);
+      if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
     };
   }, []);
 
@@ -52,36 +71,40 @@ export const GlobalScrollButtons: React.FC<GlobalScrollButtonsProps> = ({
     });
   };
 
+  // Only render if showButtons is true (scrolled down) AND isScrolling is true (currently scrolling or just scrolled)
+  const isVisible = showButtons && isScrolling;
+
   return (
     <div
       style={{
         position: 'fixed',
-        right: '18px',
-        bottom: 'calc(145px + env(safe-area-inset-bottom, 0px))',
+        left: '16px', // Move to the LEFT side to avoid overlapping Aura on the right
+        bottom: 'calc(100px + env(safe-area-inset-bottom, 0px))',
         zIndex: 9998,
+        opacity: isVisible ? 1 : 0,
+        pointerEvents: isVisible ? 'auto' : 'none',
+        transform: isVisible ? 'translateX(0) scale(1)' : 'translateX(-20px) scale(0.9)',
       }}
-      className="flex flex-col gap-2 items-center select-none pointer-events-auto transition-all duration-300"
+      className="flex flex-col gap-2 items-center select-none transition-all duration-500 ease-out transform-gpu"
     >
-      {/* 1. ปุ่ม [↑] (Scroll to Top) - Minimal Clean Circular Icon */}
+      {/* 1. ปุ่ม [↑] (Scroll to Top) */}
       <button
         type="button"
         onClick={scrollToTop}
-        className="w-10 h-10 rounded-full bg-white/95 dark:bg-slate-800/95 text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-slate-700 border border-slate-200/90 dark:border-white/10 shadow-md hover:shadow-lg backdrop-blur-md transition-transform duration-150 active:scale-90 flex items-center justify-center cursor-pointer"
+        className="w-11 h-11 rounded-2xl bg-white/90 dark:bg-slate-800/90 text-blue-600 border border-blue-100 dark:border-white/10 shadow-2xl backdrop-blur-xl transition-all active:scale-90 flex items-center justify-center cursor-pointer"
         title="เลื่อนขึ้นบนสุด"
-        aria-label="เลื่อนขึ้นบนสุด"
       >
-        <ArrowUp className="w-4 h-4 stroke-[2.5]" />
+        <ArrowUp className="w-5 h-5 stroke-[2.5]" />
       </button>
 
-      {/* 2. ปุ่ม [↓] (Scroll to Bottom) - Minimal Clean Circular Icon */}
+      {/* 2. ปุ่ม [↓] (Scroll to Bottom) */}
       <button
         type="button"
         onClick={scrollToBottom}
-        className="w-10 h-10 rounded-full bg-white/95 dark:bg-slate-800/95 text-slate-700 dark:text-slate-200 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-slate-700 border border-slate-200/90 dark:border-white/10 shadow-md hover:shadow-lg backdrop-blur-md transition-transform duration-150 active:scale-90 flex items-center justify-center cursor-pointer"
+        className="w-11 h-11 rounded-2xl bg-white/90 dark:bg-slate-800/90 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-white/10 shadow-2xl backdrop-blur-xl transition-all active:scale-90 flex items-center justify-center cursor-pointer"
         title="เลื่อนลงล่างสุด"
-        aria-label="เลื่อนลงล่างสุด"
       >
-        <ArrowDown className="w-4 h-4 stroke-[2.5]" />
+        <ArrowDown className="w-5 h-5 stroke-[2.5]" />
       </button>
     </div>
   );

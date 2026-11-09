@@ -74,82 +74,81 @@ export const EquipmentReportPreview: React.FC<EquipmentReportPreviewProps> = ({
 
   return (
     <div
-      className="w-full flex flex-col justify-between"
+      className="w-full flex flex-col justify-between space-y-6"
       style={{
-        minHeight: '1100px',
-        height: '100%',
+        minHeight: '794px',
         width: '100%',
         boxSizing: 'border-box',
         color: '#000',
         background: '#fff',
       }}
     >
-      <div className="flex-1 w-full">
+      <div className="flex-1 w-full space-y-4">
         {/* Header Section */}
-        <div className="text-center mb-4" style={{ textAlign: 'center', width: '100%', margin: '0 auto 10px auto' }}>
-          <h2 className="text-[18px] font-bold text-black mb-1" style={{ lineHeight: '1.4', fontWeight: 'bold' }}>
+        <div className="text-center pb-2 border-b border-gray-200" style={{ textAlign: 'center', width: '100%', margin: '0 auto 12px auto' }}>
+          <h2 className="text-[20px] font-bold text-gray-800 mb-1" style={{ lineHeight: '1.4', fontWeight: 'bold' }}>
             {mainDocHeading}
           </h2>
-          <p className="text-[14px] text-black" style={{ lineHeight: '1.4' }}>
-            ณ วันที่ {formatThaiDate(surveyDate) || '1 พฤศจิกายน 2569'}
+          <p className="text-[13px] text-gray-500" style={{ lineHeight: '1.4' }}>
+            {clinicName} • ณ วันที่ {formatThaiDate(surveyDate) || '1 พฤศจิกายน 2569'}
           </p>
         </div>
 
         {/* Metadata Section */}
-        <div className="flex justify-between items-center mb-3 text-[12px] font-bold" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', marginBottom: '10px', fontSize: '12px' }}>
-          <div className="text-black">{clinicName}</div>
-          <div className="flex gap-6 text-black">
-            <span>วัน, เดือน, ปี ที่สำรวจ: {formatThaiDate(surveyDate) || '1 พฤศจิกายน 2569'}</span>
-            <span>ผู้ตรวจ: {rawInspector}</span>
+        <div className="flex justify-between items-center text-[12px] font-semibold text-gray-700 px-1" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', marginBottom: '8px' }}>
+          <div className="text-gray-800 font-bold">{clinicName}</div>
+          <div className="flex gap-6 text-gray-600">
+            <span>วัน, เดือน, ปี ที่สำรวจ: <strong className="text-gray-800">{formatThaiDate(surveyDate) || '1 พฤศจิกายน 2569'}</strong></span>
+            <span>ผู้ตรวจ: <strong className="text-gray-800">{rawInspector}</strong></span>
           </div>
         </div>
 
-        {/* Table - 14 columns (11 base + 3 subcheck) */}
-        <div style={{ width: '100%', overflow: 'visible', boxSizing: 'border-box' }}>
-          <table style={{ width: '100%', minWidth: '1080px', tableLayout: 'fixed', borderCollapse: 'collapse', margin: '0 auto', fontSize: '11px', border: '1px solid #000' }}>
+        {/* Table - 14 columns: Headers Centered, Content Left-Aligned for names/specs/price */}
+        <div className="overflow-x-auto rounded-xl border border-gray-300 w-full" style={{ width: '100%', boxSizing: 'border-box' }}>
+          <table style={{ width: '100%', minWidth: '1060px', tableLayout: 'fixed', borderCollapse: 'collapse', fontSize: '11px' }}>
             <thead>
-              <tr className="bg-slate-50 text-black font-bold">
-                <th rowSpan={2} style={{ border: '1px solid #000', padding: '6px 4px', width: '38px', textAlign: 'center' }}>ลำดับ</th>
-                <th rowSpan={2} style={{ border: '1px solid #000', padding: '6px 4px', width: '105px', textAlign: 'center' }}>หมายเลขพัสดุ</th>
-                <th rowSpan={2} style={{ border: '1px solid #000', padding: '6px 4px', width: '95px', textAlign: 'center' }}>รหัส SAP</th>
-                <th rowSpan={2} style={{ border: '1px solid #000', padding: '6px 4px', width: '165px', textAlign: 'left' }}>รายการ</th>
-                <th rowSpan={2} style={{ border: '1px solid #000', padding: '6px 4px', width: '145px', textAlign: 'left' }}>มาตรฐาน/สเปก</th>
-                <th rowSpan={2} style={{ border: '1px solid #000', padding: '6px 4px', width: '85px', textAlign: 'center' }}>แหล่งเงิน</th>
-                <th rowSpan={2} style={{ border: '1px solid #000', padding: '6px 4px', width: '85px', textAlign: 'center' }}>ว/ด/ป ได้มา</th>
-                <th rowSpan={2} style={{ border: '1px solid #000', padding: '6px 4px', width: '85px', textAlign: 'center', whiteSpace: 'nowrap' }}>จำนวน</th>
-                <th rowSpan={2} style={{ border: '1px solid #000', padding: '6px 4px', width: '62px', textAlign: 'center' }}>ภาษี%</th>
-                <th rowSpan={2} style={{ border: '1px solid #000', padding: '6px 4px', width: '80px', textAlign: 'right' }}>ราคา</th>
-                <th rowSpan={2} style={{ border: '1px solid #000', padding: '6px 4px', width: '115px', textAlign: 'center' }}>สถานที่ตั้ง</th>
-                <th colSpan={3} style={{ border: '1px solid #000', padding: '6px 2px', textAlign: 'center', width: '165px' }}>ผลการตรวจสอบ</th>
+              <tr className="bg-slate-100 text-gray-800 font-bold border-b border-gray-300">
+                <th rowSpan={2} style={{ border: '1px solid #cbd5e1', padding: '8px 4px', width: '38px', textAlign: 'center' }}>ลำดับ</th>
+                <th rowSpan={2} style={{ border: '1px solid #cbd5e1', padding: '8px 4px', width: '105px', textAlign: 'center' }}>หมายเลขพัสดุ</th>
+                <th rowSpan={2} style={{ border: '1px solid #cbd5e1', padding: '8px 4px', width: '95px', textAlign: 'center' }}>รหัส SAP</th>
+                <th rowSpan={2} style={{ border: '1px solid #cbd5e1', padding: '8px 6px', width: '175px', textAlign: 'center' }}>รายการ</th>
+                <th rowSpan={2} style={{ border: '1px solid #cbd5e1', padding: '8px 6px', width: '145px', textAlign: 'center' }}>มาตรฐาน/สเปก</th>
+                <th rowSpan={2} style={{ border: '1px solid #cbd5e1', padding: '8px 4px', width: '85px', textAlign: 'center' }}>แหล่งเงิน</th>
+                <th rowSpan={2} style={{ border: '1px solid #cbd5e1', padding: '8px 4px', width: '85px', textAlign: 'center' }}>ว/ด/ป ได้มา</th>
+                <th rowSpan={2} style={{ border: '1px solid #cbd5e1', padding: '8px 4px', width: '80px', textAlign: 'center', whiteSpace: 'nowrap' }}>จำนวน</th>
+                <th rowSpan={2} style={{ border: '1px solid #cbd5e1', padding: '8px 4px', width: '58px', textAlign: 'center' }}>ภาษี%</th>
+                <th rowSpan={2} style={{ border: '1px solid #cbd5e1', padding: '8px 6px', width: '100px', textAlign: 'center' }}>ราคา</th>
+                <th rowSpan={2} style={{ border: '1px solid #cbd5e1', padding: '8px 4px', width: '110px', textAlign: 'center' }}>สถานที่ตั้ง</th>
+                <th colSpan={3} style={{ border: '1px solid #cbd5e1', padding: '6px 2px', textAlign: 'center', width: '165px' }}>ผลการตรวจสอบ</th>
               </tr>
-              <tr className="bg-slate-50 text-black font-bold">
-                <th style={{ border: '1px solid #000', padding: '6px 2px', width: '55px', textAlign: 'center' }}>ใช้งานได้</th>
-                <th style={{ border: '1px solid #000', padding: '6px 2px', width: '55px', textAlign: 'center' }}>ชำรุด</th>
-                <th style={{ border: '1px solid #000', padding: '6px 2px', width: '55px', textAlign: 'center' }}>ไม่ได้</th>
+              <tr className="bg-slate-100 text-gray-800 font-bold border-b border-gray-300">
+                <th style={{ border: '1px solid #cbd5e1', padding: '6px 2px', width: '55px', textAlign: 'center' }}>ใช้งานได้</th>
+                <th style={{ border: '1px solid #cbd5e1', padding: '6px 2px', width: '55px', textAlign: 'center' }}>ชำรุด</th>
+                <th style={{ border: '1px solid #cbd5e1', padding: '6px 2px', width: '55px', textAlign: 'center' }}>ไม่ได้</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className="divide-y divide-gray-200 text-gray-800">
               {effectiveItems.map((item, idx) => {
                 const isDamaged = String(item.res).includes('ชำรุด');
                 const isUnusable = !isDamaged && (String(item.res).includes('ไม่ได้') || String(item.res).includes('ไม่พบ') || item.res === 'ผิดปกติ');
                 const isOk = !isDamaged && !isUnusable;
 
                 return (
-                  <tr key={idx} className="text-black">
-                    <td style={{ border: '1px solid #000', padding: '6px 2px', textAlign: 'center' }}>{idx + 1}</td>
-                    <td style={{ border: '1px solid #000', padding: '6px 2px', textAlign: 'center', fontFamily: 'monospace', fontSize: '10px' }}>{item.code || '-'}</td>
-                    <td style={{ border: '1px solid #000', padding: '6px 2px', textAlign: 'center', fontFamily: 'monospace', fontSize: '10px' }}>{item.sap || '-'}</td>
-                    <td style={{ border: '1px solid #000', padding: '6px 4px', textAlign: 'left', wordBreak: 'keep-all' }}>{item.name}</td>
-                    <td style={{ border: '1px solid #000', padding: '6px 4px', textAlign: 'left', fontSize: '10px' }}>{item.spec || '-'}</td>
-                    <td style={{ border: '1px solid #000', padding: '6px 2px', textAlign: 'center', fontSize: '10px' }}>{item.source || '-'}</td>
-                    <td style={{ border: '1px solid #000', padding: '6px 2px', textAlign: 'center', fontSize: '10px' }}>{formatAcquiredDate(item.date)}</td>
-                    <td style={{ border: '1px solid #000', padding: '6px 2px', textAlign: 'center', whiteSpace: 'nowrap' }}>{item.unitText || item.qty || '1'}</td>
-                    <td style={{ border: '1px solid #000', padding: '6px 2px', textAlign: 'center' }}>{item.tax || '7'}</td>
-                    <td style={{ border: '1px solid #000', padding: '6px 2px', textAlign: 'right' }}>{item.price || '-'}</td>
-                    <td style={{ border: '1px solid #000', padding: '6px 2px', textAlign: 'center', fontSize: '10px' }}>{item.location || '-'}</td>
-                    <td style={{ border: '1px solid #000', padding: '6px 2px', textAlign: 'center', color: '#15803d', fontWeight: 'bold', fontSize: '14px' }}>{isOk ? '✓' : ''}</td>
-                    <td style={{ border: '1px solid #000', padding: '6px 2px', textAlign: 'center', color: '#b91c1c', fontWeight: 'bold', fontSize: '14px' }}>{isDamaged ? '✓' : ''}</td>
-                    <td style={{ border: '1px solid #000', padding: '6px 2px', textAlign: 'center', color: '#b45309', fontWeight: 'bold', fontSize: '14px' }}>{isUnusable ? '✓' : ''}</td>
+                  <tr key={idx} className="hover:bg-slate-50 transition-colors">
+                    <td style={{ border: '1px solid #cbd5e1', padding: '6px 2px', textAlign: 'center', fontWeight: 'bold' }}>{idx + 1}</td>
+                    <td style={{ border: '1px solid #cbd5e1', padding: '6px 2px', textAlign: 'center', fontFamily: 'monospace', fontSize: '10px' }}>{item.code || '-'}</td>
+                    <td style={{ border: '1px solid #cbd5e1', padding: '6px 2px', textAlign: 'center', fontFamily: 'monospace', fontSize: '10px' }}>{item.sap || '-'}</td>
+                    <td style={{ border: '1px solid #cbd5e1', padding: '6px 6px', textAlign: 'left', wordBreak: 'keep-all', fontWeight: '500' }}>{item.name}</td>
+                    <td style={{ border: '1px solid #cbd5e1', padding: '6px 6px', textAlign: 'left', fontSize: '10px', color: '#4b5563' }}>{item.spec || '-'}</td>
+                    <td style={{ border: '1px solid #cbd5e1', padding: '6px 2px', textAlign: 'center', fontSize: '10px' }}>{item.source || '-'}</td>
+                    <td style={{ border: '1px solid #cbd5e1', padding: '6px 2px', textAlign: 'center', fontSize: '10px' }}>{formatAcquiredDate(item.date)}</td>
+                    <td style={{ border: '1px solid #cbd5e1', padding: '6px 2px', textAlign: 'center', whiteSpace: 'nowrap' }}>{item.unitText || item.qty || '1'}</td>
+                    <td style={{ border: '1px solid #cbd5e1', padding: '6px 2px', textAlign: 'center' }}>{item.tax || '7'}</td>
+                    <td style={{ border: '1px solid #cbd5e1', padding: '6px 6px', textAlign: 'left', fontWeight: '600', color: '#374151' }}>{item.price ? `${item.price} บาท` : '-'}</td>
+                    <td style={{ border: '1px solid #cbd5e1', padding: '6px 6px', textAlign: 'left', fontSize: '10px' }}>{item.location || '-'}</td>
+                    <td style={{ border: '1px solid #cbd5e1', padding: '6px 2px', textAlign: 'center', color: '#15803d', fontWeight: 'bold', fontSize: '14px' }}>{isOk ? '✓' : ''}</td>
+                    <td style={{ border: '1px solid #cbd5e1', padding: '6px 2px', textAlign: 'center', color: '#b91c1c', fontWeight: 'bold', fontSize: '14px' }}>{isDamaged ? '✓' : ''}</td>
+                    <td style={{ border: '1px solid #cbd5e1', padding: '6px 2px', textAlign: 'center', color: '#b45309', fontWeight: 'bold', fontSize: '14px' }}>{isUnusable ? '✓' : ''}</td>
                   </tr>
                 );
               })}
@@ -158,29 +157,48 @@ export const EquipmentReportPreview: React.FC<EquipmentReportPreviewProps> = ({
         </div>
       </div>
 
-      {/* Footer / Signature Area */}
+      {/* Footer / Signature Area - Snug to dashed line */}
       <div
-        className="mt-auto pt-16 flex justify-around text-[14px]"
+        className="pt-8 pb-4 flex justify-around text-xs text-gray-700"
         style={{
           display: 'flex',
           justifyContent: 'space-around',
           width: '100%',
           marginTop: 'auto',
-          paddingTop: '64px',
-          paddingBottom: '24px',
+          paddingTop: '32px',
+          paddingBottom: '16px',
         }}
       >
-        <div className="text-center" style={{ textAlign: 'center' }}>
-          <div className="h-16 flex items-end justify-center mb-2">
-            {signature && <img src={signature} style={{ maxHeight: '60px', maxWidth: '160px', objectFit: 'contain' }} alt="sig" />}
-          </div>
-          <p className="font-bold">ลงชื่อ .................................................... ผู้ตรวจสอบ</p>
-          <p className="mt-1">({displayInspectorWithRole})</p>
+        {/* ช่องเซ็นชื่อผู้ตรวจเช็ก */}
+        <div className="flex flex-col items-center justify-end space-y-1 text-center" style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+          {signature ? (
+            <div className="h-10 flex items-end justify-center mb-0.5">
+              <img src={signature} style={{ maxHeight: '38px', maxWidth: '140px', objectFit: 'contain' }} alt="sig" />
+            </div>
+          ) : (
+            <div style={{ height: '24px' }}></div>
+          )}
+          {/* เส้นปะสำหรับเซ็นชื่อ */}
+          <div className="w-56 border-b-2 border-dashed border-gray-400 mb-1" style={{ width: '220px', borderBottom: '2px dashed #9ca3af', marginBottom: '4px' }}></div>
+          {/* ข้อความชื่ออยู่แนบชิดติดใต้เส้นปะพอดี ไม่ลอยขึ้นฟ้า */}
+          <p className="font-semibold text-gray-800 leading-tight" style={{ fontWeight: 'bold', margin: '0', lineHeight: '1.3' }}>
+            ({displayInspectorWithRole || '...........................................................'})
+          </p>
+          <p className="text-[11px] text-gray-500 mt-0.5" style={{ margin: '2px 0 0 0', fontSize: '11px', color: '#6b7280' }}>
+            ผู้ตรวจเช็ก ({inspectorRole || 'พยาบาลวิสัญญี'})
+          </p>
         </div>
-        <div className="text-center" style={{ textAlign: 'center' }}>
-          <div className="h-16" />
-          <p className="font-bold">ลงชื่อ .................................................... หัวหน้างาน</p>
-          <p className="mt-1">(....................................................)</p>
+
+        {/* ช่องเซ็นชื่อผู้รับรอง / หัวหน้าวอร์ด */}
+        <div className="flex flex-col items-center justify-end space-y-1 text-center" style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+          <div style={{ height: '24px' }}></div>
+          <div className="w-56 border-b-2 border-dashed border-gray-400 mb-1" style={{ width: '220px', borderBottom: '2px dashed #9ca3af', marginBottom: '4px' }}></div>
+          <p className="font-semibold text-gray-800 leading-tight" style={{ fontWeight: 'bold', margin: '0', lineHeight: '1.3' }}>
+            ( ........................................................... )
+          </p>
+          <p className="text-[11px] text-gray-500 mt-0.5" style={{ margin: '2px 0 0 0', fontSize: '11px', color: '#6b7280' }}>
+            หัวหน้าห้องผ่าตัด / ผู้รับรอง
+          </p>
         </div>
       </div>
     </div>
@@ -232,8 +250,8 @@ export function generateEquipmentPrintHtml(
           <td style="text-align: center; border: 1px solid #000; font-size: 9pt;">${formatAcquiredDate(item.date)}</td>
           <td style="text-align: center; border: 1px solid #000; white-space: nowrap;">${item.unitText || item.qty || '1'}</td>
           <td style="text-align: center; border: 1px solid #000;">${item.tax || '7'}</td>
-          <td style="text-align: right; border: 1px solid #000; padding-right: 5px;">${item.price || '-'}</td>
-          <td style="text-align: center; border: 1px solid #000; font-size: 9pt;">${item.location || '-'}</td>
+          <td style="text-align: left; border: 1px solid #000; padding-left: 5px; font-weight: 500;">${item.price ? `${item.price} บาท` : '-'}</td>
+          <td style="text-align: left; border: 1px solid #000; padding-left: 5px; font-size: 9pt;">${item.location || '-'}</td>
           <td style="text-align: center; border: 1px solid #000; font-weight: bold; color: #15803d; font-size: 14pt;">${isOk ? '✓' : ''}</td>
           <td style="text-align: center; border: 1px solid #000; font-weight: bold; color: #b91c1c; font-size: 14pt;">${isDamaged ? '✓' : ''}</td>
           <td style="text-align: center; border: 1px solid #000; font-weight: bold; color: #b45309; font-size: 14pt;">${isUnusable ? '✓' : ''}</td>
@@ -261,7 +279,7 @@ export function generateEquipmentPrintHtml(
           tr { page-break-inside: avoid !important; }
           th, td { border: 1px solid #000; padding: 5px 4px; vertical-align: middle; }
           th { background-color: #f1f5f9; font-weight: bold; text-align: center; }
-          .signature-section { margin-top: 60px; display: flex; justify-content: space-around; font-size: 11pt; page-break-inside: avoid; }
+          .signature-section { margin-top: 48px; display: flex; justify-content: space-around; font-size: 11pt; page-break-inside: avoid; }
         </style>
       </head>
       <body>
@@ -303,17 +321,19 @@ export function generateEquipmentPrintHtml(
           </tbody>
         </table>
         <div class="signature-section">
-          <div style="text-align: center;">
-            <div style="height: 48px; display: flex; align-items: flex-end; justify-content: center; margin-bottom: 2px;">
-              ${signature ? `<img src="${signature}" style="max-height: 48px; max-width: 140px; object-fit: contain;" />` : ''}
+          <div style="text-align: center; display: inline-block;">
+            <div style="height: 40px; display: flex; align-items: flex-end; justify-content: center; margin-bottom: 2px;">
+              ${signature ? `<img src="${signature}" style="max-height: 40px; max-width: 140px; object-fit: contain;" />` : ''}
             </div>
-            <p style="font-weight: bold; margin: 0;">ลงชื่อ .................................................... ผู้ตรวจสอบ</p>
-            <p style="margin: 4px 0 0 0;">(${printInspectorWithRole})</p>
+            <div style="width: 220px; border-bottom: 2px dashed #6b7280; margin: 0 auto 4px auto;"></div>
+            <p style="font-weight: bold; margin: 0; line-height: 1.3;">(${printInspectorWithRole})</p>
+            <p style="font-size: 9.5pt; color: #4b5563; margin: 2px 0 0 0;">ผู้ตรวจเช็ก (${printInspectorRole})</p>
           </div>
-          <div style="text-align: center;">
-            <div style="height: 48px;"></div>
-            <p style="font-weight: bold; margin: 0;">ลงชื่อ .................................................... หัวหน้างาน</p>
-            <p style="margin: 4px 0 0 0;">(....................................................)</p>
+          <div style="text-align: center; display: inline-block;">
+            <div style="height: 40px;"></div>
+            <div style="width: 220px; border-bottom: 2px dashed #6b7280; margin: 0 auto 4px auto;"></div>
+            <p style="font-weight: bold; margin: 0; line-height: 1.3;">( ........................................................... )</p>
+            <p style="font-size: 9.5pt; color: #4b5563; margin: 2px 0 0 0;">หัวหน้าห้องผ่าตัด / ผู้รับรอง</p>
           </div>
         </div>
       </body>

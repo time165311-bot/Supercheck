@@ -25,6 +25,11 @@ import {
   Lock,
   Check,
   Download,
+  FileText,
+  Home,
+  ClipboardList,
+  Package,
+  Barcode,
 } from 'lucide-react';
 import { User as UserType } from '../types';
 import { formatRelativeActiveTime } from '../utils/timeFormat';
@@ -38,6 +43,11 @@ interface HeaderProps {
   theme?: 'light' | 'dark';
   onToggleTheme?: () => void;
   onGoHome: () => void;
+  currentView?: string;
+  onNavigate?: (view: string) => void;
+  onOpenReport?: () => void;
+  onOpenSheets?: () => void;
+  onOpenBarcodeScan?: () => void;
   onOpenNotifications: () => void;
   onOpenProfile?: () => void;
   onOpenPasswordModal?: () => void;
@@ -67,6 +77,11 @@ export const Header: React.FC<HeaderProps> = ({
   theme = 'light',
   onToggleTheme,
   onGoHome,
+  currentView,
+  onNavigate,
+  onOpenReport,
+  onOpenSheets,
+  onOpenBarcodeScan,
   onOpenNotifications,
   onOpenProfile,
   onOpenPasswordModal,
@@ -165,30 +180,30 @@ export const Header: React.FC<HeaderProps> = ({
     <>
       <header
         style={{
-          backgroundColor: 'rgba(255, 255, 255, 0.95)',
+          backgroundColor: theme === 'dark' ? 'rgba(24, 25, 26, 0.92)' : 'rgba(255, 255, 255, 0.92)',
           backdropFilter: 'blur(12px)',
           WebkitBackdropFilter: 'blur(12px)',
-          borderColor: '#E4E6EB',
+          borderColor: theme === 'dark' ? '#3a3b3c' : '#E4E6EB',
         }}
         className={`border-b sticky top-0 z-30 transition-transform duration-300 ease-in-out shadow-xs ${
           isVisible ? 'translate-y-0' : '-translate-y-full'
         }`}
       >
-        <div className="max-w-5xl mx-auto px-3 sm:px-4 py-2 sm:py-2.5 flex items-center justify-between gap-2 sm:gap-3">
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 py-2 flex items-center justify-between gap-2 sm:gap-4">
           {/* Left Side: Brand Emblem & Title */}
-          <div className="flex items-center gap-2 sm:gap-2.5 min-w-0">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
             <div
               onClick={() => {
                 onGoHome();
                 setIsMenuOpen(false);
               }}
-              className="cursor-pointer select-none group flex items-center gap-2 sm:gap-2.5 active:scale-95 transition-transform min-w-0"
+              className="cursor-pointer select-none group flex items-center gap-2.5 active:scale-95 transition-transform min-w-0"
               title="กลับสู่หน้าหลัก"
             >
               {/* Facebook Blue Medical Emblem */}
               <div 
                 style={{ backgroundColor: '#1877F2' }}
-                className="w-9 h-9 sm:w-10 sm:h-10 rounded-full flex items-center justify-center text-white shadow-xs hover:opacity-90 transition-opacity relative overflow-hidden shrink-0"
+                className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl flex items-center justify-center text-white shadow-md shadow-blue-500/20 hover:opacity-90 transition-opacity relative overflow-hidden shrink-0"
               >
                 <svg viewBox="0 0 24 24" fill="none" className="w-5 h-5 relative z-10 text-white">
                   <path
@@ -207,32 +222,120 @@ export const Header: React.FC<HeaderProps> = ({
                 </svg>
               </div>
 
-              {/* Title */}
-              <span className="font-extrabold text-sm sm:text-base text-[#050505] dark:text-[#e4e6eb] tracking-tight truncate">
-                Anesthesia Check
-              </span>
+              {/* Title & Subtitle */}
+              <div className="min-w-0">
+                <span className="font-extrabold text-sm sm:text-base text-[#050505] dark:text-[#e4e6eb] tracking-tight block leading-tight truncate">
+                  ANESTHESIA CARE
+                </span>
+                <span className="text-[10px] text-[#65676b] dark:text-[#b0b3b8] hidden sm:block leading-none">
+                  ระบบเช็กอุปกรณ์และคลังยาวอร์ด
+                </span>
+              </div>
             </div>
           </div>
 
-          {/* Right Side Cluster: [ Admin/Staff Badge | 🔔 Notifications | ☰ Hamburger Menu ] */}
+          {/* Center Desktop Navigation Menu Bar (Visible only on md:flex) */}
+          <nav className="hidden md:flex items-center gap-1.5 bg-[#f0f2f5] dark:bg-[#242526] p-1.5 rounded-2xl border border-[#e4e6eb] dark:border-[#3a3b3c] shadow-inner">
+            <button
+              type="button"
+              onClick={() => {
+                if (onNavigate) onNavigate('home');
+                else onGoHome();
+              }}
+              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                currentView === 'home' || !currentView
+                  ? 'bg-white dark:bg-[#3a3b3c] text-[#1877F2] dark:text-cyan-400 shadow-sm font-black'
+                  : 'text-[#65676b] dark:text-[#b0b3b8] hover:text-[#050505] dark:hover:text-white hover:bg-white/60 dark:hover:bg-black/30'
+              }`}
+            >
+              <Home className="w-4 h-4" />
+              <span>หน้าแรก</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                if (onNavigate) onNavigate('room_check');
+              }}
+              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                currentView === 'room_check' || currentView === 'bag_check' || currentView === 'cart_check' || currentView === 'eq_overview'
+                  ? 'bg-white dark:bg-[#3a3b3c] text-[#1877F2] dark:text-cyan-400 shadow-sm font-black'
+                  : 'text-[#65676b] dark:text-[#b0b3b8] hover:text-[#050505] dark:hover:text-white hover:bg-white/60 dark:hover:bg-black/30'
+              }`}
+            >
+              <ClipboardList className="w-4 h-4" />
+              <span>รายการตรวจเช็ก</span>
+            </button>
+
+            {onOpenReport && (
+              <button
+                type="button"
+                onClick={onOpenReport}
+                className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer text-[#65676b] dark:text-[#b0b3b8] hover:text-[#050505] dark:hover:text-white hover:bg-white/60 dark:hover:bg-black/30"
+                title="เปิดพิมพ์รายงาน & การตรวจเช็ก"
+              >
+                <FileText className="w-4 h-4 text-blue-500" />
+                <span>รายงาน & ชีต</span>
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={() => {
+                if (onNavigate) onNavigate('drug_check');
+              }}
+              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                currentView === 'drug_check'
+                  ? 'bg-white dark:bg-[#3a3b3c] text-[#1877F2] dark:text-cyan-400 shadow-sm font-black'
+                  : 'text-[#65676b] dark:text-[#b0b3b8] hover:text-[#050505] dark:hover:text-white hover:bg-white/60 dark:hover:bg-black/30'
+              }`}
+            >
+              <Package className="w-4 h-4" />
+              <span>คลังยา & อุปกรณ์</span>
+            </button>
+
+            {onOpenBarcodeScan && (
+              <button
+                type="button"
+                onClick={onOpenBarcodeScan}
+                className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer text-[#65676b] dark:text-[#b0b3b8] hover:text-[#050505] dark:hover:text-white hover:bg-white/60 dark:hover:bg-black/30"
+                title="สแกนบาร์โค้ดด่วน"
+              >
+                <Barcode className="w-4 h-4 text-emerald-500" />
+                <span>สแกน</span>
+              </button>
+            )}
+          </nav>
+
+          {/* Right Side Cluster: [ Admin/Staff Badge | 🌙 Theme | 🔔 Notifications | ☰ Hamburger Menu ] */}
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 relative">
-            
-            {/* 1. Admin / Staff Static Badge */}
             {currentUser && (
               <div
                 title={isAdmin ? 'ระดับสิทธิ์: ผู้ดูแลระบบ (Admin)' : 'ระดับสิทธิ์: เจ้าหน้าที่ (Staff)'}
                 className={`px-2.5 sm:px-3 py-1 rounded-full text-[11px] sm:text-xs font-bold select-none flex items-center gap-1.5 shrink-0 ${
                   isAdmin
                     ? 'bg-purple-600 dark:bg-purple-700 text-white shadow-xs'
-                    : 'bg-accent-light text-accent'
+                    : 'bg-blue-50 dark:bg-blue-500/20 text-blue-600 dark:text-blue-300'
                 }`}
               >
-                <span className="w-1.5 h-1.5 rounded-full bg-current" />
+                <ShieldCheck className="w-3.5 h-3.5" />
                 <span>{isAdmin ? 'Admin' : 'Staff'}</span>
               </div>
             )}
 
-            {/* 2. Notification Bell */}
+            {/* Theme Toggle Button */}
+            {onToggleTheme && (
+              <button
+                onClick={onToggleTheme}
+                type="button"
+                title={theme === 'dark' ? 'เปลี่ยนเป็นโหมดสว่าง' : 'เปลี่ยนเป็นโหมดมืด'}
+                className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-[#e4e6eb] hover:bg-[#d8dadf] dark:bg-[#3a3b3c] dark:hover:bg-[#4e4f50] text-[#050505] dark:text-[#e4e6eb] flex items-center justify-center transition cursor-pointer active:scale-95 shrink-0"
+              >
+                {theme === 'dark' ? <Sun className="w-4.5 h-4.5 text-amber-400" /> : <Moon className="w-4.5 h-4.5 text-indigo-600" />}
+              </button>
+            )}
+
+            {/* Notification Bell */}
             <button
               onClick={() => {
                 onOpenNotifications();
@@ -250,20 +353,19 @@ export const Header: React.FC<HeaderProps> = ({
               )}
             </button>
 
-            {/* 3. Facebook Hamburger Menu ☰ Button */}
+            {/* Facebook Hamburger Menu ☰ Button */}
             <button
               onClick={() => setIsMenuOpen(!isMenuOpen)}
               type="button"
-              title="เปิดเมนูการใช้งาน"
+              title="เปิดเมนูการใช้งานและตั้งค่า"
               className={`relative w-9 h-9 sm:w-10 sm:h-10 rounded-full flex items-center justify-center transition cursor-pointer active:scale-95 shrink-0 ${
                 isMenuOpen
-                  ? 'bg-accent text-white shadow-xs'
+                  ? 'bg-[#1877F2] text-white shadow-xs'
                   : 'bg-[#e4e6eb] hover:bg-[#d8dadf] dark:bg-[#3a3b3c] dark:hover:bg-[#4e4f50] text-[#050505] dark:text-[#e4e6eb]'
               }`}
             >
               <Menu className="w-5 h-5" />
             </button>
-
           </div>
         </div>
       </header>

@@ -164,3 +164,89 @@ export interface DrugItem {
   img?: string;            // รูปภาพยา/สารน้ำ (Base64 หรือ URL)
   barcode?: string;        // รหัสบาร์โค้ด / รหัสยา
 }
+
+export interface HaAuditLogEntry {
+  id?: string;
+  timestamp: string;
+  userId: string;
+  userName: string;
+  role: string;
+  action: 'UPDATE_DRUG_STOCK' | 'ADD_EQUIPMENT' | 'EDIT_EQUIPMENT' | 'DELETE_EQUIPMENT' | 'ROLE_CHANGE' | 'DEFECTIVE_FLAG' | 'BYPASS_ITEM' | 'EXPORT_HA_REPORT' | 'EXPORT_EXCEL' | 'FHIR_MEDICATION_DISPENSE' | string;
+  targetCollection: string;
+  targetId: string;
+  details: {
+    field?: string;
+    oldValue?: any;
+    newValue?: any;
+    reason?: string;
+    reportType?: string;
+    format?: string;
+    shift?: string;
+    patientHn?: string;
+    patientName?: string;
+    doctorName?: string;
+    dispenseQty?: number;
+    channelId?: string;
+    channelName?: string;
+    itemKey?: string;
+    itemName?: string;
+    note?: string;
+    [key: string]: any;
+  };
+  ipAddress?: string;
+}
+
+export interface FhirMedicationDispensePayload {
+  resourceType: 'MedicationDispense';
+  id?: string;
+  status: 'completed' | 'in-progress' | 'cancelled';
+  medicationCodeableConcept: {
+    coding?: Array<{ system?: string; code?: string; display?: string }>;
+    text: string;
+  };
+  subject?: {
+    reference?: string;
+    display?: string;
+  };
+  context?: {
+    reference?: string;
+    display?: string;
+  };
+  performer?: Array<{
+    actor?: {
+      reference?: string;
+      display?: string;
+    };
+  }>;
+  quantity: {
+    value: number;
+    unit?: string;
+  };
+  whenHandedOver?: string;
+  note?: Array<{ text: string }>;
+}
+
+export interface PaperAuditResult {
+  missingInWeb: Array<{
+    itemName: string;
+    targetQuantity?: string;
+    expDate?: string;
+    category?: string;
+  }>;
+  extraInWeb: Array<{
+    itemName: string;
+    webQty?: string;
+  }>;
+  matchedItems: Array<{
+    itemName: string;
+    paperQty?: string;
+    webQty?: string;
+  }>;
+  discrepancies: Array<{
+    itemName: string;
+    paperQty?: string;
+    webQty?: string;
+    issue: string;
+  }>;
+  summaryText: string;
+}

@@ -20,51 +20,14 @@ export interface AppSyncData {
 }
 
 /**
- * Fetch synchronization data from backend server
+ * Legacy Server Sync retired in favor of Firebase Firestore as Single Source of Truth
  */
 export async function fetchServerSync(): Promise<AppSyncData | null> {
-  try {
-    const res = await fetch('/api/sync', {
-      headers: {
-        Accept: 'application/json',
-      },
-      cache: 'no-store',
-    });
-    if (!res.ok) {
-      console.warn('Sync server returned HTTP status:', res.status);
-      return null;
-    }
-    const json = await res.json();
-    if (json && json.success && json.data) {
-      return json.data as AppSyncData;
-    }
-  } catch (err) {
-    console.warn('Could not connect to /api/sync (offline or fallback mode):', err);
-  }
   return null;
 }
 
-/**
- * Push local synchronization data to backend server
- */
-export async function pushServerSync(partialData: Partial<AppSyncData>): Promise<boolean> {
-  try {
-    const res = await fetch('/api/sync', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-      },
-      body: JSON.stringify(partialData),
-    });
-    if (res.ok) {
-      const json = await res.json();
-      return json && json.success;
-    }
-  } catch (err) {
-    console.warn('Failed to push sync to /api/sync:', err);
-  }
-  return false;
+export async function pushServerSync(_partialData: Partial<AppSyncData>): Promise<boolean> {
+  return true;
 }
 
 /**

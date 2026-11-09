@@ -1,8 +1,10 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { ModernDashboard } from './components/ModernDashboard';
-import { DrugInventoryView } from './components/DrugInventoryView';
+import { Header } from './components/Header';
 import { BottomBar } from './components/BottomBar';
 import { OfficialReportModal, OfficialReportItemRow } from './components/OfficialReportModal';
+import { HaAuditReportModal } from './components/HaAuditReportModal';
+import { logAuditEvent } from './services/auditLogger';
 import { BarcodeScannerModal } from './components/BarcodeScannerModal';
 import { NotificationModal } from './components/NotificationModal';
 import { ProfileModal } from './components/ProfileModal';
@@ -14,6 +16,7 @@ import {
   InspectionSlideItem,
 } from './components/SwiperInspectionCarousel';
 import { EmergencyChecklistView } from './components/EmergencyChecklistView';
+import { DrugInventoryView } from './components/DrugInventoryView';
 import { GoogleSheetsSettings } from './components/GoogleSheetsSettings';
 import { GlobalScrollButtons } from './components/GlobalScrollButtons';
 import { AuraAssistant } from './components/AuraAssistant';
@@ -138,11 +141,11 @@ export default function App() {
       };
     }
     return {
-      id: 'usr_admin',
-      username: 'admin',
-      name: savedDisplayName || 'สาธิต',
-      role: 'admin',
-      position: savedPosition || 'วิสัญญีแพทย์',
+      id: 'usr_guest',
+      username: 'guest',
+      name: savedDisplayName || 'เจ้าหน้าที่วิสัญญี',
+      role: 'user',
+      position: savedPosition || 'พยาบาลวิสัญญี',
       active: true,
       salt: '',
       hash: '',
@@ -406,6 +409,7 @@ export default function App() {
 
   // Modals
   const [isOfficialReportOpen, setIsOfficialReportOpen] = useState(false);
+  const [isHaAuditModalOpen, setIsHaAuditModalOpen] = useState(false);
   const [reportInitialWeek, setReportInitialWeek] = useState<number | undefined>(undefined);
   const [reportInitialWeekDates, setReportInitialWeekDates] = useState<Record<number, string> | undefined>(undefined);
   const [reportInitialRoundId, setReportInitialRoundId] = useState<string | undefined>(undefined);
@@ -415,24 +419,27 @@ export default function App() {
   const [isTestingFirebase, setIsTestingFirebase] = useState(false);
   const [firebaseTestResult, setFirebaseTestResult] = useState<{ ok: boolean; msg: string } | null>(null);
 
-  const handleTestFirebaseConnection = async () => {
+  const handleTestFirebaseConnection = async (): Promise<{ ok: boolean; msg: string }> => {
     setIsTestingFirebase(true);
     setFirebaseTestResult(null);
+    let result = { ok: false, msg: '' };
     try {
       // Test by attempting to get a doc from server
       await getDocFromServer(doc(db, 'settings', 'config'));
-      setFirebaseTestResult({ ok: true, msg: 'เชื่อมต่อฐานข้อมูล Firebase สำเร็จ (Online)' });
+      result = { ok: true, msg: 'เชื่อมต่อฐานข้อมูล Firebase สำเร็จ (Online)' };
     } catch (error: any) {
       console.error('Firebase test failed:', error);
-      setFirebaseTestResult({ 
+      result = { 
         ok: false, 
         msg: error?.message?.includes('offline') 
           ? 'ฐานข้อมูลอยู่ในโหมด Offline หรือไม่ได้เชื่อมต่ออินเทอร์เน็ต' 
           : `เกิดข้อผิดพลาด: ${error?.message || 'ไม่สามารถติดต่อ Firebase ได้'}`
-      });
+      };
     } finally {
+      setFirebaseTestResult(result);
       setIsTestingFirebase(false);
     }
+    return result;
   };
 
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
@@ -481,37 +488,40 @@ export default function App() {
 
   useEffect(() => {
     let lastY = 0;
-    const threshold = 10;
+    const threshold = 12;
+    let ticking = false;
 
-    const handleScroll = () => {
-      // On desktop (>= 768px), keep navigation and headers visible 100% of the time, no auto-hide, no flicker
-      if (typeof window !== 'undefined' && window.innerWidth >= 768) {
-        setIsBottomBarVisible(true);
-        return;
-      }
-
-      const winY = window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0;
-      const containerY = contentRef.current ? contentRef.current.scrollTop : 0;
-      const currentY = Math.max(winY, containerY);
-
-      // At or near top: always show Header and Bottom Bar
-      if (currentY <= 20) {
-        setIsBottomBarVisible(true);
-        lastY = currentY;
-        return;
-      }
-
-      const diff = currentY - lastY;
-      if (Math.abs(diff) >= threshold) {
-        if (diff > 0) {
-          // Scrolling DOWN -> Hide Header & Bottom Navigation on Mobile
-          setIsBottomBarVisible(false);
-        } else {
-          // Scrolling UP -> Show Header & Bottom Navigation on Mobile
+    const onScroll = () => {
+      if (ticking) return;
+      ticking = true;
+      requestAnimationFrame(() => {
+        ticking = false;
+        // On desktop (>= 768px), keep navigation visible 100% of the time, no auto-hide, no flicker
+        if (typeof window !== 'undefined' && window.innerWidth >= 768) {
           setIsBottomBarVisible(true);
+          return;
         }
-        lastY = currentY;
-      }
+
+        const winY = window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0;
+        const containerY = contentRef.current ? contentRef.current.scrollTop : 0;
+        const currentY = Math.max(winY, containerY);
+
+        if (currentY <= 25) {
+          setIsBottomBarVisible(true);
+          lastY = currentY;
+          return;
+        }
+
+        const diff = currentY - lastY;
+        if (Math.abs(diff) >= threshold) {
+          if (diff > 0) {
+            setIsBottomBarVisible((prev) => (prev ? false : prev));
+          } else {
+            setIsBottomBarVisible((prev) => (!prev ? true : prev));
+          }
+          lastY = currentY;
+        }
+      });
     };
 
     const handleResize = () => {
@@ -520,20 +530,20 @@ export default function App() {
       }
     };
 
-    window.addEventListener('scroll', handleScroll, { passive: true });
-    document.addEventListener('scroll', handleScroll, { passive: true });
+    window.addEventListener('scroll', onScroll, { passive: true });
+    document.addEventListener('scroll', onScroll, { passive: true });
     window.addEventListener('resize', handleResize, { passive: true });
     const container = contentRef.current;
     if (container) {
-      container.addEventListener('scroll', handleScroll, { passive: true });
+      container.addEventListener('scroll', onScroll, { passive: true });
     }
 
     return () => {
-      window.removeEventListener('scroll', handleScroll);
-      document.removeEventListener('scroll', handleScroll);
+      window.removeEventListener('scroll', onScroll);
+      document.removeEventListener('scroll', onScroll);
       window.removeEventListener('resize', handleResize);
       if (container) {
-        container.removeEventListener('scroll', handleScroll);
+        container.removeEventListener('scroll', onScroll);
       }
     };
   }, []);
@@ -625,8 +635,13 @@ export default function App() {
   const handleDrugsChange = async (nextDrugs: DrugItem[]) => {
     setDrugs(nextDrugs);
     setStored(STORAGE_KEYS.DRUGS, nextDrugs);
-    // Ideally we'd save each changed drug, but for now we'll just keep the local sync and assume individual updates happen elsewhere if needed.
-    // However, the DrugInventoryView might need an onUpdateDrug prop.
+    logAuditEvent({
+      action: 'UPDATE_DRUG_STOCK',
+      targetCollection: 'drugs',
+      targetId: 'inventory_batch',
+      details: { count: nextDrugs.length, reason: 'ปรับปรุงข้อมูลคลังยาและสารน้ำ' },
+      currentUser,
+    });
   };
 
   // Toggle Item Inspection Result ('ปกติ' | 'ผิดปกติ')
@@ -650,6 +665,16 @@ export default function App() {
         nextResult = (existing?.result === result ? '' : result) as 'ปกติ' | 'ผิดปกติ' | '';
       }
 
+      if (nextResult === 'ผิดปกติ') {
+        logAuditEvent({
+          action: 'DEFECTIVE_FLAG',
+          targetCollection: categoryOrRoomId,
+          targetId: itemKey,
+          details: { itemName: _itemName, result: 'ผิดปกติ', week, customValue },
+          currentUser,
+        });
+      }
+
       let nextWeekVals = { ...(existing.weekVals || {}) };
       if (week !== undefined) {
         if (customValue !== undefined) {
@@ -662,9 +687,13 @@ export default function App() {
             const config = lists[categoryOrRoomId as 'bag' | 'cart'];
             if (config && config.groups) {
               let foundItem: EquipmentItem | undefined;
-              Object.values(config.groups).forEach(groupItems => {
+              Object.entries(config.groups).forEach(([groupName, groupItems]) => {
                 if (foundItem) return;
-                const match = groupItems.find(it => it.id === itemKey || `${categoryOrRoomId}_${it.category}_${groupItems.indexOf(it)}` === itemKey);
+                const match = groupItems.find((it, idx) => 
+                  it.id === itemKey || 
+                  `${categoryOrRoomId}_${groupName}_${idx}` === itemKey ||
+                  (it.category && `${categoryOrRoomId}_${it.category}_${idx}` === itemKey)
+                );
                 if (match) foundItem = match;
               });
               
@@ -877,6 +906,14 @@ export default function App() {
     const saved = await saveEquipmentItemToFirebase(itemObject);
     if (!saved) return;
 
+    logAuditEvent({
+      action: 'ADD_EQUIPMENT',
+      targetCollection: type,
+      targetId: itemKey,
+      details: { name: newItem.name, location: newItem.groupName, qty: newItem.qty },
+      currentUser,
+    });
+
     setLists((prev) => {
       const currentList = prev[type] || { title: type === 'bag' ? 'กระเป๋าฉุกเฉิน' : 'รถฉุกเฉิน', groups: {} };
       const groups = { ...(currentList.groups || {}) };
@@ -894,6 +931,14 @@ export default function App() {
   const handleDeleteItem = async (type: 'bag' | 'cart', itemKey: string) => {
     const ok = await deleteEquipmentItemInFirebase(itemKey);
     if (!ok) return;
+
+    logAuditEvent({
+      action: 'DELETE_EQUIPMENT',
+      targetCollection: type,
+      targetId: itemKey,
+      details: { type },
+      currentUser,
+    });
 
     setLists((prev) => {
       const currentList = prev[type];
@@ -1580,12 +1625,12 @@ export default function App() {
         />
       </div>
 
-      {/* Desktop Header removed as requested */}
-
-
       {/* MAIN VIEW CONTENT CONTAINER (Safe Area + Samsung One UI) */}
+
+
+      {/* MAIN VIEW CONTENT CONTAINER (Safe Area + Samsung One UI Desktop Dashboard) */}
       <main 
-        className="relative z-10 w-full max-w-md sm:max-w-2xl md:max-w-4xl lg:max-w-[1400px] mx-auto px-3 sm:px-6 lg:px-8 py-4 lg:py-8 pb-28 min-h-screen"
+        className="relative z-10 w-full max-w-[1536px] mx-auto px-3 sm:px-6 lg:px-10 py-4 lg:py-8 pb-32 sm:pb-36 min-h-screen"
         style={{ minHeight: '100vh' }}
       >
         {/* 1. HOME DASHBOARD */}
@@ -2065,13 +2110,24 @@ export default function App() {
           sheetUrl={sheetUrl}
           currentUser={currentUser}
           historyRecords={historyRecords}
-          onDeleteHistoryRecord={(recId) => {
+          onDeleteHistoryRecord={async (recId) => {
             const nextHist = historyRecords.filter((r) => r.id !== recId);
             setHistoryRecords(nextHist);
             setStored(STORAGE_KEYS.HISTORY, nextHist);
+            await deleteInspectionFromFirebase(recId);
           }}
         />
       )}
+
+      {/* HA / JCI AUDIT REPORT & ACTIVITY TRAIL MODAL */}
+      <HaAuditReportModal
+        isOpen={isHaAuditModalOpen}
+        onClose={() => setIsHaAuditModalOpen(false)}
+        currentUser={currentUser}
+        drugs={drugs}
+        equipment={equipment}
+        activeChannelName={activeChannel?.name || 'ห้องผ่าตัด OR (Master)'}
+      />
 
       {isBarcodeScannerOpen && (
         <BarcodeScannerModal
@@ -2155,6 +2211,7 @@ export default function App() {
         drugs={drugs}
         lists={lists}
         stats={overallStats}
+        currentView={currentView}
         onAddItem={(type, newItem) => handleAddItem(type, newItem)}
         onDeleteItem={(type, key) => handleDeleteItem(type, key)}
         onBulkAutoCheck={handleAuraBulkAutoCheck}

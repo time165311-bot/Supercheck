@@ -130,28 +130,105 @@ export function prepareTextForSpeech(text: string): string {
     .trim();
 }
 
-/**
- * Cancels any ongoing browser speech synthesis immediately.
- */
-export function stopSpeech(): void {
-  if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-    window.speechSynthesis.cancel();
+
+// Track active HTMLAudioElement for external TTS streams
+let activeAudioElement: HTMLAudioElement | null = null;
+
+export type AuraVoiceEngine = 'browser' | 'elevenlabs' | 'responsivevoice' | 'google_cloud';
+
+export interface AuraVoiceConfig {
+  engine: AuraVoiceEngine;
+  pitch: number;          // 1.2 to 1.35 (default 1.28 for cute Alya anime girl tone)
+  rate: number;           // 0.95 to 1.0 (default 0.98 for gentle, cute pacing)
+  volume: number;         // 0.0 to 1.0 (default 0.85)
+  voiceName?: string;     // Preferred browser voice name
+  elevenLabsApiKey?: string;
+  elevenLabsVoiceId?: string; // Voice ID for ElevenLabs soft anime girl
+  googleApiKey?: string;
+}
+
+// 🔊 Locked Permanent Anime Soft Voice for Aura Assistant (ResponsiveVoice / Pitch 1.44x, Speed 1.11x)
+export const AURA_LOCKED_PITCH = 1.44;
+export const AURA_LOCKED_RATE = 1.11;
+
+export const DEFAULT_AURA_VOICE_CONFIG: AuraVoiceConfig = {
+  engine: 'responsivevoice',
+  pitch: 1.44,
+  rate: 1.11,
+  volume: 0.85,
+  voiceName: '',
+  elevenLabsApiKey: '',
+  elevenLabsVoiceId: '21m00Tcm4TlvDq8ikWAM', // Sweet female anime tone
+  googleApiKey: '',
+};
+
+export const AURA_PREVIEW_TEXT = 'สวัสดีค่ะพี่พยาบาล~ น้องออร่าจัดการให้เรียบร้อยแล้วนะคะ ✨🌸🎀';
+
+export function getStoredVoiceConfig(): AuraVoiceConfig {
+  if (typeof window === 'undefined') return DEFAULT_AURA_VOICE_CONFIG;
+  try {
+    const raw = localStorage.getItem('aura_voice_config');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      // Migrate to permanently locked pitch 1.44 and rate 1.11
+      if (parsed.pitch !== 1.44 || parsed.rate !== 1.11 || parsed.engine !== 'responsivevoice') {
+        saveVoiceConfig(DEFAULT_AURA_VOICE_CONFIG);
+        return DEFAULT_AURA_VOICE_CONFIG;
+      }
+      return { ...DEFAULT_AURA_VOICE_CONFIG, ...parsed };
+    }
+  } catch (e) {
+    console.warn('[TextToSpeech] Failed to read voice config:', e);
+  }
+  return DEFAULT_AURA_VOICE_CONFIG;
+}
+
+export function saveVoiceConfig(config: AuraVoiceConfig): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem('aura_voice_config', JSON.stringify(config));
+  } catch (e) {
+    console.warn('[TextToSpeech] Failed to save voice config:', e);
   }
 }
 
 /**
- * Speaks text using the browser SpeechSynthesis API with Aura settings:
+ * Cancels any ongoing browser speech synthesis or external audio playback immediately.
+ */
+export function stopSpeech(): void {
+  if (typeof window !== 'undefined') {
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
+    // Also cancel responsiveVoice if present
+    if ((window as any).responsiveVoice) {
+      try {
+        (window as any).responsiveVoice.cancel();
+      } catch (e) {
+        // ignore
+      }
+    }
+  }
+  if (activeAudioElement) {
+    activeAudioElement.pause();
+    activeAudioElement.currentTime = 0;
+    activeAudioElement = null;
+  }
+}
+
+/**
+ * Speaks text using Aura voice settings (Alya Anime Girl character):
  * - Cancels previous speech
- * - Uses Thai female voice if available
- * - Sets volume to 0.75
- * - Strips emojis and uses phonetic transliteration
+ * - Uses Thai female voice with Pitch 1.28 (cute anime) & Rate 0.98 (gentle pace)
+ * - Supports external TTS engines (ElevenLabs / ResponsiveVoice / Google Cloud TTS)
  */
 export function speakWithAura(
   rawText: string,
   voices: SpeechSynthesisVoice[] = [],
+  customConfig?: Partial<AuraVoiceConfig>,
   onEnd?: () => void
 ): SpeechSynthesisUtterance | null {
-  if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
+  if (typeof window === 'undefined') {
     return null;
   }
 
@@ -161,31 +238,166 @@ export function speakWithAura(
   const speechText = prepareTextForSpeech(rawText);
   if (!speechText) return null;
 
+  const config: AuraVoiceConfig = {
+    ...getStoredVoiceConfig(),
+    ...(customConfig || {}),
+  };
+
+  // 1. External Engine: ResponsiveVoice
+  if (config.engine === 'responsivevoice' && (window as any).responsiveVoice) {
+    try {
+      (window as any).responsiveVoice.speak(speechText, 'Thai Female', {
+        pitch: config.pitch,
+        rate: config.rate,
+        volume: config.volume,
+        onend: () => onEnd?.(),
+        onerror: () => onEnd?.(),
+      });
+      return null;
+    } catch (e) {
+      console.warn('[TextToSpeech] ResponsiveVoice failed, falling back to browser:', e);
+    }
+  }
+
+  // 2. External Engine: ElevenLabs (if API key provided)
+  if (config.engine === 'elevenlabs' && config.elevenLabsApiKey) {
+    const voiceId = config.elevenLabsVoiceId || '21m00Tcm4TlvDq8ikWAM';
+    fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
+      method: 'POST',
+      headers: {
+        'Accept': 'audio/mpeg',
+        'Content-Type': 'application/json',
+        'xi-api-key': config.elevenLabsApiKey,
+      },
+      body: JSON.stringify({
+        text: speechText,
+        model_id: 'eleven_multilingual_v2',
+        voice_settings: {
+          stability: 0.5,
+          similarity_boost: 0.75,
+          style: 0.45,
+          use_speaker_boost: true,
+        },
+      }),
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error(`ElevenLabs error: ${res.statusText}`);
+        return res.blob();
+      })
+      .then((blob) => {
+        const audioUrl = URL.createObjectURL(blob);
+        const audio = new Audio(audioUrl);
+        activeAudioElement = audio;
+        audio.volume = config.volume;
+        audio.onended = () => {
+          activeAudioElement = null;
+          URL.revokeObjectURL(audioUrl);
+          onEnd?.();
+        };
+        audio.onerror = () => {
+          activeAudioElement = null;
+          URL.revokeObjectURL(audioUrl);
+          onEnd?.();
+        };
+        audio.play();
+      })
+      .catch((err) => {
+        console.warn('[TextToSpeech] ElevenLabs failed, falling back to Web Speech API:', err);
+        // Fallback to browser Web Speech API
+        speakWithBrowserSpeech(speechText, voices, config, onEnd);
+      });
+    return null;
+  }
+
+  // 3. External Engine: Google Cloud TTS (if API key provided)
+  if (config.engine === 'google_cloud' && config.googleApiKey) {
+    fetch(`https://texttospeech.googleapis.com/v1/text:synthesize?key=${config.googleApiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        input: { text: speechText },
+        voice: { languageCode: 'th-TH', name: 'th-TH-Neural2-C', ssmlGender: 'FEMALE' },
+        audioConfig: {
+          audioEncoding: 'MP3',
+          speakingRate: config.rate,
+          pitch: Math.min(20, Math.max(-20, (config.pitch - 1) * 12)),
+        },
+      }),
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.audioContent) {
+          const audio = new Audio(`data:audio/mp3;base64,${data.audioContent}`);
+          activeAudioElement = audio;
+          audio.volume = config.volume;
+          audio.onended = () => {
+            activeAudioElement = null;
+            onEnd?.();
+          };
+          audio.play();
+        } else {
+          speakWithBrowserSpeech(speechText, voices, config, onEnd);
+        }
+      })
+      .catch((err) => {
+        console.warn('[TextToSpeech] Google Cloud TTS failed, falling back to browser:', err);
+        speakWithBrowserSpeech(speechText, voices, config, onEnd);
+      });
+    return null;
+  }
+
+  // Default: Web Speech API (Browser) with Alya parameters
+  return speakWithBrowserSpeech(speechText, voices, config, onEnd);
+}
+
+function speakWithBrowserSpeech(
+  speechText: string,
+  voices: SpeechSynthesisVoice[],
+  config: AuraVoiceConfig,
+  onEnd?: () => void
+): SpeechSynthesisUtterance | null {
+  if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
+    return null;
+  }
+
   try {
     const utterance = new SpeechSynthesisUtterance(speechText);
     utterance.lang = 'th-TH';
-    utterance.rate = 1.05;
-    utterance.pitch = 1.2;
-    utterance.volume = 0.75; // 75% volume
+    // 🔊 Alya Anime Voice: Pitch 1.44 (อนิเมะสาวน้อย), Speed 1.11 (ละมุน นุ่มนวล)
+    utterance.pitch = config.pitch || AURA_LOCKED_PITCH;
+    utterance.rate = config.rate || AURA_LOCKED_RATE;
+    utterance.volume = config.volume ?? 0.85;
 
     // Search for best Thai voice, preferring natural female voices
     const availableVoices = voices.length > 0 ? voices : window.speechSynthesis.getVoices();
     const thaiVoices = availableVoices.filter((v) => v.lang.includes('th') || v.lang.includes('TH'));
 
-    const femaleVoice =
-      thaiVoices.find(
-        (v) =>
-          v.name.includes('Female') ||
-          v.name.includes('Wan') ||
-          v.name.includes('Kanya') ||
-          v.name.includes('Google') ||
-          v.name.includes('Prem') ||
-          v.name.includes('หญิง') ||
-          v.name.includes('Narisa')
-      ) || thaiVoices[0];
+    let selectedVoice: SpeechSynthesisVoice | undefined;
 
-    if (femaleVoice) {
-      utterance.voice = femaleVoice;
+    // 1. If user explicitly specified a voice name
+    if (config.voiceName) {
+      selectedVoice = availableVoices.find((v) => v.name === config.voiceName);
+    }
+
+    // 2. Otherwise find best soft female Thai voice
+    if (!selectedVoice) {
+      selectedVoice =
+        thaiVoices.find(
+          (v) =>
+            v.name.includes('Female') ||
+            v.name.includes('Wan') ||
+            v.name.includes('Kanya') ||
+            v.name.includes('Google') ||
+            v.name.includes('Prem') ||
+            v.name.includes('Premwadee') ||
+            v.name.includes('Narisa') ||
+            v.name.includes('หญิง') ||
+            v.name.includes('Achara')
+        ) || thaiVoices[0];
+    }
+
+    if (selectedVoice) {
+      utterance.voice = selectedVoice;
     }
 
     if (onEnd) {
@@ -199,4 +411,16 @@ export function speakWithAura(
     console.warn('[TextToSpeech] speak error:', err);
     return null;
   }
+}
+
+/**
+ * Preview Aura's cute voice with a friendly sample line:
+ * "สวัสดีค่ะพี่พยาบาล~ น้องออร่าจัดการให้เรียบร้อยแล้วนะคะ ✨🌸🎀"
+ */
+export function previewAuraVoice(
+  customConfig?: Partial<AuraVoiceConfig>,
+  voices: SpeechSynthesisVoice[] = [],
+  onEnd?: () => void
+): SpeechSynthesisUtterance | null {
+  return speakWithAura(AURA_PREVIEW_TEXT, voices, customConfig, onEnd);
 }

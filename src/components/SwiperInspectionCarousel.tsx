@@ -313,7 +313,7 @@ export const SwiperInspectionCarousel: React.FC<SwiperInspectionCarouselProps> =
                         ? '0 20px 40px -10px rgba(24, 119, 242, 0.22), 0 2px 6px rgba(0, 0, 0, 0.04)'
                         : '0 4px 16px rgba(0, 0, 0, 0.06)',
                     }}
-                    className="flex flex-col justify-between h-full bg-white transition-all duration-300 relative select-none overflow-hidden"
+                    className="flex flex-col justify-between h-full bg-white transition-all duration-300 relative select-none overflow-hidden transform-gpu contain-content"
                   >
                     {/* 3. Cover Banner (Cinematic Deep Blue Medical with Frosted Glass Badge Overlay) */}
                     <div className="relative w-full h-32 sm:h-36 overflow-hidden bg-slate-900 shrink-0">

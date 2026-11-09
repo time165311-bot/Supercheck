@@ -70,7 +70,7 @@ export const ChannelSelectorModal: React.FC<ChannelSelectorModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
-      <div className="bg-white dark:bg-[#181A20] rounded-3xl border border-slate-200 dark:border-white/10 shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
+      <div className="bg-white dark:bg-[#181A20] rounded-3xl border border-slate-200 dark:border-white/10 shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[85vh] sm:max-h-[90vh]">
         {/* Header */}
         <div className="p-4 sm:p-5 border-b border-slate-200 dark:border-white/10 bg-gradient-to-r from-blue-500/10 via-indigo-500/10 to-purple-500/10 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
@@ -139,30 +139,33 @@ export const ChannelSelectorModal: React.FC<ChannelSelectorModalProps> = ({
 
                     {isEditing ? (
                       <div
-                        className="flex items-center gap-2 flex-1"
+                        className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 flex-1 w-full"
                         onClick={(e) => e.stopPropagation()}
                       >
                         <input
                           type="text"
                           value={editingName}
                           onChange={(e) => setEditingName(e.target.value)}
-                          className="flex-1 px-3 py-1.5 rounded-xl border border-blue-500 bg-white dark:bg-black/40 text-xs font-bold text-slate-900 dark:text-white outline-none"
+                          className="flex-1 px-3 py-2 rounded-xl border border-blue-500 bg-white dark:bg-black/40 text-xs font-bold text-slate-900 dark:text-white outline-none shadow-sm"
                           autoFocus
+                          placeholder="ชื่อวอร์ด/หน่วยงาน..."
                         />
-                        <button
-                          type="button"
-                          onClick={() => handleRenameSubmit(channel.id)}
-                          className="px-2.5 py-1.5 bg-emerald-600 text-white rounded-xl text-xs font-bold cursor-pointer"
-                        >
-                          บันทึก
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setEditingChannelId(null)}
-                          className="px-2.5 py-1.5 bg-slate-200 text-slate-700 rounded-xl text-xs font-bold cursor-pointer"
-                        >
-                          ยกเลิก
-                        </button>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => handleRenameSubmit(channel.id)}
+                            className="flex-1 sm:flex-none px-4 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-xl text-xs font-bold cursor-pointer transition-all shadow-sm whitespace-nowrap"
+                          >
+                            บันทึก
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setEditingChannelId(null)}
+                            className="flex-1 sm:flex-none px-4 py-2 bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 active:scale-95 text-slate-800 dark:text-slate-200 rounded-xl text-xs font-bold cursor-pointer transition-all shadow-sm whitespace-nowrap"
+                          >
+                            ยกเลิก
+                          </button>
+                        </div>
                       </div>
                     ) : (
                       <div className="flex-1 min-w-0">

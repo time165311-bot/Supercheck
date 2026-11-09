@@ -188,3 +188,27 @@ export async function pullDataFromGoogleSheets(
     message: 'ตรวจสอบการเชื่อมต่อกับ Google Sheet สำเร็จ ข้อมูลในเครื่องเป็นเวอร์ชันล่าสุดแล้ว',
   };
 }
+
+export async function comparePaperWithWeb(
+  fileOrBlob: File | Blob,
+  currentWebItems: any[],
+  targetType: 'bag' | 'cart' | 'drug' = 'bag',
+  fileName?: string
+): Promise<{ success: boolean; result: any; message?: string; isQuotaExceeded?: boolean }> {
+  const formData = new FormData();
+  formData.append('image', fileOrBlob, fileName || 'paper_checklist.jpg');
+  formData.append('currentWebItems', JSON.stringify(currentWebItems));
+  formData.append('targetType', targetType);
+
+  const res = await fetch('/api/ai/audit-paper', {
+    method: 'POST',
+    body: formData,
+  });
+
+  if (!res.ok) {
+    throw new Error(`Audit server responded with status: ${res.status}`);
+  }
+
+  return await res.json();
+}
+

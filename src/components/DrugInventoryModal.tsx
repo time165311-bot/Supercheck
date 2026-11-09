@@ -64,14 +64,32 @@ export const DrugInventoryModal: React.FC<DrugInventoryModalProps> = ({
   const [newExpDate, setNewExpDate] = useState<string>('');
   const [newNote, setNewNote] = useState<string>('');
 
+  // Re-sync fresh state from localStorage whenever modal opens
+  useEffect(() => {
+    if (isOpen) {
+      try {
+        const saved = localStorage.getItem('anesthesia_drug_inventory');
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setDrugs(parsed);
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to load drug inventory from localStorage on open', e);
+      }
+    }
+  }, [isOpen]);
+
   // Persist to localStorage on change
   useEffect(() => {
+    if (!isOpen) return;
     try {
       localStorage.setItem('anesthesia_drug_inventory', JSON.stringify(drugs));
     } catch (e) {
       console.warn('Failed to save to localStorage', e);
     }
-  }, [drugs]);
+  }, [drugs, isOpen]);
 
   if (!isOpen) return null;
 

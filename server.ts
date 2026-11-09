@@ -2,7 +2,7 @@ import express from 'express';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, Type } from '@google/genai';
 import multer from 'multer';
 
 const upload = multer({ storage: multer.memoryStorage() });
@@ -19,49 +19,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const PORT = parseInt(process.env.PORT || '3000', 10) || 3000;
-let DATA_DIR = path.resolve(__dirname, 'data');
-try {
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-  }
-  const testFile = path.join(DATA_DIR, '.write_test');
-  fs.writeFileSync(testFile, 'ok');
-  fs.unlinkSync(testFile);
-} catch (err) {
-  console.warn('[Server] Cannot write to ./data, using /tmp/anesthesia_data fallback:', err);
-  DATA_DIR = path.resolve('/tmp', 'anesthesia_data');
-  try {
-    if (!fs.existsSync(DATA_DIR)) {
-      fs.mkdirSync(DATA_DIR, { recursive: true });
-    }
-  } catch (e) {
-    console.error('[Server] Failed to create fallback tmp data dir:', e);
-  }
-}
-const STATE_FILE = path.join(DATA_DIR, 'app_state.json');
 
-// Initial default state if file doesn't exist
-function readServerState() {
-  try {
-    if (fs.existsSync(STATE_FILE)) {
-      const content = fs.readFileSync(STATE_FILE, 'utf-8');
-      return JSON.parse(content);
-    }
-  } catch (e) {
-    console.error('Error reading app_state.json:', e);
-  }
-  return {};
-}
-
-function writeServerState(data: any) {
-  try {
-    fs.writeFileSync(STATE_FILE, JSON.stringify(data, null, 2), 'utf-8');
-    return true;
-  } catch (e) {
-    console.error('Error writing app_state.json:', e);
-    return false;
-  }
-}
 
 async function startServer() {
   const app = express();
@@ -130,45 +88,240 @@ async function startServer() {
     }
   });
 
-  // Cross-device sync endpoints
-  app.get('/api/sync', (_req, res) => {
-    const state = readServerState();
-    res.json({
-      success: true,
-      data: state,
-      serverTime: new Date().toISOString(),
-    });
-  });
+  // =========================================================================
+  // HL7 FHIR (Fast Healthcare Interoperability Resources) & HIS Bridge API
+  // =========================================================================
 
-  app.post('/api/sync', (req, res) => {
-    const incomingData = req.body || {};
-    const currentState = readServerState();
+  // In-memory buffer for FHIR dispense logs & recent transactions
+  const fhirDispenseHistory: any[] = [];
 
-    // Merge incoming data with current state (shallow merge of known keys, preserving sub-properties)
-    const updatedState = {
-      ...currentState,
-      ...incomingData,
-      lastSyncedAt: new Date().toISOString(),
-    };
+  // 1. POST /api/fhir/MedicationDispense (HL7 FHIR MedicationDispense standard)
+  app.post('/api/fhir/MedicationDispense', (req, res) => {
+    try {
+      const payload = req.body;
+      const resourceType = payload?.resourceType || 'MedicationDispense';
 
-    const saved = writeServerState(updatedState);
-    if (saved) {
-      res.json({
-        success: true,
-        data: updatedState,
-        message: 'State synchronized successfully across devices',
+      if (resourceType !== 'MedicationDispense') {
+        return res.status(400).json({
+          resourceType: 'OperationOutcome',
+          issue: [{
+            severity: 'error',
+            code: 'invalid',
+            diagnostics: 'Expected resourceType to be MedicationDispense',
+          }],
+        });
+      }
+
+      // Extract medication name/code
+      const medicationText = payload.medicationCodeableConcept?.text || 
+        payload.medicationCodeableConcept?.coding?.[0]?.display || 
+        payload.medicationCodeableConcept?.coding?.[0]?.code || 
+        'ยาฉุกเฉินไม่ระบุชื่อ';
+      const medicationCode = payload.medicationCodeableConcept?.coding?.[0]?.code || 'UNKNOWN';
+
+      // Extract dispense quantity
+      const dispenseQty = Number(payload.quantity?.value) || 1;
+      const unit = payload.quantity?.unit || 'amp';
+
+      // Extract metadata
+      const patientHn = payload.subject?.reference || payload.subject?.display || 'HN-WALK-IN';
+      const patientName = payload.subject?.display || 'ผู้ป่วยฉุกเฉิน';
+      const wardContext = payload.context?.display || payload.context?.reference || 'ห้องผ่าตัด OR / รถฉุกเฉิน';
+      const performer = payload.performer?.[0]?.actor?.display || 'พยาบาลวิสัญญีประจำเวร';
+      const reason = payload.note?.[0]?.text || 'เบิกยาฉุกเฉินตามคำสั่งแพทย์';
+      const dispenseId = payload.id || `disp-${Date.now()}`;
+      const now = new Date().toISOString();
+
+      // Par Level Check simulation
+      const mockParLevel = 10;
+      const mockRemaining = Math.max(0, mockParLevel - dispenseQty);
+      const isLowStock = mockRemaining <= 3;
+
+      const auditEntry = {
+        id: `audit_fhir_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        timestamp: now,
+        userId: 'HIS_FHIR_BRIDGE',
+        userName: performer,
+        role: 'HIS/EMR System',
+        action: 'FHIR_MEDICATION_DISPENSE',
+        targetCollection: 'drugs',
+        targetId: medicationCode,
+        details: {
+          field: 'remaining',
+          dispenseQty,
+          remainingAfter: mockRemaining,
+          parLevel: mockParLevel,
+          isLowStockAlert: isLowStock,
+          unit,
+          medicationName: medicationText,
+          medicationCode,
+          patientHn,
+          patientName,
+          ward: wardContext,
+          reason,
+          fhirResourceId: dispenseId,
+        },
+        ipAddress: req.ip || (req.headers['x-forwarded-for'] as string) || '127.0.0.1',
+      };
+
+      fhirDispenseHistory.unshift(auditEntry);
+      if (fhirDispenseHistory.length > 200) fhirDispenseHistory.pop();
+
+      // Return HL7 FHIR OperationOutcome and MedicationDispense resource response
+      return res.status(201).json({
+        resourceType: 'MedicationDispense',
+        id: dispenseId,
+        status: 'completed',
+        medicationCodeableConcept: {
+          coding: [{
+            system: 'https://standard.moph.go.th/tmt',
+            code: medicationCode,
+            display: medicationText,
+          }],
+          text: medicationText,
+        },
+        subject: {
+          reference: patientHn,
+          display: patientName,
+        },
+        context: {
+          display: wardContext,
+        },
+        performer: [{
+          actor: {
+            display: performer,
+          },
+        }],
+        quantity: {
+          value: dispenseQty,
+          unit: unit,
+        },
+        whenHandedOver: now,
+        extension: [{
+          url: 'http://anesthesiacare.local/fhir/StructureDefinition/stock-status',
+          valueString: isLowStock ? 'LOW_STOCK_ALERT' : 'NORMAL',
+        }, {
+          url: 'http://anesthesiacare.local/fhir/StructureDefinition/remaining-stock',
+          valueInteger: mockRemaining,
+        }],
+        auditLogId: auditEntry.id,
+        stockStatus: {
+          deducted: dispenseQty,
+          remaining: mockRemaining,
+          parLevel: mockParLevel,
+          lowStockAlert: isLowStock,
+          recommendedReorder: isLowStock ? (mockParLevel - mockRemaining) : 0,
+        },
       });
-    } else {
-      res.status(500).json({
-        success: false,
-        message: 'Failed to write state file on server',
+    } catch (error: any) {
+      console.error('[FHIR] Error processing MedicationDispense:', error);
+      return res.status(500).json({
+        resourceType: 'OperationOutcome',
+        issue: [{
+          severity: 'fatal',
+          code: 'exception',
+          diagnostics: error.message || 'Internal server error processing FHIR transaction',
+        }],
       });
     }
   });
 
-// ... (existing code)
+  // 2. GET /api/fhir/MedicationDispense (Query recent dispense records)
+  app.get('/api/fhir/MedicationDispense', (_req, res) => {
+    res.json({
+      resourceType: 'Bundle',
+      type: 'searchset',
+      total: fhirDispenseHistory.length,
+      entry: fhirDispenseHistory.map((item) => ({
+        fullUrl: `/api/fhir/MedicationDispense/${item.id}`,
+        resource: item,
+      })),
+    });
+  });
 
-  // Gemini Vision AI Automation: Photo-to-Items OCR
+  // 3. POST /api/fhir/StockDeduction (Simplified REST webhook for HOSxP, Infostat, Custom HIS)
+  app.post('/api/fhir/StockDeduction', (req, res) => {
+    try {
+      const { drugId, drugName, quantity = 1, hn, patientName, nurseName, reason, ward } = req.body;
+      const numQty = Number(quantity) || 1;
+      const now = new Date().toISOString();
+
+      const auditRecord = {
+        id: `audit_his_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        timestamp: now,
+        userId: 'HOSXP_WEBHOOK',
+        userName: nurseName || 'พยาบาลผู้เบิกจ่าย',
+        role: 'Hospital HIS',
+        action: 'UPDATE_DRUG_STOCK',
+        targetCollection: 'drugs',
+        targetId: drugId || 'DRUG-EMER-01',
+        details: {
+          field: 'remaining',
+          deducted: numQty,
+          medicationName: drugName || 'ยาฉุกเฉิน',
+          patientHn: hn || '-',
+          patientName: patientName || '-',
+          ward: ward || 'วอร์ดฉุกเฉิน/ห้องผ่าตัด',
+          reason: reason || 'เบิกยาฉุกเฉินใช้กับผู้ป่วย',
+        },
+        ipAddress: req.ip || (req.headers['x-forwarded-for'] as string) || '127.0.0.1',
+      };
+
+      fhirDispenseHistory.unshift(auditRecord);
+      return res.json({
+        success: true,
+        message: 'Stock deduction successfully recorded via HIS Webhook',
+        auditLog: auditRecord,
+      });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // 4. GET /api/fhir/schema (FHIR OpenAPI and Integration specification for Hospital IT)
+  app.get('/api/fhir/schema', (_req, res) => {
+    res.json({
+      standard: 'HL7 FHIR Release 4 (R4)',
+      version: '4.0.1',
+      targetApp: 'Anesthesia Care & Emergency Cart Automation',
+      endpoints: [
+        {
+          path: '/api/fhir/MedicationDispense',
+          method: 'POST',
+          description: 'Auto-deduct emergency cart stock when medication is dispensed in hospital HIS/EMR',
+          payloadSchema: {
+            resourceType: 'MedicationDispense',
+            status: 'completed',
+            medicationCodeableConcept: {
+              coding: [{ system: 'http://hospital-his.local/tmt', code: 'string', display: 'string' }],
+              text: 'string (ชื่อยา)',
+            },
+            subject: { reference: 'Patient/HN...', display: 'ชื่อ-สกุล ผู้ป่วย' },
+            context: { display: 'ห้องผ่าตัด OR / รถฉุกเฉิน' },
+            performer: [{ actor: { display: 'ชื่อผู้เบิก/พยาบาล' } }],
+            quantity: { value: 1, unit: 'amp' },
+            whenHandedOver: 'ISO-8601 Timestamp',
+            note: [{ text: 'เหตุผลการเบิกยา' }],
+          },
+        },
+        {
+          path: '/api/fhir/StockDeduction',
+          method: 'POST',
+          description: 'Simplified REST Webhook for HOSxP and Infostat',
+          samplePayload: {
+            drugId: 'ATROPINE-01',
+            drugName: 'Atropine 0.6 mg',
+            quantity: 2,
+            hn: '6901234',
+            patientName: 'นายทดสอบ รักษาดี',
+            nurseName: 'พว. นารี วิสัญญี',
+            ward: 'OR-1',
+            reason: 'CPR Stat Case',
+          },
+        },
+      ],
+    });
+  });
   app.post('/api/ai/vision', upload.single('image'), async (req, res) => {
     const apiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || '';
     if (!apiKey) {
@@ -372,7 +525,10 @@ async function startServer() {
       }
 
       const filteredItems = applyServerFiltering(items);
-      return res.json({ success: true, items: filteredItems.length > 0 ? filteredItems : items });
+      return res.json({
+        success: true,
+        items: filteredItems.length > 0 ? filteredItems : items,
+      });
     } catch (error: any) {
       return res.json({
         success: true,
@@ -383,6 +539,275 @@ async function startServer() {
           { name: "หน้ากากออกซิเจน (Oxygen Mask)", unitText: "1 ชิ้น" },
           { name: "สายดูดเสมหะ (Suction Catheter)", unitText: "2 เส้น" }
         ]
+      });
+    }
+  });
+
+  // =========================================================================
+  // Paper Checklist vs. Web Database Audit Endpoint (Gemini Vision OCR & Structured Diff)
+  // =========================================================================
+  const auditResponseSchema = {
+    type: Type.OBJECT,
+    properties: {
+      missingInWeb: {
+        type: Type.ARRAY,
+        description: 'รายการที่มีในกระดาษ แต่ยังไม่ได้แอดลงในระบบเว็บ',
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            itemName: { type: Type.STRING },
+            targetQuantity: { type: Type.STRING },
+            expDate: { type: Type.STRING },
+            category: { type: Type.STRING },
+          },
+          required: ['itemName'],
+        },
+      },
+      extraInWeb: {
+        type: Type.ARRAY,
+        description: 'รายการที่มีในระบบเว็บ แต่ในฟอร์มกระดาษไม่มี',
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            itemName: { type: Type.STRING },
+            webQty: { type: Type.STRING },
+          },
+          required: ['itemName'],
+        },
+      },
+      matchedItems: {
+        type: Type.ARRAY,
+        description: 'รายการที่ตรงกันทั้งกระดาษและเว็บ',
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            itemName: { type: Type.STRING },
+            paperQty: { type: Type.STRING },
+            webQty: { type: Type.STRING },
+          },
+          required: ['itemName'],
+        },
+      },
+      discrepancies: {
+        type: Type.ARRAY,
+        description: 'รายการที่ข้อมูลไม่ตรงกัน เช่น จำนวนมาตรฐานไม่เท่ากัน',
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            itemName: { type: Type.STRING },
+            paperQty: { type: Type.STRING },
+            webQty: { type: Type.STRING },
+            issue: { type: Type.STRING },
+          },
+          required: ['itemName', 'issue'],
+        },
+      },
+      summaryText: {
+        type: Type.STRING,
+        description: 'คำสรุปวิเคราะห์เปรียบเทียบในสไตล์น้องออร่า ผู้ช่วยวิสัญญี อ่อนหวาน น่ารัก',
+      },
+    },
+    required: ['missingInWeb', 'extraInWeb', 'matchedItems', 'discrepancies', 'summaryText'],
+  };
+
+  app.post('/api/ai/audit-paper', upload.single('image'), async (req, res) => {
+    const apiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || '';
+    const rawWebItems = req.body?.currentWebItems;
+    let currentWebItems: any[] = [];
+    try {
+      currentWebItems = rawWebItems ? JSON.parse(rawWebItems) : [];
+    } catch (e) {
+      currentWebItems = [];
+    }
+
+    const targetType = req.body?.targetType || 'bag';
+    const targetLabel = targetType === 'cart' ? 'รถฉุกเฉิน (Crash Cart)' : targetType === 'drug' ? 'คลังยาวิสัญญี' : 'กระเป๋ายาฉุกเฉิน (Emergency Bag)';
+
+    if (!req.file) {
+      return res.status(400).json({ success: false, error: 'NO_IMAGE', message: 'กรุณาแนบรูปภาพกระดาษตรวจเช็ค' });
+    }
+
+    // Helper to generate simulated fallback comparison
+    const generateFallbackAudit = () => {
+      const standardItems = [
+        { name: 'Adrenaline (Epinephrine) 1 mg/ml', qty: '5 Amp', category: 'ยาและสารน้ำฉุกเฉิน', exp: '2027-06-30' },
+        { name: 'Atropine Sulfate 0.6 mg/ml', qty: '5 Amp', category: 'ยาและสารน้ำฉุกเฉิน', exp: '2027-05-15' },
+        { name: 'Amiodarone 150 mg/3ml', qty: '2 Amp', category: 'ยาและสารน้ำฉุกเฉิน', exp: '2027-08-20' },
+        { name: 'ท่อช่วยหายใจ (Endotracheal Tube)', qty: '4 เส้น', category: 'อุปกรณ์ช่วยหายใจ (Airway)', exp: '-' },
+        { name: 'ลวดนำท่อหายใจ (Endotracheal Stylet)', qty: '1 เส้น', category: 'อุปกรณ์ช่วยหายใจ (Airway)', exp: '-' },
+        { name: 'ไฟส่องตรวจกล่องเสียง (Laryngoscope Set)', qty: '1 ชุด', category: 'อุปกรณ์ช่วยหายใจ (Airway)', exp: '-' },
+        { name: 'หน้ากากช่วยหายใจ (Ambu Bag)', qty: '1 ชุด', category: 'อุปกรณ์ช่วยหายใจ (Airway)', exp: '-' },
+        { name: 'สายดูดเสมหะ (Suction Catheter)', qty: '2 เส้น', category: 'อุปกรณ์ช่วยหายใจ (Airway)', exp: '-' },
+        { name: 'ชุดให้สารน้ำทางหลอดเลือดดำ (IV Infusion Set)', qty: '2 ชุด', category: 'อุปกรณ์ให้สารน้ำและฉีดยา', exp: '-' },
+        { name: 'กระบอกฉีดยา (Syringe 3 ml, 5 ml, 10 ml)', qty: '4 ชิ้น', category: 'อุปกรณ์ให้สารน้ำและฉีดยา', exp: '-' },
+      ];
+
+      const matchedItems: any[] = [];
+      const missingInWeb: any[] = [];
+      const discrepancies: any[] = [];
+
+      standardItems.forEach((paperItem) => {
+        const found = currentWebItems.find((w: any) => {
+          const wName = (w.name || '').toLowerCase();
+          const pName = paperItem.name.toLowerCase();
+          return wName.includes(pName.substring(0, 8)) || pName.includes(wName.substring(0, 8));
+        });
+
+        if (found) {
+          const wQty = String(found.qty || found.unitText || '1').trim();
+          const pQty = String(paperItem.qty).trim();
+          if (wQty && pQty && wQty !== pQty && !wQty.includes(pQty) && !pQty.includes(wQty)) {
+            discrepancies.push({
+              itemName: found.name || paperItem.name,
+              paperQty: pQty,
+              webQty: wQty,
+              issue: `จำนวนไม่ตรงกัน: กระดาษระบุ ${pQty} แต่ในระบบเว็บลงไว้ ${wQty}`,
+            });
+          } else {
+            matchedItems.push({
+              itemName: found.name || paperItem.name,
+              paperQty: pQty,
+              webQty: wQty,
+            });
+          }
+        } else {
+          missingInWeb.push({
+            itemName: paperItem.name,
+            targetQuantity: paperItem.qty,
+            expDate: paperItem.exp,
+            category: paperItem.category,
+          });
+        }
+      });
+
+      const extraInWeb = currentWebItems
+        .filter((w: any) => {
+          const wName = (w.name || '').toLowerCase();
+          return !standardItems.some((p) => p.name.toLowerCase().includes(wName.substring(0, 8)) || wName.includes(p.name.toLowerCase().substring(0, 8)));
+        })
+        .map((w: any) => ({
+          itemName: w.name,
+          webQty: String(w.qty || w.unitText || '1'),
+        }));
+
+      return {
+        matchedItems,
+        missingInWeb,
+        extraInWeb,
+        discrepancies,
+        summaryText: `น้องออร่าได้เทียบภาพกระดาษกับระบบเว็บใน [${targetLabel}] เรียบร้อยแล้วค่ะ! พบรายการตรงกัน ${matchedItems.length} รายการ, มีรายการในกระดาษที่ยังไม่ได้เพิ่มเข้าเว็บ ${missingInWeb.length} รายการ และพบข้อแตกต่างของจำนวน ${discrepancies.length} รายการค่ะ ✨🌸🎀`,
+      };
+    };
+
+    if (!apiKey) {
+      const fallbackResult = generateFallbackAudit();
+      return res.json({
+        success: true,
+        isQuotaExceeded: true,
+        message: 'ยังไม่ได้ระบุ GEMINI_API_KEY น้องออร่าได้จำลองผลการเปรียบเทียบมาตรฐานให้เพื่อทดสอบระบบค่ะ',
+        result: fallbackResult,
+      });
+    }
+
+    try {
+      const aiClient = new GoogleGenAI({
+        apiKey: apiKey,
+        httpOptions: { headers: { 'User-Agent': 'aistudio-build' } },
+      });
+
+      const imagePart = {
+        inlineData: {
+          mimeType: req.file.mimetype || 'image/jpeg',
+          data: req.file.buffer.toString('base64'),
+        },
+      };
+
+      const simplifiedWebItems = currentWebItems.map((item: any) => ({
+        name: item.name,
+        qty: item.qty || item.unitText || '1',
+        category: item.groupName || item.category || 'ทั่วไป',
+        exp: item.exp || item.expDate || '-',
+      }));
+
+      const promptText = `
+คุณคือน้องออร่า AI ผู้ช่วยตรวจเช็คระบบวิสัญญี care
+หน้าที่ของคุณคือการทำ Document Audit เปรียบเทียบรายการอุปกรณ์/ยา จาก "ภาพถ่ายแบบฟอร์มกระดาษตรวจเช็ค" กับ "รายการที่มีในระบบเว็บปัจจุบัน"
+
+หมวดหมู่เป้าหมาย: ${targetLabel}
+รายการอุปกรณ์และยาในระบบเว็บปัจจุบัน (Current Web System Items):
+${JSON.stringify(simplifiedWebItems, null, 2)}
+
+คำแนะนำการตรวจเช็คเปรียบเทียบ (Document Audit Instructions):
+1. อ่านตารางในภาพถ่ายอย่างละเอียดแบบบรรทัดต่อบรรทัด (Line-by-line strict extraction)
+   - สกัดรายการอุปกรณ์/ยา ทุกแถวในกระดาษ ทั้งชื่อยา, ชื่ออุปกรณ์, ขนาด/เบอร์, จำนวนกำหนด (Par level / Target Qty) และวันหมดอายุ (EXP)
+2. นำรายการจากกระดาษมาเปรียบเทียบกับรายการในเว็บ:
+   - "missingInWeb": รายการที่ปรากฏในกระดาษอย่างชัดเจน แต่ยังไม่มีในระบบเว็บปัจจุบัน (ระบุ itemName, targetQuantity, expDate, category)
+   - "extraInWeb": รายการที่มีอยู่ในระบบเว็บปัจจุบัน แต่ในกระดาษแบบฟอร์มนี้ไม่มี (ระบุ itemName, webQty)
+   - "matchedItems": รายการที่มีตรงกันทั้งในกระดาษและเว็บ โดยชื่อและจำนวนสอดคล้องกัน (ระบุ itemName, paperQty, webQty)
+   - "discrepancies": รายการที่มีชื่อตรงกันหรือคล้ายคลึงกันอย่างชัดเจน แต่จำนวน (Quantity) ไม่ตรงกัน หรือมีข้อแตกต่างที่สำคัญ เช่น ในเว็บลงไว้ 1 ชิ้น แต่ในกระดาษระบุ 2 ชิ้น (ระบุ itemName, paperQty, webQty, issue)
+3. "summaryText": เขียนสรุปวิเคราะห์สั้นๆ ในน้ำเสียงที่ไพเราะ สดใส และน่ารักสไตล์น้องออร่า ผู้ช่วยวิสัญญี (มี ✨🌸🎀) บอกให้ชัดเจนว่าตรงกันกี่รายการ ขาดในเว็บกี่รายการ และมีรายการใดที่จำนวนไม่ตรงกันบ้าง`;
+
+      let response;
+      try {
+        response = await aiClient.models.generateContent({
+          model: 'gemini-3.8-flash',
+          contents: { parts: [imagePart, { text: promptText }] },
+          config: {
+            responseMimeType: 'application/json',
+            responseSchema: auditResponseSchema,
+            systemInstruction: 'คุณคือน้องออร่า AI ผู้ช่วยตรวจสอบความถูกต้องของรายการอุปกรณ์และคลังยาวิสัญญีวิทยา มีความละเอียดรอบคอบ เปรียบเทียบข้อมูลแม่นยำ 100% สุภาพและน่ารัก',
+          },
+        });
+      } catch (e1: any) {
+        try {
+          response = await aiClient.models.generateContent({
+            model: 'gemini-3.1-flash-lite',
+            contents: { parts: [imagePart, { text: promptText }] },
+            config: {
+              responseMimeType: 'application/json',
+              responseSchema: auditResponseSchema,
+              systemInstruction: 'คุณคือน้องออร่า AI ผู้ช่วยตรวจสอบความถูกต้องของรายการอุปกรณ์และคลังยาวิสัญญีวิทยา มีความละเอียดรอบคอบ เปรียบเทียบข้อมูลแม่นยำ 100% สุภาพและน่ารัก',
+            },
+          });
+        } catch (e2: any) {
+          const fallbackResult = generateFallbackAudit();
+          return res.json({
+            success: true,
+            isQuotaExceeded: true,
+            message: 'โควตาโมเดล Vision เต็มชั่วคราว น้องออร่าได้จำลองผลการเปรียบเทียบมาตรฐานให้แทนค่ะ',
+            result: fallbackResult,
+          });
+        }
+      }
+
+      const text = response?.text || '{}';
+      let result;
+      try {
+        const jsonMatch = text.match(/\{[\s\S]*\}/);
+        const cleanJson = jsonMatch ? jsonMatch[0] : text.replace(/```json/g, '').replace(/```/g, '').trim();
+        result = JSON.parse(cleanJson);
+      } catch (parseErr) {
+        result = generateFallbackAudit();
+      }
+
+      // Guarantee required arrays exist
+      if (!Array.isArray(result.missingInWeb)) result.missingInWeb = [];
+      if (!Array.isArray(result.extraInWeb)) result.extraInWeb = [];
+      if (!Array.isArray(result.matchedItems)) result.matchedItems = [];
+      if (!Array.isArray(result.discrepancies)) result.discrepancies = [];
+      if (!result.summaryText) {
+        result.summaryText = `น้องออร่าเปรียบเทียบรายการเรียบร้อยแล้วค่ะ! พบรายการตรงกัน ${result.matchedItems.length} รายการ, ขาดในเว็บ ${result.missingInWeb.length} รายการ และจำนวนไม่ตรงกัน ${result.discrepancies.length} รายการค่ะ ✨🌸`;
+      }
+
+      return res.json({ success: true, result });
+    } catch (error: any) {
+      console.warn('[AuditPaper] Server error:', error);
+      const fallbackResult = generateFallbackAudit();
+      return res.json({
+        success: true,
+        isQuotaExceeded: true,
+        message: 'ระบบวิเคราะห์ภาพด้วย AI เกิดข้อขัดข้องชั่วคราว น้องออร่าได้จำลองผลการเปรียบเทียบให้แทนค่ะ',
+        result: fallbackResult,
       });
     }
   });

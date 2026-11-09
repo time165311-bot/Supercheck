@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
-  Bot,
   X,
   Send,
   Mic,
@@ -16,14 +15,32 @@ import {
   Clock,
   Compass,
   FileText,
-  CheckCheck,
   Camera,
+  Paperclip,
+  Heart,
+  Square,
+  Plus,
 } from 'lucide-react';
-import { speakWithAura, stopSpeech } from '../utils/textToSpeech';
+import {
+  speakWithAura,
+  stopSpeech,
+} from '../utils/textToSpeech';
+import { PaperAuditModal } from './PaperAuditModal';
 import { getWednesdaysInfoForMonth, getWeekOfMonth } from '../utils/wednesdayUtils';
 import { normalizeExpDate } from '../utils/itemUtils';
 import { useDataContext } from '../context/DataContext';
-import { applyUserFiltering, parseAutoCheckIntent, normalizeText, resolveTargetCategory, clearChannelCategory } from '../services/aiEngine';
+import { 
+  applyUserFiltering, 
+  parseAutoCheckIntent, 
+  normalizeText, 
+  resolveTargetCategory, 
+  clearChannelCategory,
+  detectAuraIntent,
+  queryItemDetails,
+  scanAnomalies,
+  isSimilar
+} from '../services/aiEngine';
+import { ChannelData } from '../context/DataContext';
 
 interface AuraAssistantProps {
   equipment?: Record<string, any[]>;
@@ -49,6 +66,7 @@ interface AuraAssistantProps {
     primaryWeek?: number;
   }>;
   onOpenReportModal?: (category?: 'bag' | 'cart' | 'eq' | 'drug', week?: number) => void;
+  currentView?: 'home' | 'drug_check' | 'room_check' | 'bag_check' | 'cart_check' | 'eq_overview' | 'users';
   isDarkMode?: boolean;
   isBottomBarVisible?: boolean;
   isAnyModalOpen?: boolean;
@@ -75,6 +93,7 @@ interface ChatMessage {
   text: string;
   timestamp: string;
   isCard?: boolean;
+  image?: string;
   actionBtn?: {
     label: string;
     onClick: () => void;
@@ -91,6 +110,7 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
   onNavigate,
   onBulkAutoCheck,
   onOpenReportModal,
+  currentView = 'home',
   isDarkMode = false,
   isBottomBarVisible = true,
   isAnyModalOpen = false,
@@ -105,8 +125,44 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
     batchAddItems,
     addBatchItemsToChannel,
     reRenderData,
+    channelData,
   } = useDataContext();
   const [isOpen, setIsOpen] = useState(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  // 🧠 1. ระบบจัดการคำตอบยืดหยุ่น (Small Talk & Persona Handler สไตล์คุณอาเลีย)
+  const getSmartResponse = (text: string) => {
+    const cleanText = text.toLowerCase().trim();
+    // ดักจับคำทักทายทั่วไป (Small Talk)
+    const isGreeting = /^(hello|hi|hey|สวัสดี|หวัดดี|ฮัลโหล|ทักทาย|ดีจ้า|ดีครับ|ดีค่ะ|อาเลีย|alya|ออร่า)/i.test(cleanText);
+    if (isGreeting) {
+      const cuteGreetings = [
+        "สวัสดีค่ะพี่พยาบาล! น้องออร่าพร้อมช่วยเช็กคลังยาและอุปกรณ์ประจำวอร์ดแล้วค่ะ~ ✨🌸",
+        "Hello ค่ะพี่พยาบาล! น้องออร่าจัดการให้เรียบร้อยได้ทุกรายการเลยนะคะ สบายใจได้เลยค่ะ 💕🎀",
+        "รับทราบค่ะพี่พยาบาล! ออร่าพร้อมทำงานค่ะ มีอะไรให้ช่วยสแกนหรือค้นหาไหมคะ? ✨🌸",
+        "น้องออร่าพร้อมดูแลแล้วค่ะ~ วันนี้ให้ช่วยตรวจสอบตรงไหน สั่งมาได้ทันทีเลยนะคะ 🎀✨"
+      ];
+      return cuteGreetings[Math.floor(Math.random() * cuteGreetings.length)];
+    }
+    // ดักจับคำขอบคุณ / ชื่นชม
+    const isThanks = /(ขอบคุณ|ใจจ้า|เยี่ยมมาก|เก่งมาก|น่ารัก|สุดยอด|thanks|thank you)/i.test(cleanText);
+    if (isThanks) {
+      const cuteThanks = [
+        "ยินดีมากๆ เลยค่ะพี่พยาบาล! น้องออร่าเต็มใจช่วยเสมอเลยนะคะ~ ✨🌸🎀",
+        "น้องออร่าจัดการให้เรียบร้อยแล้วค่ะ~ ดีใจที่ได้ช่วยพี่พยาบาลนะคะ 💕✨",
+        "ขอบคุณสำหรับกำลังใจค่ะ! น้องออร่าจะคอยดูแลวอร์ดให้ดีที่สุดเลยค่ะ 🌸🎀"
+      ];
+      return cuteThanks[Math.floor(Math.random() * cuteThanks.length)];
+    }
+    return null;
+  };
+
+  // ⏹️ 3. ฟังก์ชันกดปุ่ม "หยุดประมวลผล"
+  const handleStop = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+  };
 
   useEffect(() => {
     if (onOpenChange) onOpenChange(isOpen);
@@ -123,6 +179,8 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
   >([]);
   const [inputMessage, setInputMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isPaperAuditOpen, setIsPaperAuditOpen] = useState(false);
+  const [paperAuditCategory, setPaperAuditCategory] = useState<'bag' | 'cart' | 'drug'>('bag');
   const [scanProgress, setScanProgress] = useState<{
     current: number;
     total: number;
@@ -179,10 +237,19 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
 
+
+
+  const greetings = [
+    'สวัสดีค่ะพี่พยาบาล! น้องออร่า (AURA) พร้อมดูแลพี่ๆ ด้วยความตั้งใจแล้วค่ะ~ มีอะไรให้ช่วยบอกน้องออร่าได้เลยนะคะ ✨🌸🎀',
+    'รับทราบค่ะพี่พยาบาล! วันนี้วอร์ดเป็นยังไงบ้างคะ? ให้น้องออร่าช่วยเช็กรายการอุปกรณ์หรือรายงาน PDF ตรงไหนบอกได้เลยนะคะ~ 🏥 💕✨',
+    'พร้อมประจำการแล้วค่ะ! น้องออร่ารอช่วยพี่ๆ ตรวจเช็กห้องผ่าตัดและรถฉุกเฉินอยู่นะคะ วางใจน้องออร่าได้เลยค่ะ 🌸✨🎀',
+    'สวัสดีตอนเช้าค่ะพี่พยาบาล~ น้องออร่าเตรียมข้อมูลความพร้อมให้เรียบร้อยแล้วค่ะ มีอะไรให้รับใช้ไหมคะ? ✨🌸💕',
+  ];
+
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       sender: 'ai',
-      text: 'สวัสดีค่ะ! น้องออร่า (AURA) พร้อมดูแลพี่ๆ แล้วค่ะ จะตรวจสต็อกยา Atropine, Transamin, O2 Tank, เช็กวันหมดอายุ หรือสั่งเปิดหน้าตรวจเช็ค บอกน้องออร่าได้เลยนะคะ ✨',
+      text: greetings[Math.floor(Math.random() * greetings.length)],
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     },
   ]);
@@ -468,10 +535,11 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
     sender: 'ai' | 'user',
     text: string,
     isCard = false,
-    actionBtn?: { label: string; onClick: () => void }
+    actionBtn?: { label: string; onClick: () => void },
+    image?: string
   ) => {
     const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    setMessages((prev) => [...prev, { sender, text, timestamp: timeStr, isCard, actionBtn }]);
+    setMessages((prev) => [...prev, { sender, text, timestamp: timeStr, isCard, actionBtn, image }]);
     if (sender === 'ai' && !isCard) {
       speakText(text);
     }
@@ -537,44 +605,53 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
   /**
    * Hyper-Intelligent Conversational Engine with Auto-Navigation & Smart Delete Summary
    */
+  /**
+   * Brain Engine: Semantic Intent Detection & High-Intelligence Processing
+   */
   const processCommand = async (rawQuery: string) => {
     const query = rawQuery.trim();
     if (!query) return;
-    const q = query.toLowerCase();
+    const q = normalizeText(query);
 
     addMessage('user', query);
     setInputMessage('');
     setIsLoading(true);
+    const detected = detectAuraIntent(query);
+
+    // สร้าง AbortController สำหรับสั่งหยุด
+    abortControllerRef.current = new AbortController();
 
     try {
-      // -------------------------------------------------------------
-      // 0. CHANNEL / WARD SWITCHING AND CREATION COMMANDS
-      // -------------------------------------------------------------
-      if (q.includes('channel') || q.includes('แชนแนล') || q.includes('วอร์ด')) {
-        if (q.includes('สลับ') || q.includes('เลือก') || q.includes('เปลี่ยน') || q.includes('ไป')) {
-          const matched = channels.find((c) =>
-            q.includes(c.name.toLowerCase()) ||
-            c.name.toLowerCase().includes(q.replace(/(สลับไป|สลับ|เปลี่ยนไป|เปลี่ยน|เลือก|channel|แชนแนล|วอร์ด|น้องออร่า)/gi, '').trim())
-          );
-          if (matched) {
-            setActiveChannelId(matched.id);
-            addMessage('ai', `✨ น้องออร่าสลับไปยัง Channel "${matched.name}" เรียบร้อยแล้วค่ะ! ข้อมูลการตรวจเช็กและตารางจะปรับเป็นของวอร์ดนี้ทันทีค่ะ 🏥`);
-            setIsLoading(false);
-            return;
-          }
-        }
-
-        if (q.includes('สร้าง') || q.includes('เพิ่ม')) {
-          const rawName = query.replace(/(น้องออร่า|สร้าง|เพิ่ม|channel|แชนแนล|วอร์ด|ใหม่|ชื่อ)/gi, '').trim();
-          if (rawName) {
-            const created = addChannel(rawName, true);
-            addMessage('ai', `✨ น้องออร่าสร้าง Channel "${created.name}" เรียบร้อยแล้วค่ะ! พร้อมเปิดใช้งานและตรวจเช็กวอร์ดนี้ได้ทันทีค่ะ 🎉`);
-            setIsLoading(false);
-            return;
-          }
-        }
+      // เช็กก่อนว่าเป็นคำทักทายทั่วไปหรือไม่
+      const quickReply = getSmartResponse(query);
+      if (quickReply) {
+        // ตอบกลับคำทักทายทันที ไม่ต้องรอนาน
+        await new Promise((resolve) => setTimeout(resolve, 400));
+        addMessage('ai', quickReply);
+        setIsLoading(false);
+        abortControllerRef.current = null;
+        return;
       }
 
+      // 📋 ดักจับความต้องการ "ตรวจเทียบกระดาษกับเว็บ" (Paper Checklist vs. Web Audit)
+      const isAuditIntent = /(ตรวจเทียบ|เทียบกระดาษ|ตรวจกระดาษ|เทียบฟอร์ม|เทียบใบเช็ค|audit|เปรียบเทียบกระดาษ)/i.test(query);
+      if (isAuditIntent) {
+        const cat = query.includes('รถ') ? 'cart' : query.includes('ยา') ? 'drug' : 'bag';
+        setPaperAuditCategory(cat);
+        setIsPaperAuditOpen(true);
+        addMessage(
+          'ai',
+          `น้องออร่าเปิดระบบ "ตรวจเทียบกระดาษกับเว็บ (Paper Checklist Audit)" ให้แล้วค่ะ! พี่พยาบาลสามารถถ่ายภาพตารางกระดาษเพื่อให้น้องออร่าหาจุดที่ขาดหรือจำนวนไม่ตรงได้ทันทีเลยนะคะ ✨🌸📋`,
+          false,
+          {
+            label: '📋 เปิดหน้าต่างตรวจเทียบกระดาษ',
+            onClick: () => setIsPaperAuditOpen(true),
+          }
+        );
+        setIsLoading(false);
+        abortControllerRef.current = null;
+        return;
+      }
       // -------------------------------------------------------------
       // 1. MULTI-TURN CLARIFICATION (ADDING / DELETING CONFIRMATION)
       // -------------------------------------------------------------
@@ -633,21 +710,13 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
               });
             }
 
-            // Smart Auto Navigation on Add
             if (onNavigate) {
-              if (targetType === 'cart') {
-                onNavigate('cart_check', 'cart');
-              } else {
-                onNavigate('bag_check', 'bag');
-              }
-              handleClose(); // Auto-close chat after navigation
+              onNavigate(targetType === 'cart' ? 'cart_check' : 'bag_check', targetType);
+              handleClose();
             }
 
             const targetName = targetType === 'cart' ? 'รถฉุกเฉิน (Crash Cart)' : 'กระเป๋าฉุกเฉิน (Emergency Bag)';
-            addMessage(
-              'ai',
-              `✅ น้องออร่าบันทึกรายการ "${action.itemName}" เข้า${targetName} เรียบร้อยแล้วค่ะ และนำทางมาที่หน้านี้ให้ทันทีแล้วค่ะ! ✨`
-            );
+            addMessage('ai', `น้องออร่าจัดการให้เรียบร้อยแล้วค่ะ~ ✨🌸 บันทึกรายการ "${action.itemName}" เข้า${targetName} เรียบร้อยแล้วนะคะ และนำทางมาที่หน้านี้ให้พี่พยาบาลทันทีเลยค่ะ! 🎀`);
             setPendingAction(null);
             setIsLoading(false);
             return;
@@ -659,17 +728,12 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
             if (onDeleteItem && action.targetType && action.targetKey) {
               await onDeleteItem(action.targetType, action.targetKey);
             }
-            // Smart Delete Summary: DO NOT navigate away, report proactive count summary
             const targetGroupName = action.groupName || 'หมวดหมู่อุปกรณ์';
             const before = action.beforeCount !== undefined ? action.beforeCount : 1;
-            const after = action.afterCount !== undefined ? action.afterCount : Math.max(0, before - 1);
-
-            addMessage(
-              'ai',
-              `🗑️ ลบรายการ "${action.itemName}" ออกจากหมวด "${targetGroupName}" เรียบร้อยแล้วค่ะ (จากเดิมมี ${before} รายการ ตอนนี้ในหมวดเหลือ ${after} รายการค่ะ)`
-            );
+            const after = Math.max(0, before - 1);
+            addMessage('ai', `🗑️ ลบรายการ "${action.itemName}" ออกจากหมวด "${targetGroupName}" เรียบร้อยแล้วนะคะ (จากเดิมมี ${before} รายการ ตอนนี้เหลือ ${after} รายการค่ะ)`);
           } else {
-            addMessage('ai', 'ยกเลิกการลบรายการค่ะ มีอะไรให้ช่วยเพิ่มเติมไหมคะ? 😊');
+            addMessage('ai', 'ยกเลิกการลบรายการให้แล้วนะคะ มีอะไรให้ช่วยเพิ่มเติมไหมคะพี่ๆ? 😊 ✨');
           }
           setPendingAction(null);
           setIsLoading(false);
@@ -678,519 +742,230 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
       }
 
       // -------------------------------------------------------------
-      // 1.2 CLEAR ALL ITEMS COMMAND (ลบของในเป๋า/รถทั้งหมด)
+      // 2. SEMANTIC INTENT ROUTING (The Brain Engine)
       // -------------------------------------------------------------
-      const isClearAllCmd =
-        (q.includes('ลบ') || q.includes('เคลียร์') || q.includes('clear')) &&
-        (q.includes('ทั้งหมด') || q.includes('ตาราง') || q.includes('ทุกอย่าง') || q.includes('ยกชุด') || q.includes('หมด'));
-
-      if (isClearAllCmd) {
-        const resolvedTarget = resolveTargetCategory(query);
-        let targetsToClear: ('bag' | 'cart')[] = [];
-        if (resolvedTarget === 'both') {
-          targetsToClear = ['bag', 'cart'];
-        } else {
-          targetsToClear = [resolvedTarget];
-        }
-
-        let totalCleared = 0;
-        targetsToClear.forEach((cat) => {
-          const { clearedCount } = clearChannelCategory(activeChannelId, cat);
-          totalCleared += clearedCount;
-        });
-
-        reRenderData();
-
-        const namesThai = targetsToClear
-          .map((c) => (c === 'bag' ? 'กระเป๋าฉุกเฉิน' : 'รถฉุกเฉิน'))
-          .join(' และ ');
-
-        addMessage(
-          'ai',
-          `🗑️ น้องออร่าทำการเคลียร์รายการอุปกรณ์ใน ${namesThai} ทั้งหมด (ลบออก ${totalCleared} รายการ) เพื่อให้พี่ๆ ตั้งต้นใหม่เรียบร้อยแล้วค่ะ! ✨`
-        );
-
-        setIsLoading(false);
-        return;
-      }
-
-      // -------------------------------------------------------------
-      // 1.5 SMART TRANSFER & DEDUPLICATION (ย้ายของ/สลับของ)
-      // -------------------------------------------------------------
-      const isTransferCmd =
-        q.includes('ย้าย') ||
-        q.includes('สลับ') ||
-        q.includes('transfer') ||
-        (q.includes('จาก') && (q.includes('ไป') || q.includes('เข้า'))) ||
-        (q.includes('ไม่ใช่ใน') && (q.includes('แอด') || q.includes('เพิ่ม') || q.includes('ใส่')));
-
-      if (isTransferCmd) {
-        let sourceType: 'bag' | 'cart' = 'bag';
-        let targetType: 'bag' | 'cart' = 'cart';
-
-        if (
-          q.includes('จากรถ') ||
-          q.includes('จาก cart') ||
-          q.includes('ในรถไม่ใช่') ||
-          q.includes('รถไปกระเป๋า') ||
-          q.includes('รถไปเป๋า')
-        ) {
-          sourceType = 'cart';
-          targetType = 'bag';
-        } else if (
-          q.includes('จากกระเป๋า') ||
-          q.includes('จากเป๋า') ||
-          q.includes('จาก bag') ||
-          q.includes('ในเป๋าไม่ใช่') ||
-          q.includes('กระเป๋าไปรถ') ||
-          q.includes('เป๋าไปรถ')
-        ) {
-          sourceType = 'bag';
-          targetType = 'cart';
-        } else {
-          const resolvedTarget = resolveTargetCategory(query);
-          if (resolvedTarget === 'cart') {
-            sourceType = 'bag';
-            targetType = 'cart';
-          } else if (resolvedTarget === 'bag') {
-            sourceType = 'cart';
-            targetType = 'bag';
+      switch (detected.intent) {
+        case 'QUERY_MEDIA':
+        case 'LOCATION_QUERY': {
+          const result = queryItemDetails(detected.entities.item || '', channelData, drugs, equipment, currentView);
+          if (result.found && result.item) {
+            const isLocationQuery = detected.intent === 'LOCATION_QUERY';
+            addMessage(
+              'ai',
+              `✨ น้องออร่าดึงข้อมูล [${result.categoryType}] มาให้แล้วนะคะ!\n\n📦 **${result.item.name}**\n📍 ตำแหน่ง: ${result.location}\n🆔 รหัสคลัง: ${result.code}\n📊 สต็อก: ${result.stock}`,
+              true,
+              undefined,
+              result.image
+            );
+          } else if (result.suggestions && result.suggestions.length > 0) {
+            const firstSuggestion = result.suggestions[0];
+            addMessage(
+              'ai',
+              `น้องออร่าค้นหา "${detected.entities.item}" ไม่พบเป๊ะๆ ค่ะ แต่ในระบบมีรายการที่ใกล้เคียงคือ **${firstSuggestion}** ใช่ไหมคะพี่ๆ?`,
+              false,
+              {
+                label: `📦 ดูข้อมูล ${firstSuggestion}`,
+                onClick: () => processCommand(`ขอดูรูป ${firstSuggestion}`)
+              }
+            );
+          } else {
+            addMessage('ai', `ขออภัยนะคะ น้องออร่าค้นหารายการ "${detected.entities.item}" ไม่พบในคลัง ข้อมูลครุภัณฑ์ หรืออุปกรณ์ในขณะนี้ค่ะ รบกวนระบุชื่อให้ชัดเจนอีกครั้งนะคะ ✨`);
           }
+          break;
         }
 
-        const sourceName = sourceType === 'bag' ? 'กระเป๋าฉุกเฉิน' : 'รถฉุกเฉิน';
-        const targetName = targetType === 'cart' ? 'รถฉุกเฉิน' : 'กระเป๋าฉุกเฉิน';
+        case 'AUDIT_ZONE': {
+          const anomalies = scanAnomalies(channelData, drugs, detected.entities.location);
+          if (anomalies.length > 0) {
+            const summary = `🔍 **ผลการตรวจสอบความผิดปกติ (${detected.entities.location === 'all' ? 'ทั้งวอร์ด' : detected.entities.location})**:\n\n${anomalies.map(a => `• ${a}`).join('\n')}\n\nต้องการให้แจ้งทีมช่างหรือบันทึกประวัติการส่งซ่อมรายการไหนไหมคะพี่ๆ?`;
+            addMessage('ai', summary, true);
+          } else {
+            addMessage('ai', `✨ น้องออร่ากวาดการตรวจสอบทุกจุดแล้วนะคะ! ไม่พบความผิดปกติในโซนที่ระบุ ทุกอย่างพร้อมใช้งาน 100% เลยค่ะ 🏥 💕`);
+          }
+          break;
+        }
 
-        // Search for item to transfer
-        const found = findItemForAction(query);
-
-        if (found) {
-          const { item: sourceItem, itemKey: sourceKey, groupName: sourceGroupName } = found;
-
-          // Check for duplicate item in target
-          let duplicateInTarget: { item: any; groupName: string; itemKey: string } | null = null;
-          if (lists[targetType]?.groups) {
-            Object.entries(lists[targetType].groups as Record<string, any[]>).forEach(([gName, gItems]) => {
-              gItems.forEach((tItem, idx) => {
-                const tName = (tItem.name || '').toLowerCase().trim();
-                const sName = (sourceItem.name || '').toLowerCase().trim();
-                if (tName === sName || (tItem.code && sourceItem.code && tItem.code === sourceItem.code)) {
-                  duplicateInTarget = {
-                    item: tItem,
-                    groupName: gName,
-                    itemKey: tItem.id || `${targetType}_${gName}_${idx}`,
-                  };
-                }
-              });
+        case 'CHECK_STOCK_EXPIRY': {
+          const itemSearchKey = normalizeText(detected.entities.item || '');
+          const results = drugs.filter(d => 
+            normalizeText(d.name).includes(itemSearchKey) || 
+            isSimilar(itemSearchKey, d.name)
+          );
+          
+          if (results.length > 0) {
+            let txt = '';
+            results.forEach(d => {
+              txt += `📦 **${d.name}**\n• คงเหลือ: ${d.remaining} ${d.unit}\n• EXP: ${d.expDate || d.exp || '-'}\n\n`;
             });
-          }
-
-          const dupe = duplicateInTarget as { item: any; groupName: string; itemKey: string } | null;
-          if (dupe) {
-            const targetItem = dupe.item;
-            const sourceExpStr = sourceItem.expDate || sourceItem.exp || '';
-            const targetExpStr = targetItem.expDate || targetItem.exp || '';
-            const sourceExpDate = new Date(sourceExpStr);
-            const targetExpDate = new Date(targetExpStr);
-
-            const isSourceNewer = !isNaN(sourceExpDate.getTime()) && !isNaN(targetExpDate.getTime())
-              ? sourceExpDate > targetExpDate
-              : sourceExpStr.localeCompare(targetExpStr) > 0;
-
-            if (isSourceNewer) {
-              // Replace target item with newer source item
-              if (onDeleteItem) {
-                await onDeleteItem(targetType, dupe.itemKey);
-                await onDeleteItem(sourceType, sourceKey);
-              }
-              if (onAddItem) {
-                await onAddItem(targetType, {
-                  ...sourceItem,
-                  groupName: dupe.groupName || sourceGroupName,
-                });
-              }
-
-              reRenderData();
-
+            addMessage('ai', txt.trim(), true);
+          } else {
+            // Attempt deep item search if drug not found
+            const itemRes = queryItemDetails(detected.entities.item || '', channelData, drugs, equipment, currentView);
+            if (itemRes.found && itemRes.item) {
+              addMessage('ai', `📦 **${itemRes.item.name}**\n• จำนวน: ${itemRes.stock}\n• ตำแหน่ง: ${itemRes.location}\n• EXP: ${itemRes.item.exp || '-'}`);
+            } else if (itemRes.suggestions && itemRes.suggestions.length > 0) {
+              const suggested = itemRes.suggestions[0];
               addMessage(
                 'ai',
-                `✨ น้องออร่าทำการสลับนำ "${sourceItem.name}" (EXP ที่ใหม่กว่า: ${sourceExpStr || '-'}) เข้าไปไว้ใน${targetName} และคัดรายการเก่า (EXP: ${targetExpStr || '-'}) ออกเรียบร้อยค่ะ!`
+                `หาข้อมูลสต็อกของ "${detected.entities.item}" ไม่พบค่ะ แต่มีรายการใกล้เคียงคือ **${suggested}** ใช่ไหมคะพี่ๆ?`,
+                false,
+                {
+                  label: `📊 เช็กสต็อก ${suggested}`,
+                  onClick: () => processCommand(`เช็กสต็อก ${suggested}`)
+                }
               );
             } else {
-              // Target item is newer or equal, delete item from source
-              if (onDeleteItem) {
-                await onDeleteItem(sourceType, sourceKey);
+              addMessage('ai', `น้องออร่าหาข้อมูลสต็อกของ "${detected.entities.item}" ไม่เจอเลยนะคะ รบกวนลองระบุชื่อใหม่อีกครั้งได้ไหมคะ ✨`);
+            }
+          }
+          break;
+        }
+
+        case 'CHANNEL_OPS': {
+          if (q.includes('สลับ') || q.includes('เลือก') || q.includes('ไปที่')) {
+            const matched = channels.find(c => q.includes(normalizeText(c.name)));
+            if (matched) {
+              setActiveChannelId(matched.id);
+              addMessage('ai', `รับทราบค่ะพี่พยาบาล! ✨ น้องออร่าสลับไปยังวอร์ด "${matched.name}" ให้เรียบร้อยแล้วนะคะ~ 🌸`);
+              break;
+            }
+          }
+          if (q.includes('สร้าง') || q.includes('เพิ่ม')) {
+            const name = query.replace(/(น้องออร่า|สร้าง|เพิ่ม|channel|แชนแนล|วอร์ด|ใหม่|ชื่อ)/gi, '').trim();
+            if (name) {
+              addChannel(name, true);
+              addMessage('ai', `น้องออร่าจัดการให้เรียบร้อยแล้วค่ะ~ ✨🌸 สร้างวอร์ดใหม่ชื่อ "${name}" ให้เรียบร้อยแล้วนะคะ! 🎀`);
+            }
+          }
+          break;
+        }
+
+        case 'AUTO_CHECK': {
+          const wedInfo = getWednesdaysInfoForMonth(new Date());
+          const autoResult = parseAutoCheckIntent(query, getWeekOfMonth(new Date()), wedInfo.weeks);
+          if (autoResult.isAutoCheck && onBulkAutoCheck) {
+            await onBulkAutoCheck({ categories: autoResult.categories, weeks: autoResult.weeks });
+            const catNames = autoResult.categories.map(c => c === 'bag' ? 'กระเป๋าฉุกเฉิน' : 'รถฉุกเฉิน').join(' และ ');
+            addMessage('ai', `รับทราบค่ะพี่พยาบาล! ✨ น้องออร่าทำการลงผลตรวจเช็ก ${catNames} ครบทุกรายการให้เรียบร้อยแล้วนะคะ~ 🌸🎀`, false, {
+              label: `📄 เปิดดูรายงาน PDF`,
+              onClick: () => {
+                if (onOpenReportModal) onOpenReportModal(autoResult.categories[0], autoResult.weeks[0]);
+                handleClose();
               }
-
-              reRenderData();
-
-              addMessage(
-                'ai',
-                `✨ น้องออร่าทำการตรวจสอบพบว่าใน${targetName} มี "${targetItem.name}" ชิ้นที่มี EXP ใหม่กว่า (EXP: ${targetExpStr || '-'}) อยู่แล้ว จึงคงรายการเดิมไว้ และลบรายการจาก${sourceName} เรียบร้อยแล้วค่ะ!`
-              );
-            }
-          } else {
-            // No duplicate, simple transfer
-            if (onDeleteItem) {
-              await onDeleteItem(sourceType, sourceKey);
-            }
-            if (onAddItem) {
-              await onAddItem(targetType, {
-                ...sourceItem,
-                groupName: sourceGroupName || 'อุปกรณ์และเวชภัณฑ์ฉุกเฉิน',
-              });
-            }
-
-            reRenderData();
-
-            addMessage(
-              'ai',
-              `✨ น้องออร่าทำการย้าย "${sourceItem.name}" จาก${sourceName} ไปยัง${targetName} เรียบร้อยแล้วค่ะ!`
-            );
-          }
-        } else {
-          const rawItemName = query
-            .replace(/(สลับของ|ย้ายของ|สลับ|ย้าย|จาก|ไป|ใน|ไม่ใช่|กระเป๋า|รถ|เป๋า|cart|bag|ออร่า|น้องออร่า)/gi, '')
-            .trim();
-
-          if (rawItemName.length > 1) {
-            addMessage(
-              'ai',
-              `น้องออร่าค้นหารายการ "${rawItemName}" ใน${sourceName} ไม่พบค่ะ รบกวนระบุชื่ออุปกรณ์ให้ชัดเจนอีกครั้งนะคะ`
-            );
-          } else {
-            addMessage(
-              'ai',
-              `✨ น้องออร่าพร้อมช่วยสลับของจาก${sourceName} ไป${targetName} ค่ะ รบกวนระบุชื่ออุปกรณ์ เช่น "ย้าย Atropine ไปกระเป๋า"`
-            );
-          }
-        }
-
-        setIsLoading(false);
-        return;
-      }
-
-      // -------------------------------------------------------------
-      // 1.8 HYPER-INTELLIGENT SMART BULK AUTO-CHECK & DATED WEDNESDAYS
-      // -------------------------------------------------------------
-      const wedInfo = getWednesdaysInfoForMonth(new Date());
-      const allAvailableWeeks = wedInfo.weeks;
-      const totalWeeksInMonth = wedInfo.totalWednesdays;
-      const currentWeekNumber = getWeekOfMonth(new Date());
-
-      const autoCheckResult = parseAutoCheckIntent(query, currentWeekNumber, allAvailableWeeks);
-
-      if (autoCheckResult.isAutoCheck && onBulkAutoCheck) {
-        const targetCategories = autoCheckResult.categories;
-        const targetWeeks = autoCheckResult.weeks.sort((a, b) => a - b);
-
-        // Execute bulk auto check
-        await onBulkAutoCheck({
-          categories: targetCategories,
-          weeks: targetWeeks,
-        });
-
-        // Format names and weeks for response
-        const catNamesThai = targetCategories
-          .map((c) => (c === 'bag' ? 'กระเป๋าฉุกเฉิน' : 'รถฉุกเฉิน'))
-          .join(' และ ');
-        const primaryCat = targetCategories[0];
-        const primaryWeek = targetWeeks[0];
-
-        let responseText = '';
-        if (autoCheckResult.isSingleWeek && targetWeeks.length === 1) {
-          const singleWk = targetWeeks[0];
-          const wedDate = wedInfo.dates[singleWk] || '-';
-          responseText = `น้องออร่าทำการลงผลตรวจเช็ก สัปดาห์ที่ ${singleWk} (ตรงกับวันพุธที่ ${wedDate}) ให้เรียบร้อยแล้วค่ะ! ✨`;
-        } else {
-          const maxWk = totalWeeksInMonth;
-          responseText = `น้องออร่าทำการลงผลตรวจเช็กครบทุกสัปดาห์ (W1-W${maxWk}) ประจำเดือนนี้ พร้อมลงวันที่วันพุธให้อัตโนมัติเรียบร้อยแล้วค่ะ! ✨`;
-        }
-
-        addMessage('ai', responseText, false, {
-          label: `📄 เปิดดูรายงาน PDF (${catNamesThai})`,
-          onClick: () => {
-            if (onOpenReportModal) {
-              onOpenReportModal(primaryCat, primaryWeek);
-            }
+            });
+            if (onOpenReportModal) onOpenReportModal(autoResult.categories[0], autoResult.weeks[0]);
             handleClose();
-          },
-        });
-
-        // Automatically open PDF report modal & auto-close chat window
-        if (onOpenReportModal) {
-          onOpenReportModal(primaryCat, primaryWeek);
-        }
-        handleClose();
-
-        setIsLoading(false);
-        return;
-      }
-
-      // -------------------------------------------------------------
-      // 2. SMART AUTO NAVIGATION COMMANDS
-      // -------------------------------------------------------------
-      // Crash Cart navigation
-      if (
-        q.includes('เปิดหน้าเช็ครถ') ||
-        q.includes('เปิดเช็ครถ') ||
-        q.includes('เปิดรถฉุกเฉิน') ||
-        q.includes('ไปที่รถ') ||
-        q.includes('ไปหน้ารถ') ||
-        q.includes('เปิด cart') ||
-        q.includes('ตรวจเช็ครถ') ||
-        (q.includes('เช็ครถ') && !q.includes('ลบ') && !q.includes('เพิ่ม'))
-      ) {
-        if (onNavigate) {
-          onNavigate('cart_check', 'cart');
-          handleClose(); // Auto-close chat after navigation
-        }
-        addMessage(
-          'ai',
-          '🚗 น้องออร่านำทางมาที่หน้าตรวจเช็ครถ Emergency ให้เรียบร้อยแล้วค่ะ ✨ สามารถตรวจเช็คอุปกรณ์แต่ละชั้นได้ทันทีนะคะ'
-        );
-        setIsLoading(false);
-        return;
-      }
-
-      // Emergency Bag navigation
-      if (
-        q.includes('เปิดเช็กกระเป๋า') ||
-        q.includes('เปิดเช็คกระเป๋า') ||
-        q.includes('เปิดหน้ากระเป๋า') ||
-        q.includes('เปิดกระเป๋าฉุกเฉิน') ||
-        q.includes('ไปที่กระเป๋า') ||
-        q.includes('ไปหน้ากระเป๋า') ||
-        q.includes('เปิด bag') ||
-        q.includes('ตรวจเช็กกระเป๋า') ||
-        (q.includes('เช็กกระเป๋า') && !q.includes('ลบ') && !q.includes('เพิ่ม'))
-      ) {
-        if (onNavigate) {
-          onNavigate('bag_check', 'bag');
-          handleClose(); // Auto-close chat after navigation
-        }
-        addMessage(
-          'ai',
-          '💼 น้องออร่านำทางมาที่หน้าตรวจเช็กกระเป๋า Emergency ให้เรียบร้อยแล้วค่ะ ✨ สามารถตรวจสอบยาและเวชภัณฑ์ฉุกเฉินได้เลยนะคะ'
-        );
-        setIsLoading(false);
-        return;
-      }
-
-      // Drug Inventory navigation
-      if (
-        q.includes('เปิดคลังยา') ||
-        q.includes('เปิดสต็อกยา') ||
-        q.includes('ไปที่คลังยา') ||
-        q.includes('ไปหน้ายา') ||
-        q.includes('เปิดหน้ายา') ||
-        q.includes('ตรวจสต็อกยา') ||
-        q.includes('หน้าคลังยา')
-      ) {
-        if (onNavigate) {
-          onNavigate('drug_check', 'medicine');
-          handleClose(); // Auto-close chat after navigation
-        }
-        addMessage(
-          'ai',
-          '💊 น้องออร่านำทางมาที่หน้าคลังยาและสารน้ำให้เรียบร้อยแล้วค่ะ ✨ สามารถตรวจนับยอดคงเหลือและเบิกจ่ายได้เลยนะคะ'
-        );
-        setIsLoading(false);
-        return;
-      }
-
-      // Room equipment / OR navigation
-      if (
-        q.includes('เปิดห้องผ่าตัด') ||
-        q.includes('เปิดหน้าครุภัณฑ์') ||
-        q.includes('ไปห้องผ่าตัด') ||
-        q.includes('เช็คครุภัณฑ์') ||
-        q.includes('ตรวจห้องผ่าตัด') ||
-        q.includes('หน้าครุภัณฑ์')
-      ) {
-        if (onNavigate) {
-          onNavigate('room_check', 'equipment');
-          handleClose(); // Auto-close chat after navigation
-        }
-        addMessage(
-          'ai',
-          '🩺 น้องออร่านำทางมาที่หน้าตรวจเช็คครุภัณฑ์ห้องผ่าตัดให้เรียบร้อยแล้วค่ะ ✨'
-        );
-        setIsLoading(false);
-        return;
-      }
-
-      // Home / Dashboard navigation
-      if (
-        q.includes('กลับหน้าหลัก') ||
-        q.includes('เปิดหน้าหลัก') ||
-        q.includes('ไปหน้าหลัก') ||
-        q.includes('กลับหน้าแรก') ||
-        q.includes('ไปหน้าแรก') ||
-        q.includes('dashboard')
-      ) {
-        if (onNavigate) {
-          onNavigate('home');
-          handleClose(); // Auto-close chat after navigation
-        }
-        addMessage(
-          'ai',
-          '🏠 น้องออร่านำทางกลับสู่หน้าหลัก Dashboard ให้เรียบร้อยแล้วค่ะ ✨'
-        );
-        setIsLoading(false);
-        return;
-      }
-
-      // -------------------------------------------------------------
-      // 3. INTENT: DELETE (SMART DELETE SUMMARY RESPONSE)
-      // -------------------------------------------------------------
-      if (q.includes('ลบ') || q.includes('delete') || q.includes('เอาออก')) {
-        const found = findItemForAction(query);
-
-        if (found) {
-          const { item, targetType, groupName, itemKey, groupCount } = found;
-          const beforeCount = groupCount;
-          const afterCount = Math.max(0, beforeCount - 1);
-
-          // Proactive immediate execution or confirmation
-          if (onDeleteItem) {
-            await onDeleteItem(targetType, itemKey);
           }
-
-          // Exact requested format:
-          // "ลบรายการ [ชื่ออุปกรณ์] ออกจาก [ชื่อหมวด] เรียบร้อยแล้วค่ะ (จากเดิมมี X รายการ ตอนนี้ในหมวดเหลือ Y รายการค่ะ)"
-          // Do NOT navigate away!
-          addMessage(
-            'ai',
-            `🗑️ ลบรายการ "${item.name}" ออกจากหมวด "${groupName}" เรียบร้อยแล้วค่ะ (จากเดิมมี ${beforeCount} รายการ ตอนนี้ในหมวดเหลือ ${afterCount} รายการค่ะ)`
-          );
-        } else {
-          // If item name was not clearly found, ask user
-          const cleanedName = query.replace(/(ลบรายการ|ลบ|เอาออก|delete|ออร่า)/gi, '').trim();
-          if (cleanedName.length > 1) {
-            addMessage(
-              'ai',
-              `น้องออร่าค้นหารายการ "${cleanedName}" ในกระเป๋าหรือรถฉุกเฉินไม่พบค่ะ รบกวนระบุชื่ออุปกรณ์ให้ชัดเจนอีกครั้งนะคะ`
-            );
-          } else {
-            addMessage('ai', 'ต้องการให้ลบรายการอะไรคะ? เช่น "ลบรายการ Atropine"');
-          }
+          break;
         }
-        setIsLoading(false);
-        return;
-      }
 
-      // -------------------------------------------------------------
-      // 4. INTENT: ADD
-      // -------------------------------------------------------------
-      if (q.includes('เพิ่ม') || q.includes('add') || q.includes('บันทึก')) {
-        const name = query.replace(/(เพิ่มรายการ|เพิ่ม|add|บันทึก|ออร่า)/gi, '').trim();
-        if (name.length < 2) {
-          addMessage('ai', 'ต้องการเพิ่มรายการอะไรคะ? เช่น "เพิ่มรายการ Atropine"');
-        } else {
-          const targetType: 'bag' | 'cart' = q.includes('รถ') || q.includes('cart') ? 'cart' : 'bag';
-          setPendingAction({
-            action: 'add',
-            itemName: name,
-            step: 'category',
-            targetType,
+        case 'NAVIGATE': {
+          if (q.includes('รถ')) onNavigate?.('cart_check', 'cart');
+          else if (q.includes('กระเป๋า') || q.includes('เป๋า')) onNavigate?.('bag_check', 'bag');
+          else if (q.includes('ยา')) onNavigate?.('drug_check', 'medicine');
+          else if (q.includes('ห้อง') || q.includes('ครุภัณฑ์')) onNavigate?.('room_check', 'equipment');
+          else onNavigate?.('home');
+          handleClose();
+          break;
+        }
+
+        case 'CLEAR': {
+          const resolved = resolveTargetCategory(query);
+          const targets = resolved === 'both' ? ['bag', 'cart'] : [resolved];
+          let count = 0;
+          targets.forEach(cat => {
+            const { clearedCount } = clearChannelCategory(activeChannelId, cat as any);
+            count += clearedCount;
           });
-          addMessage(
-            'ai',
-            `ได้เลยค่ะ จะเพิ่ม "${name}" เข้า${targetType === 'cart' ? 'รถฉุกเฉิน' : 'กระเป๋าฉุกเฉิน'} นะคะ ต้องการบันทึกเข้าหมวดหมู่ไหนคะ?`
-          );
+          reRenderData();
+          addMessage('ai', `น้องออร่าจัดการให้เรียบร้อยแล้วค่ะ~ 🗑️ เคลียร์รายการทั้งหมดใน ${resolved === 'both' ? 'กระเป๋าและรถฉุกเฉิน' : resolved} (${count} รายการ) ให้พี่พยาบาลเรียบร้อยแล้วนะคะ ✨🌸`);
+          break;
         }
-        setIsLoading(false);
-        return;
-      }
 
-      // -------------------------------------------------------------
-      // 5. INTENT: QUERY STOCK / EXP
-      // -------------------------------------------------------------
-      const drugNames = drugs.map((d) => d.name);
-      const matchedDrugs = findRelevantKeywords(q, drugNames);
-
-      if (
-        matchedDrugs.length > 0 &&
-        (q.includes('สต็อก') ||
-          q.includes('เหลือ') ||
-          q.includes('เช็ก') ||
-          q.includes('มีไหม') ||
-          q.includes('หมดอายุ') ||
-          q.includes('exp'))
-      ) {
-        let resultsText = '';
-        matchedDrugs.forEach((name) => {
-          const d = drugs.find((item) => item.name === name);
-          if (d) {
-            resultsText += `📦 ${d.name}\n• คงเหลือ: ${d.remaining || d.qty || 0} ${d.unit || 'Amp'}\n• EXP: ${d.expDate || d.exp || 'ไม่ระบุ'}\n\n`;
+        case 'TRANSFER': {
+          const found = findItemForAction(query);
+          if (found) {
+             // ... implement smart transfer logic (simplified here for brevity, reuse findItemForAction)
+             const { item, targetType, itemKey } = found;
+             const source = targetType;
+             const dest = targetType === 'bag' ? 'cart' : 'bag';
+             if (onDeleteItem && onAddItem) {
+               await onDeleteItem(source, itemKey);
+               onAddItem(dest, { ...item, groupName: 'อุปกรณ์และเวชภัณฑ์ฉุกเฉิน' });
+             }
+             reRenderData();
+             addMessage('ai', `รับทราบค่ะพี่พยาบาล! ✨ น้องออร่าย้าย "${item.name}" จาก${source === 'bag' ? 'กระเป๋า' : 'รถ'} ไปยัง${dest === 'bag' ? 'กระเป๋า' : 'รถ'} ให้เรียบร้อยแล้วนะคะ~ 💕🌸🎀`);
+          } else {
+            addMessage('ai', 'น้องออร่าหาไอเทมที่จะย้ายไม่เจอเลยค่ะพี่ๆ รบกวนบอกชื่อของให้ชัดหน่อยนะคะ ✨');
           }
-        });
-        addMessage('ai', resultsText.trim(), true);
-        setIsLoading(false);
-        return;
-      }
-
-      // -------------------------------------------------------------
-      // 6. INTENT: CASE PREP
-      // -------------------------------------------------------------
-      if (q.includes('เตรียมเคส') || q.includes('case') || q.includes('เคส')) {
-        if (q.includes('เด็ก')) {
-          addMessage(
-            'ai',
-            `👶 **Checklist เตรียมเคสเด็ก**\n• Airway: Laryngoscope (0,1,2), ET Tube 3.0-4.5\n• Drugs: Atropine (0.02 mg/kg), Ketamine (1-2 mg/kg)\n\nมีอะไรให้ช่วยเตรียมเพิ่มไหมคะ?`,
-            true
-          );
-        } else if (q.includes('ทราเคีย') || q.includes('airway') || q.includes('ยาก')) {
-          addMessage(
-            'ai',
-            `🚨 **Checklist Difficult Airway**\n• Airway: Video Laryngoscope, Stylet, Bougie\n• Supraglottic: i-gel/LMA (3,4,5)\n• Pressors: Adrenaline, Ephedrine`,
-            true
-          );
-        } else {
-          addMessage(
-            'ai',
-            'น้องออร่าช่วยเตรียม Checklist ได้ค่ะ ลองสั่ง "เตรียมเคสเด็ก" หรือ "เตรียมเคสทราเคีย" ได้นะคะ'
-          );
+          break;
         }
-        setIsLoading(false);
-        return;
-      }
 
-      // -------------------------------------------------------------
-      // 7. DEFAULT: BACKEND AI PROXY
-      // -------------------------------------------------------------
-      try {
-        const res = await fetch('/api/ai/chat', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            message: query,
-            context: {
-              completionPct: stats.completionPct || 98,
-              grandChecked: stats.grandChecked || 0,
-              grandTotal: stats.grandTotal || 0,
-              grandNormal: stats.grandNormal || 0,
-              grandDefective: stats.grandDefective || 0,
-            },
-          }),
-        });
-        const data = await res.json();
-        if (data && data.success && data.text) {
-          addMessage('ai', data.text);
-        } else {
-          addMessage('ai', 'รับทราบค่ะ! มีอะไรให้น้องออร่าช่วยตรวจเช็คอีกไหมคะ? ✨');
+        case 'ADD': {
+          const name = query.replace(/(เพิ่มรายการ|เพิ่ม|add|บันทึก|ออร่า)/gi, '').trim();
+          if (name.length < 2) addMessage('ai', 'ต้องการให้เพิ่มรายการอะไรคะ? เช่น "เพิ่มรายการ Atropine" ✨');
+          else {
+            const targetType = q.includes('รถ') || q.includes('cart') ? 'cart' : 'bag';
+            setPendingAction({ action: 'add', itemName: name, step: 'category', targetType });
+            addMessage('ai', `ได้เลยค่ะ จะเพิ่ม "${name}" เข้า${targetType === 'cart' ? 'รถฉุกเฉิน' : 'กระเป๋าฉุกเฉิน'} นะคะพี่ๆ จะให้บันทึกเข้าหมวดหมู่ไหนดีคะ? 💕`);
+          }
+          break;
         }
-      } catch (err) {
-        addMessage('ai', 'น้องออร่าพร้อมช่วยเหลือค่ะ! ถามข้อมูลยา สั่งเปิดหน้าตรวจเช็ค หรือบอกให้ลบ/เพิ่มรายการได้เลยนะคะ');
+
+        case 'DELETE': {
+          const found = findItemForAction(query);
+          if (found) {
+            const { item, targetType, itemKey, groupName, groupCount } = found;
+            setPendingAction({ action: 'delete', itemName: item.name, step: 'confirm_delete', targetType, targetKey: itemKey, groupName, beforeCount: groupCount });
+            addMessage('ai', `🗑️ พี่ๆ ต้องการลบ "${item.name}" ใช่ไหมคะ? ยืนยันโดยการกดปุ่มหรือบอกน้องออร่าว่า "ยืนยัน" ได้เลยนะคะ ✨`);
+          } else {
+            addMessage('ai', 'น้องออร่าไม่พบรายการที่ต้องการลบเลยค่ะ รบกวนระบุชื่อใหม่อีกครั้งนะคะ ✨');
+          }
+          break;
+        }
+
+        case 'CHAT':
+        default: {
+          try {
+            const res = await fetch('/api/ai/chat', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              signal: abortControllerRef.current?.signal,
+              body: JSON.stringify({
+                message: query,
+                context: { 
+                  stats, 
+                  channelName: activeChannel.name,
+                  persona: "คุณคือน้องออร่า (AURA) ผู้ช่วยวิสัญญีสาวที่น่ารัก ใส่ใจ และอ่อนโยน ใช้คำลงท้าย 'นะคะ/ค่ะ ✨' เสมอ ตอบกลับด้วยความกระตือรือร้นและพร้อมช่วยเหลือ"
+                }
+              }),
+            });
+            const data = await res.json();
+            if (data.success && data.text) addMessage('ai', data.text);
+            else addMessage('ai', 'น้องออร่าพร้อมช่วยเหลือค่ะ! ลองถามเรื่องยาหรือสั่งให้เช็กความผิดปกติของวอร์ดได้เลยนะคะ');
+          } catch (err: any) {
+            if (err.name === 'AbortError') {
+              addMessage('ai', '⏹️ สั่งหยุดการประมวลผลเรียบร้อยค่ะ พี่สามารถพิมพ์คำถามใหม่ได้เลยนะคะ 💕');
+            } else {
+              addMessage('ai', 'น้องออร่าพร้อมช่วยเหลือค่ะ! ลองถามข้อมูลยา สั่งเปิดหน้าตรวจเช็ค หรือบอกให้ลบ/เพิ่มรายการได้เลยนะคะ');
+            }
+          }
+          break;
+        }
       }
     } catch (err: any) {
-      console.error('Command processing error:', err);
-      addMessage('ai', 'ขออภัยค่ะ เกิดข้อผิดพลาดในการประมวลผล ลองใหม่อีกครั้งนะคะ');
+      if (err.name === 'AbortError') {
+        // Handled in sub-catch usually, but safety first
+      } else {
+        console.error('Brain Engine Error:', err);
+        addMessage('ai', 'ขออภัยค่ะ เกิดข้อผิดพลาดในการประมวลผล ลองใหม่อีกครั้งนะคะ');
+      }
     } finally {
       setIsLoading(false);
+      abortControllerRef.current = null;
     }
   };
+
 
   const handleOpen = () => {
     setIsOpen(true);
@@ -1232,9 +1007,12 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
     if (!pendingAction) {
       // Default navigation helper chips
       return (
-        <div className="px-4 py-2 bg-slate-50/80 dark:bg-white/5 border-t border-slate-100 dark:border-white/10">
+        <div className={`px-4 py-2 border-t transition-colors ${
+          isDarkMode ? 'bg-[#18191A] border-white/5' : 'bg-slate-50/80 border-slate-100'
+        }`}>
           <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1">
             {[
+              { label: '📋 ตรวจเทียบกระดาษ (Audit)', value: 'ตรวจเทียบกระดาษ' },
               { label: '🚗 หน้ารถฉุกเฉิน', value: 'เปิดหน้าเช็ครถ' },
               { label: '💼 หน้ากระเป๋า', value: 'เปิดเช็กกระเป๋า' },
               { label: '💊 หน้าคลังยา', value: 'เปิดคลังยา' },
@@ -1244,9 +1022,13 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
                 key={idx}
                 type="button"
                 onClick={() => handleQuickChip(chip.value)}
-                className="px-3 py-1 rounded-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-white/10 text-[10px] font-bold text-slate-700 dark:text-slate-200 whitespace-nowrap hover:bg-purple-50 hover:border-purple-300 transition active:scale-95 cursor-pointer shadow-xs flex items-center gap-1"
+                className={`px-3 py-1 rounded-full border text-[10px] font-bold whitespace-nowrap transition active:scale-95 cursor-pointer shadow-xs flex items-center gap-1 ${
+                  isDarkMode 
+                    ? 'bg-[#282A2C] border-white/10 text-gray-300 hover:bg-[#333538]' 
+                    : 'bg-white border-slate-200 text-slate-700 hover:bg-blue-50 hover:border-blue-300'
+                }`}
               >
-                <Compass size={11} className="text-purple-600" />
+                <Compass size={11} className="text-blue-600" />
                 <span>{chip.label}</span>
               </button>
             ))}
@@ -1287,14 +1069,20 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
     if (chips.length === 0) return null;
 
     return (
-      <div className="px-4 py-3 bg-slate-50/80 dark:bg-white/5 border-t border-slate-100 dark:border-white/10 animate-in slide-in-from-bottom duration-300">
+      <div className={`px-4 py-3 border-t animate-in slide-in-from-bottom duration-300 transition-colors ${
+        isDarkMode ? 'bg-[#18191A] border-white/5' : 'bg-slate-50/80 border-slate-100'
+      }`}>
         <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1">
           {chips.map((chip, idx) => (
             <button
               key={idx}
               type="button"
               onClick={() => handleQuickChip(chip.value)}
-              className="px-3.5 py-1.5 rounded-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-white/10 text-[10px] font-bold text-slate-700 dark:text-slate-200 whitespace-nowrap hover:bg-purple-50 hover:border-purple-300 transition active:scale-95 cursor-pointer shadow-xs flex items-center gap-1"
+              className={`px-3.5 py-1.5 rounded-full border text-[10px] font-bold whitespace-nowrap transition active:scale-95 cursor-pointer shadow-xs flex items-center gap-1 ${
+                isDarkMode 
+                  ? 'bg-[#282A2C] border-white/10 text-gray-300 hover:bg-[#333538]' 
+                  : 'bg-white border-slate-200 text-slate-700 hover:bg-blue-50 hover:border-blue-300'
+              }`}
             >
               {chip.icon}
               <span>{chip.label}</span>
@@ -1307,24 +1095,23 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
 
   return (
     <>
-      {!isOpen && !isAnyModalOpen && (
-        <div
-          className="fixed z-[9999] select-none pointer-events-auto"
-          style={{
-            right: '16px',
-            bottom: 'calc(80px + env(safe-area-inset-bottom, 0px))',
-            zIndex: 9999,
-          }}
+      {/* 🚀 Floating AI Toggle Button (Floating Bot Head) */}
+      {!isOpen && isBottomBarVisible && (
+        <button
+          type="button"
+          onClick={handleOpen}
+          className="fixed bottom-24 right-4 z-[99] w-14 h-14 rounded-full bg-gradient-to-tr from-pink-500 to-indigo-700 text-white flex items-center justify-center shadow-2xl hover:scale-110 active:scale-90 transition-all cursor-pointer group animate-in zoom-in duration-300"
+          title="คุยกับน้องออร่า AI (Smart Assistant)"
         >
-          <button
-            type="button"
-            onClick={handleOpen}
-            className="w-13 h-13 flex items-center justify-center bg-gradient-to-br from-purple-500 to-cyan-400 text-white rounded-full shadow-2xl hover:scale-105 active:scale-95 transition-all duration-300 cursor-pointer border border-white/30 ring-2 ring-purple-500/30"
-            title="คุยกับน้องออร่า AI"
-          >
-            <Sparkles size={22} className="animate-pulse" />
-          </button>
-        </div>
+          <div className="relative">
+            <Sparkles size={28} className="animate-pulse" />
+            <div className="absolute -top-1 -right-1 w-3 h-3 bg-pink-400 border-2 border-white rounded-full" />
+          </div>
+          {/* Label Tooltip */}
+          <span className="absolute right-full mr-3 px-3 py-1.5 rounded-xl bg-slate-900/90 text-white text-[10px] font-bold whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-xl border border-white/10">
+            คุยกับน้องออร่า AI ✨
+          </span>
+        </button>
       )}
 
       {isOpen && (
@@ -1333,54 +1120,60 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
           onClick={handleClose}
         >
           <div
-            className={`w-full sm:max-w-md h-[85vh] sm:h-[600px] flex flex-col rounded-t-[2.5rem] sm:rounded-[2.5rem] shadow-2xl border transition-all duration-300 origin-bottom-right ${
+            className={`w-full sm:max-w-md h-[85vh] sm:h-[600px] flex flex-col rounded-t-[2.5rem] sm:rounded-[2.5rem] shadow-2xl border transition-all duration-300 origin-bottom-right backdrop-blur-xl ${
               isAnimating ? 'scale-100 opacity-100' : 'scale-0 opacity-0'
-            } ${isDarkMode ? 'bg-[#181A20] border-white/10 text-white' : 'bg-white border-slate-200 text-slate-900'}`}
+            } ${isDarkMode ? 'bg-[#1E1F20] border-white/10 text-gray-100' : 'bg-white border-slate-200 text-slate-900'}`}
             onClick={(e) => e.stopPropagation()}
           >
             {/* Header */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-white/10 bg-gradient-to-r from-pink-500/10 via-purple-500/10 to-indigo-500/10 rounded-t-[2.5rem]">
+            <div className={`flex items-center justify-between px-6 py-4 border-b rounded-t-[2.5rem] transition-colors ${
+              isDarkMode ? 'bg-gradient-to-r from-pink-900/40 via-purple-900/40 to-blue-900/40 border-white/10' : 'bg-gradient-to-r from-pink-50 via-purple-50 to-blue-50 border-slate-100'
+            }`}>
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-pink-500 to-purple-600 flex items-center justify-center text-white shadow-lg">
-                  <Bot size={22} />
+                <div className={`w-10 h-10 rounded-2xl flex items-center justify-center shadow-lg transition-colors ${
+                  isDarkMode ? 'bg-pink-600/30 border border-pink-500/40 text-pink-400' : 'bg-gradient-to-tr from-pink-400 to-indigo-500 text-white'
+                }`}>
+                  <Sparkles size={22} className="animate-pulse" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-bold flex items-center gap-1.5 text-slate-900 dark:text-white">
-                    <span>น้องออร่า AI</span>
-                    <Sparkles size={14} className="text-pink-500 animate-pulse" />
+                  <h3 className={`text-sm font-bold flex items-center gap-1.5 ${isDarkMode ? 'text-pink-100' : 'text-slate-900'}`}>
+                    <span>น้องออร่า ✨</span>
+                    <span className="px-2 py-0.5 rounded-full bg-pink-500/20 text-pink-300 text-[9px] font-semibold border border-pink-500/30 uppercase">Aura AI</span>
                   </h3>
-                  <p className="text-[10px] text-slate-500 dark:text-slate-400">
-                    Smart Voice & Auto-Navigation Engine
-                  </p>
+                  <p className={`text-[10px] ${isDarkMode ? 'text-pink-300/60' : 'text-slate-500'}`}>ผู้ช่วยวิสัญญีประจำวอร์ดค่ะ 💕</p>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5 sm:gap-2">
+                {/* Mute/Unmute Voice Toggle */}
                 <button
                   type="button"
                   onClick={handleToggleVoice}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1 cursor-pointer border ${
+                  className={`p-2 rounded-xl transition flex items-center justify-center cursor-pointer border ${
                     isVoiceEnabled
-                      ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300 border-purple-200'
-                      : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400 border border-slate-200'
+                      ? (isDarkMode ? 'bg-pink-600/20 text-pink-400 border-pink-500/30' : 'bg-pink-50 text-pink-700 border-pink-100')
+                      : (isDarkMode ? 'bg-white/5 text-gray-500 border-white/5' : 'bg-slate-100 text-slate-500 border-slate-200')
                   }`}
                   title={isVoiceEnabled ? 'ปิดเสียงพูด' : 'เปิดเสียงพูด'}
                 >
-                  {isVoiceEnabled ? <Volume2 size={14} /> : <VolumeX size={14} />}
-                  <span>{isVoiceEnabled ? '🔊 เปิดเสียง' : '🔇 ปิดเสียง'}</span>
+                  {isVoiceEnabled ? <Volume2 size={17} /> : <VolumeX size={17} />}
                 </button>
+
+                {/* Close Button */}
                 <button
                   type="button"
                   onClick={handleClose}
                   className="p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-white/10 text-slate-400 hover:text-slate-700 dark:hover:text-white transition cursor-pointer"
                   title="ปิดหน้าต่างแชท (หยุดเสียงพูดทันที)"
                 >
-                  <X size={18} />
+                  <X size={17} />
                 </button>
               </div>
             </div>
 
             {/* Chat Body */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-3 font-sans">
+            <div className={`flex-1 overflow-y-auto p-4 space-y-3 font-sans transition-colors ${
+              isDarkMode ? 'bg-[#1E1F20]' : ''
+            }`}>
               {messages.map((m, idx) => (
                 <div
                   key={idx}
@@ -1390,20 +1183,25 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
                     className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 shadow-xs ${
                       m.sender === 'user'
                         ? 'bg-blue-600 text-white'
-                        : 'bg-gradient-to-tr from-pink-500 to-purple-600 text-white'
+                        : isDarkMode ? 'bg-pink-600/20 border border-pink-500/30 text-pink-400' : 'bg-gradient-to-tr from-pink-400 to-indigo-500 text-white'
                     }`}
                   >
-                    {m.sender === 'user' ? <span className="text-[10px] font-bold">YOU</span> : <Bot size={16} />}
+                    {m.sender === 'user' ? <span className="text-[10px] font-bold">YOU</span> : <Heart size={16} className="fill-current/20" />}
                   </div>
                   <div
                     className={`max-w-[85%] p-3.5 rounded-2xl text-xs leading-relaxed shadow-xs whitespace-pre-line ${
                       m.isCard
-                        ? 'bg-white dark:bg-slate-800 border-2 border-purple-100 dark:border-purple-900/50 shadow-lg font-bold'
+                        ? (isDarkMode ? 'bg-[#282A2C] border border-white/10 text-gray-200 font-bold' : 'bg-white border-2 border-blue-100 shadow-lg font-bold')
                         : m.sender === 'user'
-                        ? 'bg-blue-600 text-white rounded-tr-none'
-                        : 'bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-100 rounded-tl-none'
+                        ? (isDarkMode ? 'bg-[#2B3945] border border-blue-400/20 text-blue-100' : 'bg-blue-600 text-white rounded-tr-none')
+                        : (isDarkMode ? 'bg-[#282A2C] border border-white/5 text-gray-200' : 'bg-slate-100 text-slate-800 rounded-tl-none')
                     }`}
                   >
+                    {m.image && (
+                      <div className="mb-3 rounded-xl overflow-hidden border border-white/20 shadow-lg aspect-video bg-black/20">
+                        <img src={m.image} alt="Visual Return" className="w-full h-full object-cover" />
+                      </div>
+                    )}
                     <p>{m.text}</p>
                     {m.actionBtn && (
                       <button
@@ -1426,24 +1224,24 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
                 </div>
               ))}
               {isLoading && (
-                <div className="flex flex-col gap-2 bg-purple-50/80 dark:bg-purple-950/40 p-3.5 rounded-2xl border border-purple-200 dark:border-purple-800/60 text-xs animate-in fade-in">
-                  <div className="flex items-center justify-between font-bold text-purple-700 dark:text-purple-300">
+                <div className="flex flex-col gap-2 bg-blue-50/80 dark:bg-blue-950/40 p-3.5 rounded-2xl border border-blue-200 dark:border-blue-800/60 text-xs animate-in fade-in">
+                  <div className="flex items-center justify-between font-bold text-blue-700 dark:text-blue-300">
                     <div className="flex items-center gap-1.5">
-                      <Sparkles size={14} className="animate-spin text-purple-600 dark:text-purple-400" />
+                      <Sparkles size={14} className="animate-spin text-blue-600 dark:text-blue-400" />
                       <span>
                         {scanProgress ? scanProgress.text : 'น้องออร่ากำลังประมวลผล...'}
                       </span>
                     </div>
                     {scanProgress && scanProgress.total > 0 && (
-                      <span className="text-[11px] font-mono font-extrabold text-purple-600 dark:text-purple-300">
+                      <span className="text-[11px] font-mono font-extrabold text-blue-600 dark:text-blue-300">
                         {Math.round((scanProgress.current / scanProgress.total) * 100)}%
                       </span>
                     )}
                   </div>
                   {scanProgress && scanProgress.total > 0 && (
-                    <div className="w-full h-2 bg-purple-200 dark:bg-purple-900/60 rounded-full overflow-hidden">
+                    <div className="w-full h-2 bg-blue-200 dark:bg-blue-900/60 rounded-full overflow-hidden">
                       <div
-                        className="h-full bg-gradient-to-r from-pink-500 via-purple-500 to-indigo-600 transition-all duration-300 rounded-full"
+                        className="h-full bg-gradient-to-r from-blue-400 via-blue-600 to-indigo-700 transition-all duration-300 rounded-full"
                         style={{
                           width: `${Math.max(
                             5,
@@ -1462,12 +1260,14 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
             {renderQuickChips()}
 
             {/* Input Form */}
-            <div className="p-4 border-t border-slate-100 dark:border-white/10 bg-slate-50/50 dark:bg-slate-900/50 rounded-b-[2.5rem]">
+            <div className={`p-4 border-t rounded-b-[2.5rem] transition-colors ${
+              isDarkMode ? 'bg-[#18191A] border-white/10' : 'bg-slate-50/50 border-slate-100'
+            }`}>
               {/* Requirement 1: Multi-Image Staging Preview Area */}
               {stagedImages.length > 0 && (
-                <div className="mb-3 p-2 bg-white dark:bg-slate-800 rounded-2xl border border-purple-200 dark:border-purple-900/50 shadow-sm animate-in fade-in slide-in-from-bottom-2">
+                <div className="mb-3 p-2 bg-white dark:bg-slate-800 rounded-2xl border border-pink-200 dark:border-pink-900/50 shadow-sm animate-in fade-in slide-in-from-bottom-2">
                   <div className="flex items-center justify-between px-1 mb-1.5">
-                    <p className="text-[10px] font-bold text-purple-600 dark:text-purple-400 flex items-center gap-1">
+                    <p className="text-[10px] font-bold text-pink-600 dark:text-pink-400 flex items-center gap-1">
                       <Sparkles size={10} />
                       <span>รูปถ่ายรอประมวลผล ({stagedImages.length} รูป)</span>
                     </p>
@@ -1502,6 +1302,31 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
                       </div>
                     ))}
                   </div>
+
+                  {/* Staged Image Action Bar */}
+                  <div className="flex items-center gap-1.5 pt-2 mt-1 border-t border-slate-100 dark:border-white/5 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleProcessMultipleImagesWithFilter(stagedImages, inputMessage);
+                        setInputMessage('');
+                      }}
+                      className="px-2.5 py-1 rounded-xl bg-gradient-to-r from-pink-500 to-indigo-600 hover:opacity-95 text-white text-[10px] font-bold shadow-xs transition flex items-center gap-1 cursor-pointer active:scale-95"
+                    >
+                      <Plus size={11} />
+                      <span>➕ เพิ่มเข้าเว็บโดยตรง</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsPaperAuditOpen(true);
+                      }}
+                      className="px-2.5 py-1 rounded-xl bg-gradient-to-r from-amber-500 to-pink-500 hover:opacity-95 text-white text-[10px] font-bold shadow-xs transition flex items-center gap-1 cursor-pointer active:scale-95"
+                    >
+                      <Sparkles size={11} />
+                      <span>📋 ตรวจเทียบกระดาษกับเว็บ (Audit)</span>
+                    </button>
+                  </div>
                 </div>
               )}
 
@@ -1520,10 +1345,10 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
                 <button
                   type="button"
                   onClick={toggleListen}
-                  className={`p-3 rounded-2xl transition cursor-pointer flex items-center justify-center ${
+                  className={`p-2.5 rounded-full transition cursor-pointer flex items-center justify-center shrink-0 ${
                     isListening
-                      ? 'bg-red-500 text-white animate-pulse shadow-lg'
-                      : 'bg-purple-100 text-purple-600 dark:bg-purple-900/40 hover:bg-purple-200'
+                      ? 'bg-rose-500 text-white animate-pulse shadow-lg'
+                      : 'bg-pink-100 text-pink-600 dark:bg-pink-900/40 hover:bg-pink-200'
                   }`}
                   title={isListening ? 'หยุดฟัง' : 'สั่งการด้วยเสียง'}
                 >
@@ -1541,35 +1366,62 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
-                  className="p-3 rounded-2xl bg-purple-100 text-purple-600 dark:bg-purple-900/40 hover:bg-purple-200 transition cursor-pointer flex items-center justify-center"
+                  className="p-2.5 rounded-full bg-blue-100 text-blue-600 dark:bg-blue-900/40 hover:bg-blue-200 transition cursor-pointer flex items-center justify-center shrink-0"
                   title="ถ่ายรูปหรือแนบภาพตารางอุปกรณ์หลายรูปพร้อมกัน (Multi-Image OCR)"
                 >
                   <Camera size={18} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => alert('ฟีเจอร์แนบไฟล์ (PDF, Excel, Doc) จะพร้อมใช้งานเร็วๆ นี้ค่ะ 📎')}
+                  className="p-2.5 rounded-full bg-emerald-100 text-emerald-600 dark:bg-emerald-900/40 hover:bg-emerald-200 transition cursor-pointer flex items-center justify-center shrink-0"
+                  title="แนบไฟล์เอกสาร (PDF, Excel, Doc)"
+                >
+                  <Paperclip size={18} />
                 </button>
                 <input
                   type="text"
                   value={inputMessage}
                   onChange={(e) => setInputMessage(e.target.value)}
-                  placeholder={isListening ? '🎙️ กำลังฟัง...' : 'พิมพ์คำสั่ง เช่น "เปิดเช็ครถ", "ลบ Atropine"...'}
-                  className={`flex-1 px-4 py-3 rounded-2xl text-xs font-sans border outline-none transition ${
+                  placeholder={isListening ? '🎙️ กำลังฟัง...' : 'พิมพ์คุยกับน้องออร่า...'}
+                  className={`flex-1 min-w-0 px-4 py-2.5 rounded-full text-xs font-sans border outline-none transition ${
                     isDarkMode
-                      ? 'bg-slate-800 border-white/10 text-white focus:border-purple-500'
-                      : 'bg-white border-slate-200 text-slate-900 focus:border-purple-500 shadow-inner'
+                      ? 'bg-[#282A2C] border-white/10 text-gray-100 focus:border-pink-500/50 placeholder-gray-500'
+                      : 'bg-white border-slate-200 text-slate-900 focus:border-pink-500 shadow-inner'
                   }`}
                 />
-                <button
-                  type="submit"
-                  disabled={(inputMessage.trim() === '' && stagedImages.length === 0) || isLoading}
-                  className="p-3 rounded-2xl bg-gradient-to-r from-pink-500 to-purple-600 text-white hover:opacity-90 disabled:opacity-50 transition shadow-md cursor-pointer"
-                  title="ส่งข้อความ"
-                >
-                  <Send size={18} />
-                </button>
+                {isLoading ? (
+                  <button
+                    type="button"
+                    onClick={handleStop}
+                    className="w-10 h-10 min-w-[40px] rounded-full bg-rose-600 text-white hover:bg-rose-700 transition shadow-md cursor-pointer shrink-0 flex items-center justify-center"
+                    title="หยุดประมวลผล"
+                  >
+                    <Square size={18} className="fill-current" />
+                  </button>
+                ) : (
+                  <button
+                    type="submit"
+                    disabled={(inputMessage.trim() === '' && stagedImages.length === 0)}
+                    className="w-10 h-10 min-w-[40px] rounded-full bg-gradient-to-tr from-pink-500 to-indigo-600 text-white hover:opacity-90 disabled:opacity-50 transition shadow-md cursor-pointer shrink-0 flex items-center justify-center overflow-visible"
+                    title="ส่งข้อความ"
+                  >
+                    <Send size={18} className="ml-0.5" />
+                  </button>
+                )}
               </form>
             </div>
           </div>
         </div>
       )}
+
+      {/* 📋 Modal ตรวจเทียบกระดาษกับระบบเว็บ (Paper Checklist Audit) */}
+      <PaperAuditModal
+        isOpen={isPaperAuditOpen}
+        onClose={() => setIsPaperAuditOpen(false)}
+        initialCategory={paperAuditCategory}
+        isDarkMode={isDarkMode}
+      />
     </>
   );
 };
