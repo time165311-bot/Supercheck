@@ -39,20 +39,8 @@ export async function logAuditEvent(params: {
       ipAddress: params.ipAddress || (typeof window !== 'undefined' ? window.location.hostname : '127.0.0.1'),
     };
 
-    // Save to Firestore audit_logs collection
+    // Save to Firestore audit_logs collection (persistentLocalCache handles offline persistence natively)
     const logId = await recordHaAuditLog(entry);
-
-    // Keep recent audit logs in localStorage cache for offline auditing
-    if (typeof window !== 'undefined') {
-      try {
-        const cacheKey = 'ha_audit_logs_cache';
-        const existing = JSON.parse(localStorage.getItem(cacheKey) || '[]');
-        const updated = [{ ...entry, id: logId }, ...(Array.isArray(existing) ? existing.slice(0, 99) : [])];
-        localStorage.setItem(cacheKey, JSON.stringify(updated));
-      } catch (err) {
-        // Ignore cache storage errors
-      }
-    }
 
     return logId;
   } catch (error) {

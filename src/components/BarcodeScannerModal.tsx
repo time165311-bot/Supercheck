@@ -156,39 +156,39 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-      <div className="relative w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl shadow-2xl overflow-hidden border border-slate-200 dark:border-slate-800 animate-in zoom-in-95 duration-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4">
+      <div className="relative w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl shadow-xl overflow-hidden border border-slate-200 dark:border-slate-800">
         {/* Modal Header */}
         <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-gradient-to-r from-blue-500/10 to-cyan-500/10">
           <div className="flex items-center gap-2 text-slate-900 dark:text-white font-extrabold text-sm sm:text-base">
-            <Camera className="w-5 h-5 text-blue-500" />
-            <span>สแกนบาร์โค้ด / QR Code</span>
+            <Camera className="w-5 h-5 text-blue-500 shrink-0" />
+            <span>สแกนอัจฉริยะ (Smart Scan)</span>
           </div>
           <button
             onClick={() => {
               stopScanner();
               onClose();
             }}
-            className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 flex items-center justify-center transition cursor-pointer active:scale-90"
+            className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 flex items-center justify-center transition-colors active:opacity-80 cursor-pointer"
             title="ปิดหน้าต่าง"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
-        {/* Tab Selection: Camera vs Manual Entry */}
-        <div className="px-5 pt-3 flex border-b border-slate-100 dark:border-slate-800 gap-2">
+        {/* Balanced 2-Column Tab Selection: Camera vs Manual Entry */}
+        <div className="px-5 py-3 grid grid-cols-2 gap-2.5 border-b border-slate-100 dark:border-slate-800">
           <button
             type="button"
             onClick={() => setActiveTab('camera')}
-            className={`flex-1 py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer active:scale-95 ${
+            className={`w-full py-2.5 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-colors active:opacity-80 cursor-pointer whitespace-nowrap ${
               activeTab === 'camera'
                 ? 'bg-blue-600 text-white shadow-xs'
-                : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
+                : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
             }`}
           >
-            <Camera size={15} />
-            <span>ส่องกล้อง</span>
+            <Camera size={15} className="shrink-0" />
+            <span>สแกนบาร์โค้ด / QR</span>
           </button>
           <button
             type="button"
@@ -196,13 +196,13 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
               stopScanner();
               setActiveTab('manual');
             }}
-            className={`flex-1 py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer active:scale-95 ${
+            className={`w-full py-2.5 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-colors active:opacity-80 cursor-pointer whitespace-nowrap ${
               activeTab === 'manual'
                 ? 'bg-blue-600 text-white shadow-xs'
-                : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
+                : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
             }`}
           >
-            <Keyboard size={15} />
+            <Keyboard size={15} className="shrink-0" />
             <span>พิมพ์รหัสเอง</span>
           </button>
         </div>
@@ -210,12 +210,12 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
         {/* Scanner Body */}
         <div className="p-4 flex flex-col items-center">
           {activeTab === 'camera' ? (
-            <div className="w-full relative bg-black rounded-2xl overflow-hidden min-h-[260px] flex items-center justify-center shadow-inner border border-slate-800">
+            <div className="w-full relative bg-black rounded-2xl overflow-hidden min-h-[240px] flex items-center justify-center border border-slate-800">
               <div id={readerElementId} className="w-full h-full overflow-hidden" />
 
               {errorMsg && (
                 <div className="absolute inset-0 bg-slate-900/95 flex flex-col items-center justify-center p-6 text-center text-rose-400 gap-3">
-                  <AlertCircle className="w-10 h-10 animate-bounce" />
+                  <AlertCircle className="w-10 h-10 shrink-0" />
                   <p className="text-xs font-bold leading-relaxed">{errorMsg}</p>
 
                   {permissionDenied ? (

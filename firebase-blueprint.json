@@ -2,25 +2,37 @@
   "entities": {
     "User": {
       "title": "User",
-      "description": "User profile and authentication data",
+      "description": "User profile linked with Firebase Authentication (no password hashes stored)",
       "type": "object",
       "properties": {
         "id": { "type": "string", "pattern": "^[a-zA-Z0-9_\\-]+$" },
-        "username": { "type": "string", "minLength": 3, "maxLength": 50 },
-        "name": { "type": "string", "maxLength": 100 },
+        "uid": { "type": "string", "maxLength": 128 },
+        "email": { "type": "string", "maxLength": 200 },
+        "username": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "name": { "type": "string", "maxLength": 150 },
         "role": { "type": "string", "enum": ["admin", "user"] },
-        "position": { "type": "string", "maxLength": 100 },
-        "signature": { "type": "string" },
+        "position": { "type": "string", "maxLength": 150 },
+        "signature": { "type": "string", "maxLength": 500000 },
         "active": { "type": "boolean" },
-        "salt": { "type": "string" },
-        "hash": { "type": "string" },
         "must": { "type": "boolean" },
         "created": { "type": "string", "format": "date-time" },
         "last": { "type": "string", "format": "date-time" },
-        "avatar": { "type": "string" },
-        "ringColor": { "type": "string" }
+        "avatar": { "type": "string", "maxLength": 500000 },
+        "ringColor": { "type": "string", "maxLength": 50 }
       },
-      "required": ["id", "username", "name", "role", "active", "created"]
+      "required": ["id", "name"]
+    },
+    "AdminUser": {
+      "title": "Admin User",
+      "description": "Allowlisted Firebase UID granted admin privileges",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "pattern": "^[a-zA-Z0-9_\\-]+$", "maxLength": 128 },
+        "email": { "type": "string", "maxLength": 200 },
+        "grantedAt": { "type": "string", "format": "date-time" },
+        "grantedBy": { "type": "string", "maxLength": 128 }
+      },
+      "required": ["uid"]
     },
     "EquipmentItem": {
       "title": "Equipment Item",
@@ -28,21 +40,39 @@
       "type": "object",
       "properties": {
         "id": { "type": "string", "pattern": "^[a-zA-Z0-9_\\-]+$" },
-        "name": { "type": "string", "maxLength": 200 },
-        "code": { "type": "string", "maxLength": 100 },
-        "sap": { "type": "string", "maxLength": 100 },
-        "spec": { "type": "string", "maxLength": 500 },
-        "source": { "type": "string", "maxLength": 100 },
-        "date": { "type": "string" },
-        "qty": { "type": "string", "maxLength": 50 },
-        "tax": { "type": "string" },
-        "price": { "type": "string" },
-        "location": { "type": "string", "maxLength": 100 },
-        "img": { "type": "string" },
-        "no": { "type": "string", "maxLength": 20 },
+        "name": { "type": "string", "maxLength": 300 },
+        "code": { "type": "string", "maxLength": 150 },
+        "sap": { "type": "string", "maxLength": 150 },
+        "spec": { "type": "string", "maxLength": 1000 },
+        "source": { "type": "string", "maxLength": 200 },
+        "date": { "type": "string", "maxLength": 100 },
+        "qty": { "type": "string", "maxLength": 100 },
+        "tax": { "type": "string", "maxLength": 50 },
+        "price": { "type": "string", "maxLength": 50 },
+        "location": { "type": "string", "maxLength": 200 },
+        "img": { "type": "string", "maxLength": 500000 },
+        "no": { "type": "string", "maxLength": 50 },
         "exp": { "type": "string", "maxLength": 1000 },
-        "note": { "type": "string", "maxLength": 500 },
-        "category": { "type": "string", "maxLength": 100 }
+        "note": { "type": "string", "maxLength": 1000 },
+        "type": { "type": "string", "maxLength": 50 },
+        "category": { "type": "string", "maxLength": 200 },
+        "groupName": { "type": "string", "maxLength": 200 },
+        "roomId": { "type": "string", "maxLength": 100 },
+        "barcode": { "type": "string", "maxLength": 150 },
+        "serialNumber": { "type": "string", "maxLength": 150 },
+        "subExps": { "type": "array" },
+        "subItemQuantities": { "type": "array" },
+        "checkType": { "type": "string", "enum": ["single", "sub_items"] },
+        "subItems": { "type": "array" },
+        "unitText": { "type": "string", "maxLength": 100 },
+        "initialQtyText": { "type": "string", "maxLength": 100 },
+        "channelId": { "type": "string", "maxLength": 128 },
+        "orderNumber": { "type": "string", "maxLength": 50 },
+        "assetCode": { "type": "string", "maxLength": 150 },
+        "sapCode": { "type": "string", "maxLength": 150 },
+        "brandModel": { "type": "string", "maxLength": 500 },
+        "status": { "type": "string", "maxLength": 50 },
+        "isMarked": { "type": "boolean" }
       },
       "required": ["id", "name"]
     },
@@ -53,17 +83,27 @@
       "properties": {
         "id": { "type": "string", "pattern": "^[a-zA-Z0-9_\\-]+$" },
         "category": { "type": "string", "enum": ["monthly", "quarterly", "adhoc"] },
-        "name": { "type": "string", "maxLength": 200 },
+        "name": { "type": "string", "maxLength": 300 },
         "remaining": { "type": "number" },
-        "receivedDate": { "type": "string" },
+        "totalQty": { "type": "number" },
+        "receivedDate": { "type": "string", "maxLength": 100 },
         "receivedQty": { "type": "number" },
         "minStock": { "type": "number" },
-        "batchRequest": { "type": "string", "maxLength": 100 },
-        "unit": { "type": "string", "maxLength": 50 },
+        "batchRequest": { "type": "string", "maxLength": 150 },
+        "unit": { "type": "string", "maxLength": 100 },
         "expDate": { "type": "string", "maxLength": 1000 },
-        "note": { "type": "string", "maxLength": 500 },
-        "img": { "type": "string" },
-        "barcode": { "type": "string", "maxLength": 100 }
+        "exp": { "type": "string", "maxLength": 1000 },
+        "lotNumber": { "type": "string", "maxLength": 150 },
+        "lots": { "type": "array" },
+        "batches": { "type": "array" },
+        "tmtCode": { "type": "string", "maxLength": 100 },
+        "hospitalDrugCode": { "type": "string", "maxLength": 100 },
+        "spec": { "type": "string", "maxLength": 500 },
+        "note": { "type": "string", "maxLength": 1000 },
+        "img": { "type": "string", "maxLength": 500000 },
+        "barcode": { "type": "string", "maxLength": 150 },
+        "channelId": { "type": "string", "maxLength": 128 },
+        "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "name", "category"]
     },
@@ -74,28 +114,73 @@
       "properties": {
         "id": { "type": "string", "pattern": "^[a-zA-Z0-9_\\-]+$" },
         "timestamp": { "type": "string", "format": "date-time" },
-        "date": { "type": "string" },
-        "time": { "type": "string" },
-        "who": { "type": "string", "maxLength": 100 },
-        "type": { "type": "string", "enum": ["eq", "bag", "cart", "drug"] },
-        "title": { "type": "string", "maxLength": 200 },
+        "date": { "type": "string", "maxLength": 100 },
+        "time": { "type": "string", "maxLength": 100 },
+        "who": { "type": "string", "maxLength": 200 },
+        "type": { "type": "string", "enum": ["eq", "bag", "cart", "ambulance", "drug"] },
+        "title": { "type": "string", "maxLength": 300 },
         "rows": { "type": "array" },
-        "weekDates": { "type": "object" }
+        "weekDates": { "type": "object" },
+        "channelId": { "type": "string", "maxLength": 128 }
       },
       "required": ["id", "timestamp", "date", "who", "type"]
     },
     "Settings": {
       "title": "Settings",
-      "description": "Application settings and global state",
+      "description": "Application settings, channel list, and persistent clear-state flags",
       "type": "object",
       "properties": {
-        "sheetUrl": { "type": "string" },
-        "apiUrl": { "type": "string" },
-        "theme": { "type": "string" },
+        "sheetUrl": { "type": "string", "maxLength": 1000 },
+        "apiUrl": { "type": "string", "maxLength": 1000 },
+        "theme": { "type": "string", "maxLength": 20 },
         "globalChecks": { "type": "object" },
         "lastSubmitted": { "type": "object" },
+        "drugsCleared": { "type": "boolean" },
+        "equipmentCleared": { "type": "boolean" },
+        "bagCleared": { "type": "boolean" },
+        "cartCleared": { "type": "boolean" },
+        "channelsInitialized": { "type": "boolean" },
+        "channels": { "type": "array" },
         "updatedAt": { "type": "string", "format": "date-time" }
       }
+    },
+    "WardChannelData": {
+      "title": "Ward Channel Data",
+      "description": "Isolated channel lists, check states, and week dates per ward channel",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "lists": { "type": "object" },
+        "globalChecks": { "type": "object" },
+        "emergencyWeekDates": { "type": "object" },
+        "drugsCleared": { "type": "boolean" },
+        "equipmentCleared": { "type": "boolean" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id"]
+    },
+    "RestockRequisition": {
+      "title": "Restock Requisition",
+      "description": "Medication or emergency equipment restock requisition record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "channelId": { "type": "string", "maxLength": 128 },
+        "targetCategory": { "type": "string", "maxLength": 100 },
+        "requestedBy": { "type": "string", "maxLength": 150 },
+        "requestedById": { "type": "string", "maxLength": 128 },
+        "status": { "type": "string", "enum": ["draft", "pending", "approved", "rejected", "received"] },
+        "notes": { "type": "string", "maxLength": 1000 },
+        "items": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "approvedBy": { "type": "string", "maxLength": 150 },
+        "approvedAt": { "type": "string", "format": "date-time" },
+        "rejectedReason": { "type": "string", "maxLength": 500 },
+        "receivedBy": { "type": "string", "maxLength": 150 },
+        "receivedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "createdAt", "items"]
     },
     "AuditLog": {
       "title": "Audit Log",
@@ -104,12 +189,12 @@
       "properties": {
         "id": { "type": "string", "pattern": "^[a-zA-Z0-9_\\-]+$" },
         "timestamp": { "type": "string", "format": "date-time" },
-        "userId": { "type": "string", "maxLength": 100 },
-        "userName": { "type": "string", "maxLength": 100 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "userName": { "type": "string", "maxLength": 150 },
         "role": { "type": "string", "maxLength": 50 },
         "action": { "type": "string", "maxLength": 100 },
         "targetCollection": { "type": "string", "maxLength": 100 },
-        "targetId": { "type": "string", "maxLength": 100 },
+        "targetId": { "type": "string", "maxLength": 128 },
         "details": { "type": "object" },
         "ipAddress": { "type": "string", "maxLength": 100 }
       },
@@ -117,25 +202,53 @@
     }
   },
   "firestore": {
+    "/admins/{adminId}": {
+      "schema": "AdminUser",
+      "description": "Admin role allowlist keyed by Firebase Auth UID"
+    },
     "/users/{userId}": {
       "schema": "User",
-      "description": "Registered users"
+      "description": "Inspector profile preferences (owned by Firebase Auth UID or managed by Admin)"
     },
     "/equipment/{itemId}": {
       "schema": "EquipmentItem",
-      "description": "Equipment items catalog"
+      "description": "Equipment items catalog (Master)"
     },
     "/drugs/{drugId}": {
       "schema": "DrugItem",
-      "description": "Drug inventory"
+      "description": "Drug inventory (Master)"
     },
     "/inspection_records/{recordId}": {
       "schema": "InspectionRecord",
       "description": "Historical inspection results"
     },
-    "/settings/config": {
+    "/settings/{docId}": {
       "schema": "Settings",
-      "description": "Global application configuration"
+      "description": "Global application configuration, channels, and app clear state flags"
+    },
+    "/restock_requisitions/{reqId}": {
+      "schema": "RestockRequisition",
+      "description": "Restock requisitions submitted from wards or Aura Assistant"
+    },
+    "/channels/{channelId}": {
+      "schema": "WardChannelData",
+      "description": "Per-ward isolated inspection state and lists"
+    },
+    "/channels/{channelId}/equipment/{itemId}": {
+      "schema": "EquipmentItem",
+      "description": "Per-ward isolated equipment catalog"
+    },
+    "/channels/{channelId}/drugs/{drugId}": {
+      "schema": "DrugItem",
+      "description": "Per-ward isolated drug inventory"
+    },
+    "/channels/{channelId}/inspection_records/{recordId}": {
+      "schema": "InspectionRecord",
+      "description": "Per-ward isolated inspection history"
+    },
+    "/channels/{channelId}/restock_requisitions/{reqId}": {
+      "schema": "RestockRequisition",
+      "description": "Per-ward isolated restock requisitions"
     },
     "/audit_logs/{logId}": {
       "schema": "AuditLog",
@@ -143,4 +256,3 @@
     }
   }
 }
-

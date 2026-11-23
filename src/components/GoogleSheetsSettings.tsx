@@ -109,14 +109,14 @@ export const GoogleSheetsSettings: React.FC<GoogleSheetsSettingsProps> = ({
                 isDark ? 'text-white' : 'text-slate-900'
               }`}
             >
-              ตั้งค่าการเชื่อมต่อ Google Sheets & Apps Script
+              ตั้งค่า Google Sheets & Apps Script
             </h3>
             <p
               className={`text-xs font-medium ${
                 isDark ? 'text-slate-300' : 'text-slate-600'
               }`}
             >
-              รองรับการบันทึกตรวจเช็ก 4 หมวดอัตโนมัติ (ครุภัณฑ์, กระเป๋า, รถ, คลังยา)
+              ซิงค์ข้อมูล 4 หมวดอัตโนมัติ
             </p>
           </div>
         </div>
@@ -140,7 +140,7 @@ export const GoogleSheetsSettings: React.FC<GoogleSheetsSettingsProps> = ({
                 isDark ? 'text-slate-100' : 'text-slate-900'
               }`}
             >
-              1. URL ลิงก์ Google Sheets (สเปรดชีตปลายทาง):
+              1. ลิงก์ Google Sheets
             </label>
             {inputSheetUrl && (
               <a
@@ -175,7 +175,7 @@ export const GoogleSheetsSettings: React.FC<GoogleSheetsSettingsProps> = ({
                 isDark ? 'text-slate-100' : 'text-slate-900'
               }`}
             >
-              2. Google Apps Script Web App URL (/exec):
+              2. Apps Script Web App URL (/exec)
             </label>
             <button
               type="button"
@@ -255,7 +255,7 @@ export const GoogleSheetsSettings: React.FC<GoogleSheetsSettingsProps> = ({
               }`}
             >
               <Code2 size={14} className="text-emerald-500" />
-              <span>โครงสร้างฟังก์ชัน Google Apps Script V5 (รองรับ 4 หมวด)</span>
+              <span>โค้ด Apps Script V5</span>
             </span>
             <button
               type="button"

@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import {
   OfficialReportItemRow,
   formatAcquiredDate,
@@ -63,7 +63,7 @@ export function formatShortDmy(dateStr?: string): string {
 export { getWednesdaysInfoForMonth, calculateWednesdaysForMonth } from '../utils/wednesdayUtils';
 
 export interface EmergencyChecklistReportPreviewProps {
-  type: 'bag' | 'cart';
+  type: 'bag' | 'cart' | 'ambulance' | string;
   title?: string;
   items: OfficialReportItemRow[];
   date?: string;
@@ -80,7 +80,201 @@ export interface EmergencyChecklistReportPreviewProps {
   isBlankForm?: boolean;
 }
 
-export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportPreviewProps> = ({
+interface EmergencyPreviewItemRowProps {
+  item: OfficialReportItemRow;
+  idx: number;
+  weeks: number[];
+  currentWeek: number;
+  isBlankForm: boolean;
+  rowWeekCustomValues?: { [week: number]: string };
+  onCellValChange: (itemKey: string, week: number, val: string) => void;
+}
+
+const EmergencyPreviewItemRow = React.memo<EmergencyPreviewItemRowProps>(({
+  item,
+  idx,
+  weeks,
+  currentWeek,
+  isBlankForm,
+  rowWeekCustomValues,
+  onCellValChange,
+}) => {
+  const itemKey = `${item.name}|${item.code || ''}`;
+  const isOk = item.res ? item.res.includes('ใช้งานได้') : (item as any).status === 'normal' || (item as any).checked;
+  const isBad = item.res ? item.res.includes('ไม่ได้') : false;
+  const isMiss = item.res ? item.res.includes('ไม่พบ') : false;
+
+  const classification = getItemQuantityClassification({
+    name: item.name,
+    spec: item.spec,
+    qty: item.qty,
+    exp: item.exp,
+    subExps: (item as any).subExps,
+    subItemQuantities: (item as any).subItemQuantities,
+  });
+
+  let expStr = item.exp || (item as any).expDate || (item.note?.match(/Exp:\s*([^\s|]+)/)?.[1]) || '';
+  if ((item as any).subExps && (item as any).subExps.length > 0 && (!expStr || !expStr.includes(','))) {
+    expStr = (item as any).subExps
+      .map((s: any) => {
+        const isNo = s.hasNoExp || !s.exp || s.exp === '-' || String(s.exp).toLowerCase() === 'no exp';
+        const dateVal = isNo ? '-' : s.exp;
+        return s.label ? `${s.label.trim()}: ${dateVal}` : dateVal;
+      })
+      .join(', ');
+  }
+
+  const realCheckVal = formatRealQuantity(item.qty, item.name, item.spec, item.exp, (item as any).subItemQuantities);
+
+  return (
+    <tr>
+      <td
+        className="border border-slate-300"
+        style={{ textAlign: 'left', paddingLeft: '10px', lineHeight: '1.4 !important', padding: '6px 4px !important' }}
+      >
+        {idx + 1}. {sanitizeItemName(item.name || '-')}
+      </td>
+      <td
+        className="border border-slate-300 nowrap font-bold text-center"
+        style={{ textAlign: 'center', whiteSpace: 'nowrap', lineHeight: '1.4 !important', padding: '6px 4px !important' }}
+      >
+        {(item as any).initialQtyText || (item as any).unitText || (item.qty && String(item.qty).trim() ? String(item.qty).trim() : '1')}
+      </td>
+      {weeks.map((w) => {
+        const customVal = rowWeekCustomValues?.[w];
+        const itemWeekVal = item.weekVals?.[w];
+        const hasDefinedWeekVals =
+          item.weekVals !== undefined &&
+          Object.values(item.weekVals).some((v) => v !== undefined && String(v).trim() !== '');
+
+        let displayVal = '';
+        if (isBlankForm) {
+          displayVal = '';
+        } else if (customVal !== undefined && String(customVal).trim() !== '') {
+          displayVal = String(customVal);
+        } else if (itemWeekVal !== undefined && String(itemWeekVal).trim() !== '') {
+          displayVal = String(itemWeekVal);
+        } else if (currentWeek === w && item.weekVals === undefined && !hasDefinedWeekVals) {
+          if (item.val && item.val !== '✓') {
+            displayVal = String(item.val);
+          } else if (isOk) {
+            if (classification.isType1) {
+              displayVal = String(classification.totalQty);
+            } else if (item.subItemQuantities && item.subItemQuantities.length > 1) {
+              displayVal = item.subItemQuantities.join(', ');
+            } else if ((item as any).subItemQuantities && (item as any).subItemQuantities.length > 1) {
+              displayVal = (item as any).subItemQuantities.join(', ');
+            } else {
+              const targetVal = getRealTargetCheckValue(item as any);
+              displayVal = String(realCheckVal || item.qty || targetVal);
+            }
+          } else if (isBad) {
+            displayVal = '✗';
+          } else if (isMiss) {
+            displayVal = '?';
+          }
+        }
+
+        if (!isBlankForm && displayVal !== '' && displayVal !== '-' && displayVal !== '✗' && displayVal !== '?') {
+          if (classification.isType2) {
+            const parts = displayVal.split(',').map((p) => p.trim());
+            const isGeneric = parts.length > 0 && parts.every((p) => p === '1' || p === '✓');
+            if (isGeneric) {
+              displayVal = classification.subQuantities.join(', ');
+            }
+          } else if (classification.isType1) {
+            if (displayVal.includes(',')) {
+              const parts = displayVal.split(',').map((p) => p.trim());
+              const validCount = parts.filter((p) => p === '1' || p === '✓' || parseInt(p, 10) > 0).length;
+              displayVal = String(validCount || classification.totalQty);
+            } else if ((displayVal === '1' || displayVal === '✓') && isOk) {
+              displayVal = String(classification.totalQty);
+            }
+          }
+
+          const isO2Tank = (item.name?.toLowerCase().includes('tank') || item.name?.includes('ถัง')) &&
+            (item.name?.toLowerCase().includes('o2') || item.name?.toLowerCase().includes('oxygen') || item.name?.includes('ออกซิเจน'));
+
+          if (isO2Tank) {
+            displayVal = displayVal.split(',').map(p => p.trim() + ' psi').join(', ');
+          }
+        }
+
+        const isValBad = displayVal === '✗' || displayVal.toLowerCase() === 'fail' || (displayVal.toLowerCase().includes('psi') && parseInt(displayVal.replace(/\D/g, ''), 10) < 500);
+        const isValEmpty = displayVal === '' || displayVal === '-';
+
+        return (
+          <td
+            key={w}
+            className={`border border-slate-300 p-0 text-center ${
+              currentWeek === w && !isBlankForm ? 'bg-blue-50/40' : ''
+            }`}
+            style={{ textAlign: 'center', width: '75px' }}
+          >
+            {isBlankForm ? (
+              <div className="h-8"></div>
+            ) : (
+              <input
+                type="text"
+                value={isValEmpty ? '' : displayVal}
+                placeholder="-"
+                onChange={(e) => onCellValChange(itemKey, w, e.target.value)}
+                className={`w-full h-8 text-center bg-transparent border-0 focus:ring-1 focus:ring-blue-500 rounded text-xs p-1 outline-none font-bold ${
+                  isValBad
+                    ? 'text-rose-700 text-sm font-bold'
+                    : isValEmpty
+                    ? 'text-slate-400'
+                    : 'text-black text-sm font-bold'
+                }`}
+                style={{ color: isValBad ? '#be123c' : isValEmpty ? '#94a3b8' : '#000000 !important' }}
+                title={`สัปดาห์ที่ ${w}`}
+              />
+            )}
+          </td>
+        );
+      })}
+      <td
+        className="border border-slate-300 p-1.5 text-center text-xs"
+        style={{
+          width: '120px',
+          minWidth: '120px',
+          textAlign: 'center',
+          fontSize: '10.5pt',
+          lineHeight: '1.3',
+        }}
+      >
+        {isBlankForm ? (
+          <span className="text-slate-300 dark:text-slate-600 font-normal">........................</span>
+        ) : ((item.name?.toLowerCase().includes('tank') || item.name?.includes('ถัง')) &&
+          (item.name?.toLowerCase().includes('o2') || item.name?.toLowerCase().includes('oxygen') || item.name?.includes('ออกซิเจน')) &&
+          !(item.name?.toLowerCase().includes('cannula') || item.name?.toLowerCase().includes('mask') || item.name?.includes('หน้ากาก') || item.name?.includes('สาย')))
+          ? 'ปริมาณแรงดันไม่ต่ำกว่า 500 psi'
+          : (() => {
+              const subItems = parseSubExpItems(expStr);
+              if (subItems.length === 0) return '-';
+              return (
+                <div className="flex flex-col items-center justify-center gap-0.5">
+                  {subItems.map((sub, i) => (
+                    <div
+                      key={i}
+                      style={{
+                        color: sub.isRed ? '#DC2626 !important' : '#000000 !important',
+                        fontWeight: sub.isRed ? 'bold' : 'normal',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {sub.label ? `${sub.label}: ${sub.formattedDate}` : sub.formattedDate}
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+      </td>
+    </tr>
+  );
+});
+
+export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportPreviewProps> = React.memo(({
   type,
   items = [],
   date: surveyDate = '',
@@ -119,7 +313,10 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
 
   // Dynamic Wednesday Calculation for selected month/year
   const totalWednesdays = isBlankForm ? 5 : actualWednesdays;
-  const weeks = Array.from({ length: totalWednesdays }, (_, i) => i + 1);
+  const weeks = useMemo(
+    () => Array.from({ length: totalWednesdays }, (_, i) => i + 1),
+    [totalWednesdays]
+  );
 
   const currentWeek = useMemo(() => {
     const rawWk = propActiveWeek || getWeekOfMonth(surveyDate);
@@ -198,20 +395,26 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
     1: '', 2: '', 3: '', 4: '', 5: '',
   });
 
-  const handleCellValChange = (itemKey: string, week: number, val: string) => {
-    const updated = {
-      ...resolvedWeekValues,
-      [itemKey]: {
-        ...(resolvedWeekValues[itemKey] || {}),
-        [week]: val,
-      },
-    };
+  const handleCellValChange = useCallback((itemKey: string, week: number, val: string) => {
     if (onWeekItemValuesChange) {
+      const updated = {
+        ...resolvedWeekValues,
+        [itemKey]: {
+          ...(resolvedWeekValues[itemKey] || {}),
+          [week]: val,
+        },
+      };
       onWeekItemValuesChange(updated);
     } else {
-      setInternalWeekValues(updated);
+      setInternalWeekValues((prev) => ({
+        ...prev,
+        [itemKey]: {
+          ...(prev[itemKey] || {}),
+          [week]: val,
+        },
+      }));
     }
-  };
+  }, [resolvedWeekValues, onWeekItemValuesChange]);
 
   const headingTitle = type === 'cart'
     ? `ตารางตรวจเช็ครถ Emergency ประจำเดือน ${month} พ.ศ. ${year}`
@@ -255,64 +458,38 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
       }}
     >
       <style>{`
-        .a4-page-sheet,
-        .a4-page-sheet *,
-        .a4-print-container, 
-        .a4-print-container *, 
-        .a4-print-container table, 
-        .a4-print-container thead, 
-        .a4-print-container tbody, 
-        .a4-print-container tfoot,
-        .a4-print-container tr, 
-        .a4-print-container th, 
+        .a4-print-container table {
+          background-color: #ffffff;
+          color: #000000;
+          border-color: #cbd5e1;
+          border-collapse: collapse;
+        }
+        .a4-print-container th,
         .a4-print-container td {
-          background-color: #ffffff !important;
-          color: #000000 !important;
-          border-color: #cbd5e1 !important;
-          background-image: none !important;
-          color-scheme: light !important;
+          color: #000000;
+          border-color: #cbd5e1;
           white-space: normal;
-          word-break: keep-all !important;
-          padding: 6px 4px !important;
-          overflow: visible !important;
-          line-height: 1.3 !important;
-          font-size: 11px !important;
-          vertical-align: middle !important;
-          height: auto !important;
+          word-break: keep-all;
+          padding: 6px 4px;
+          line-height: 1.3;
+          font-size: 11px;
+          vertical-align: middle;
         }
         .a4-print-container .nowrap {
           white-space: nowrap !important;
         }
-        .a4-print-container p, 
-        .a4-print-container span, 
-        .a4-print-container div,
-        .a4-print-container input {
-          background-color: #ffffff !important;
-          color: #000000 !important;
-          border-color: #cbd5e1 !important;
-          background-image: none !important;
-          color-scheme: light !important;
-        }
-        .a4-page-sheet th,
-        .a4-print-container th, 
-        .a4-print-container .bg-slate-100,
+        .a4-print-container th,
         .a4-print-container thead tr,
-        .a4-print-container .bg-slate-50,
         .a4-print-container tfoot tr {
           background-color: #f1f5f9 !important;
           color: #000000 !important;
         }
-        .a4-page-sheet svg,
-        .a4-print-container svg {
+        .a4-print-container input {
+          background-color: transparent !important;
           color: #000000 !important;
         }
-        .a4-page-sheet input::placeholder,
         .a4-print-container input::placeholder {
           color: #94a3b8 !important;
-        }
-        .a4-page-sheet input,
-        .a4-print-container input {
-          color: #000000 !important;
         }
       `}</style>
 
@@ -378,7 +555,7 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
         </div>
       </div>
 
-      <div style={{ width: '100%', overflowX: 'auto', WebkitOverflowScrolling: 'touch', boxSizing: 'border-box' }}>
+      <div style={{ width: '100%', boxSizing: 'border-box' }}>
       <table
         className="border-collapse border border-slate-400"
         style={{
@@ -465,179 +642,19 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
               {/* Group items rows */}
               {groupRows.map((item, idx) => {
                 const itemKey = `${item.name}|${item.code || ''}`;
-                const isOk = item.res ? item.res.includes('ใช้งานได้') : (item as any).status === 'normal' || (item as any).checked;
-                const isBad = item.res ? item.res.includes('ไม่ได้') : false;
-                const isMiss = item.res ? item.res.includes('ไม่พบ') : false;
-
-                const classification = getItemQuantityClassification({
-                  name: item.name,
-                  spec: item.spec,
-                  qty: item.qty,
-                  exp: item.exp,
-                  subExps: (item as any).subExps,
-                  subItemQuantities: (item as any).subItemQuantities,
-                });
-
-                let expStr = item.exp || (item as any).expDate || (item.note?.match(/Exp:\s*([^\s|]+)/)?.[1]) || '';
-                if ((item as any).subExps && (item as any).subExps.length > 0 && (!expStr || !expStr.includes(','))) {
-                  expStr = (item as any).subExps
-                    .map((s: any) => {
-                      const isNo = s.hasNoExp || !s.exp || s.exp === '-' || String(s.exp).toLowerCase() === 'no exp';
-                      const dateVal = isNo ? '-' : s.exp;
-                      return s.label ? `${s.label.trim()}: ${dateVal}` : dateVal;
-                    })
-                    .join(', ');
-                }
-
-                // Real sub-item quantity calculation preserving user configuration
-                const realCheckVal = formatRealQuantity(item.qty, item.name, item.spec, item.exp, (item as any).subItemQuantities);
-
                 return (
-                  <tr key={idx} className="hover:bg-slate-50 transition-colors">
-                    <td
-                      className="border border-slate-300"
-                      style={{ textAlign: 'left', paddingLeft: '10px', lineHeight: '1.4 !important', padding: '6px 4px !important' }}
-                    >
-                      {idx + 1}. {sanitizeItemName(item.name || '-')}
-                    </td>
-                    {/* Col 2: จำนวนตั้งต้น (ตรงกลาง, nowrap) - Render full unit text */}
-                    <td
-                      className="border border-slate-300 nowrap font-bold text-center"
-                      style={{ textAlign: 'center', whiteSpace: 'nowrap', lineHeight: '1.4 !important', padding: '6px 4px !important' }}
-                    >
-                      {(item as any).initialQtyText || (item as any).unitText || (item.qty && String(item.qty).trim() ? String(item.qty).trim() : '1')}
-                    </td>
-        {/* 1. Checklist cells */}
-                      {weeks.map((w) => {
-                        const customVal = resolvedWeekValues[itemKey]?.[w];
-                        const itemWeekVal = item.weekVals?.[w];
-
-                        let displayVal = '';
-                        if (isBlankForm) {
-                          displayVal = '';
-                        } else if (customVal !== undefined && customVal !== '') {
-                          displayVal = String(customVal);
-                        } else if (itemWeekVal !== undefined && itemWeekVal !== '') {
-                          displayVal = String(itemWeekVal);
-                        } else if (currentWeek === w) {
-                          if (item.val && item.val !== '✓') {
-                            displayVal = String(item.val);
-                          } else if (isOk) {
-                            if (classification.isType1) {
-                              displayVal = String(classification.totalQty);
-                            } else if (item.subItemQuantities && item.subItemQuantities.length > 1) {
-                              displayVal = item.subItemQuantities.join(', ');
-                            } else if ((item as any).subItemQuantities && (item as any).subItemQuantities.length > 1) {
-                              displayVal = (item as any).subItemQuantities.join(', ');
-                            } else {
-                              const targetVal = getRealTargetCheckValue(item as any);
-                              displayVal = String(realCheckVal || item.qty || targetVal);
-                            }
-                          } else if (isBad) {
-                            displayVal = '✗';
-                          } else if (isMiss) {
-                            displayVal = '?';
-                          }
-                        }
-
-                        if (!isBlankForm) {
-                          if (classification.isType2) {
-                            const parts = displayVal.split(',').map((p) => p.trim());
-                            const isGeneric = parts.every(p => p === '1' || p === '✓' || p === '-' || p === '');
-                            if (isOk || isGeneric) {
-                               displayVal = classification.subQuantities.join(', ');
-                            }
-                          } else if (classification.isType1) {
-                            if (displayVal.includes(',')) {
-                              const parts = displayVal.split(',').map((p) => p.trim());
-                              const validCount = parts.filter((p) => p === '1' || p === '✓' || parseInt(p, 10) > 0).length;
-                              displayVal = String(validCount || classification.totalQty);
-                            } else if ((displayVal === '1' || displayVal === '✓') && isOk) {
-                              displayVal = String(classification.totalQty);
-                            }
-                          }
-
-                          const isO2Tank = (item.name?.toLowerCase().includes('tank') || item.name?.includes('ถัง')) &&
-                            (item.name?.toLowerCase().includes('o2') || item.name?.toLowerCase().includes('oxygen') || item.name?.includes('ออกซิเจน'));
-                          
-                          if (isO2Tank && displayVal !== '-' && displayVal !== '' && displayVal !== '?' && displayVal !== '✗') {
-                             displayVal = displayVal.split(',').map(p => p.trim() + ' psi').join(', ');
-                          }
-                        }
-
-                        const isValBad = displayVal === '✗' || displayVal.toLowerCase() === 'fail' || (displayVal.toLowerCase().includes('psi') && parseInt(displayVal.replace(/\D/g, ''), 10) < 500);
-                        const isValEmpty = displayVal === '' || displayVal === '-';
-
-                        return (
-                          <td
-                            key={w}
-                            className={`border border-slate-300 p-0 text-center ${
-                              currentWeek === w && !isBlankForm ? 'bg-blue-50/40' : ''
-                            }`}
-                            style={{ textAlign: 'center', width: '75px' }}
-                          >
-                            {isBlankForm ? (
-                              <div className="h-8"></div>
-                            ) : (
-                              <input
-                                type="text"
-                                value={isValEmpty ? '' : displayVal}
-                                placeholder="-"
-                                onChange={(e) => handleCellValChange(itemKey, w, e.target.value)}
-                                className={`w-full h-8 text-center bg-transparent border-0 focus:ring-1 focus:ring-blue-500 rounded text-xs p-1 outline-none font-bold ${
-                                  isValBad
-                                    ? 'text-rose-700 text-sm font-bold'
-                                    : isValEmpty
-                                    ? 'text-slate-400'
-                                    : 'text-black text-sm font-bold'
-                                }`}
-                                style={{ color: isValBad ? '#be123c' : isValEmpty ? '#94a3b8' : '#000000 !important' }}
-                                title={`สัปดาห์ที่ ${w}`}
-                              />
-                            )}
-                          </td>
-                        );
-                      })}
-                      <td
-                        className="border border-slate-300 p-1.5 text-center text-xs"
-                        style={{
-                          width: '120px',
-                          minWidth: '120px',
-                          textAlign: 'center',
-                          fontSize: '10.5pt',
-                          lineHeight: '1.3',
-                        }}
-                      >
-                        {isBlankForm ? (
-                          <span className="text-slate-300 dark:text-slate-600 font-normal">........................</span>
-                        ) : ((item.name?.toLowerCase().includes('tank') || item.name?.includes('ถัง')) && 
-                          (item.name?.toLowerCase().includes('o2') || item.name?.toLowerCase().includes('oxygen') || item.name?.includes('ออกซิเจน')) &&
-                          !(item.name?.toLowerCase().includes('cannula') || item.name?.toLowerCase().includes('mask') || item.name?.includes('หน้ากาก') || item.name?.includes('สาย')))
-                          ? 'ปริมาณแรงดันไม่ต่ำกว่า 500 psi'
-                          : (() => {
-                              const subItems = parseSubExpItems(expStr);
-                              if (subItems.length === 0) return '-';
-                              return (
-                                <div className="flex flex-col items-center justify-center gap-0.5">
-                                  {subItems.map((sub, i) => (
-                                    <div
-                                      key={i}
-                                      style={{
-                                        color: sub.isRed ? '#DC2626 !important' : '#000000 !important',
-                                        fontWeight: sub.isRed ? 'bold' : 'normal',
-                                        whiteSpace: 'nowrap',
-                                      }}
-                                    >
-                                      {sub.label ? `${sub.label}: ${sub.formattedDate}` : sub.formattedDate}
-                                    </div>
-                                  ))}
-                                </div>
-                              );
-                            })()}
-                      </td>
-                    </tr>
-                  );
-                })}
+                  <EmergencyPreviewItemRow
+                    key={`${itemKey}_${idx}`}
+                    item={item}
+                    idx={idx}
+                    weeks={weeks}
+                    currentWeek={currentWeek}
+                    isBlankForm={isBlankForm}
+                    rowWeekCustomValues={resolvedWeekValues[itemKey]}
+                    onCellValChange={handleCellValChange}
+                  />
+                );
+              })}
               </React.Fragment>
             ))}
   
@@ -719,10 +736,10 @@ export const EmergencyChecklistReportPreview: React.FC<EmergencyChecklistReportP
       </div>
     </div>
   );
-};
+});
 
 export function generateEmergencyPrintHtml(
-  type: 'bag' | 'cart',
+  type: 'bag' | 'cart' | 'ambulance' | string,
   items: OfficialReportItemRow[],
   options: {
     date?: string;
@@ -775,6 +792,8 @@ export function generateEmergencyPrintHtml(
   const headingTitle =
     type === 'cart'
       ? `ตารางตรวจเช็ครถ Emergency ประจำเดือน ${month} พ.ศ. ${year}`
+      : type === 'ambulance'
+      ? `ตารางตรวจเช็ครถพยาบาลฉุกเฉิน (Ambulance) ประจำเดือน ${month} พ.ศ. ${year}`
       : `ตารางตรวจเช็คกระเป๋า Emergency ประจำเดือน ${month} พ.ศ. ${year}`;
 
   const resolvedPrintWeekDates: Record<number, string> = {};
@@ -865,15 +884,18 @@ export function generateEmergencyPrintHtml(
             .map((w) => {
               const customVal = weekItemValues[itemKey]?.[w];
               const itemWeekVal = item.weekVals?.[w];
+              const hasDefinedWeekVals =
+                item.weekVals !== undefined &&
+                Object.values(item.weekVals).some((v) => v !== undefined && String(v).trim() !== '');
 
               let displayVal = '';
               if (isBlankForm) {
                 displayVal = '';
-              } else if (customVal !== undefined && customVal !== '') {
+              } else if (customVal !== undefined && String(customVal).trim() !== '') {
                 displayVal = String(customVal);
-              } else if (itemWeekVal !== undefined && itemWeekVal !== '') {
+              } else if (itemWeekVal !== undefined && String(itemWeekVal).trim() !== '') {
                 displayVal = String(itemWeekVal);
-              } else if (activeWeek === w) {
+              } else if (activeWeek === w && item.weekVals === undefined && !hasDefinedWeekVals) {
                 if (item.val && item.val !== '✓') {
                   displayVal = String(item.val);
                 } else if (isOk) {
@@ -893,13 +915,12 @@ export function generateEmergencyPrintHtml(
                 }
               }
 
-              if (!isBlankForm) {
+              if (!isBlankForm && displayVal !== '' && displayVal !== '-' && displayVal !== '✗' && displayVal !== '?') {
                 // Type 1 vs Type 2 formatting guarantee
                 if (classification.isType2) {
-                  // Normalize generic/default states (like '1, 1' or '✓') to real target quantities if all sub-items are satisfied
                   const parts = displayVal.split(',').map((p) => p.trim());
-                  const isGeneric = parts.every(p => p === '1' || p === '✓' || p === '-' || p === '');
-                  if (isOk || isGeneric) {
+                  const isGeneric = parts.length > 0 && parts.every((p) => p === '1' || p === '✓');
+                  if (isGeneric) {
                     displayVal = classification.subQuantities.join(', ');
                   }
                 } else if (classification.isType1) {
@@ -915,7 +936,7 @@ export function generateEmergencyPrintHtml(
                 const isO2Tank = (item.name?.toLowerCase().includes('tank') || item.name?.includes('ถัง')) &&
                   (item.name?.toLowerCase().includes('o2') || item.name?.toLowerCase().includes('oxygen') || item.name?.includes('ออกซิเจน'));
                 
-                if (isO2Tank && displayVal !== '-' && displayVal !== '' && displayVal !== '?' && displayVal !== '✗') {
+                if (isO2Tank) {
                     displayVal = displayVal.split(',').map(p => p.trim() + ' psi').join(', ');
                 }
               }

@@ -7,70 +7,384 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
-    // Helper functions
+    // Reusable authentication, authorization & schema validation primitives
     function isSignedIn() {
       return request.auth != null;
     }
 
-    function isOwner(userId) {
-      return isSignedIn() && request.auth.uid == userId;
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isBootstrappedAdmin() {
+      return isVerifiedUser() && request.auth.token.email == 'time165311@gmail.com';
     }
 
     function isAdmin() {
-      return isSignedIn() && (
-        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
-        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
+      return isBootstrappedAdmin() || (
+        isVerifiedUser() && exists(/databases/$(database)/documents/admins/$(request.auth.uid))
       );
     }
 
-    // Users Collection: Staff can read directory; users can only write their own profile; admins can manage all
-    match /users/{userId} {
-      allow read: if true;
-      allow create: if isSignedIn() && (request.auth.uid == userId || isAdmin());
-      allow update: if isSignedIn() && (request.auth.uid == userId || isAdmin());
-      allow delete: if isAdmin();
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
 
-    // Equipment Collection: Medical staff can read, log, and update equipment
-    match /equipment/{itemId} {
-      allow read: if true;
-      allow create, update: if true;
-      allow delete: if isAdmin();
+    function incoming() {
+      return request.resource.data;
     }
 
-    // Drugs Collection: Medical staff can read and manage drug inventory
-    match /drugs/{drugId} {
-      allow read: if true;
-      allow create, update: if true;
-      allow delete: if isAdmin();
+    function existing() {
+      return resource.data;
     }
 
-    // Inspection Records Collection: Medical staff can read and record audit inspection rounds
-    match /inspection_records/{recordId} {
-      allow read: if true;
-      allow create: if true;
-      allow update: if isSignedIn() && (isOwner(resource.data.who) || isAdmin());
-      allow delete: if isAdmin();
+    function isOptionalString(data, key, maxLen) {
+      return !(key in data) || data[key] == null || (data[key] is string && data[key].size() <= maxLen);
     }
 
-    // Settings Collection: Global app settings (sheet URL, API config)
-    match /settings/{docId} {
-      allow read: if true;
-      allow write: if isAdmin();
+    function isOptionalNumber(data, key) {
+      return !(key in data) || data[key] == null || (data[key] is number);
     }
 
-    // Admins Collection: List of verified administrators
+    function isOptionalBool(data, key) {
+      return !(key in data) || data[key] == null || (data[key] is bool);
+    }
+
+    function isOptionalList(data, key, maxLen) {
+      return !(key in data) || data[key] == null || (data[key] is list && data[key].size() <= maxLen);
+    }
+
+    // Enforce bounded base64/URL image sizes (< 500,000 chars) to protect document quota
+    function isValidImageSize(data) {
+      return isOptionalString(data, 'img', 500000) &&
+        isOptionalString(data, 'avatar', 500000) &&
+        isOptionalString(data, 'signature', 500000);
+    }
+
+    function isValidAdminDoc(data) {
+      return data.keys().hasAll(['uid']) &&
+        data.keys().hasOnly(['uid', 'email', 'grantedAt', 'grantedBy']) &&
+        isValidId(data.uid) &&
+        isOptionalString(data, 'email', 200) &&
+        isOptionalString(data, 'grantedAt', 100) &&
+        isOptionalString(data, 'grantedBy', 128);
+    }
+
+    function isValidEquipment(data) {
+      return data.keys().hasAll(['id', 'name']) &&
+        data.keys().hasOnly([
+          'id', 'name', 'code', 'sap', 'spec', 'source', 'date', 'qty', 'tax', 'price',
+          'location', 'img', 'no', 'exp', 'note', 'type', 'category', 'groupName', 'roomId',
+          'barcode', 'serialNumber', 'subExps', 'subItemQuantities', 'checkType',
+          'subItems', 'unitText', 'initialQtyText', 'channelId',
+          'orderNumber', 'assetCode', 'sapCode', 'brandModel', 'status', 'isMarked'
+        ]) &&
+        isValidId(data.id) &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 300 &&
+        isOptionalString(data, 'code', 150) &&
+        isOptionalString(data, 'sap', 150) &&
+        isOptionalString(data, 'spec', 1000) &&
+        isOptionalString(data, 'source', 200) &&
+        isOptionalString(data, 'date', 100) &&
+        isOptionalString(data, 'qty', 100) &&
+        isOptionalString(data, 'tax', 50) &&
+        isOptionalString(data, 'price', 50) &&
+        isOptionalString(data, 'location', 200) &&
+        isOptionalString(data, 'no', 50) &&
+        isOptionalString(data, 'exp', 1000) &&
+        isOptionalString(data, 'note', 1000) &&
+        isOptionalString(data, 'type', 50) &&
+        isOptionalString(data, 'category', 200) &&
+        isOptionalString(data, 'groupName', 200) &&
+        isOptionalString(data, 'roomId', 100) &&
+        isOptionalString(data, 'barcode', 150) &&
+        isOptionalString(data, 'serialNumber', 150) &&
+        isOptionalString(data, 'checkType', 30) &&
+        isOptionalString(data, 'unitText', 100) &&
+        isOptionalString(data, 'initialQtyText', 100) &&
+        isOptionalString(data, 'channelId', 128) &&
+        isOptionalString(data, 'orderNumber', 50) &&
+        isOptionalString(data, 'assetCode', 150) &&
+        isOptionalString(data, 'sapCode', 150) &&
+        isOptionalString(data, 'brandModel', 500) &&
+        isOptionalString(data, 'status', 50) &&
+        isOptionalBool(data, 'isMarked') &&
+        isOptionalList(data, 'subItems', 100) &&
+        isOptionalList(data, 'subItemQuantities', 100) &&
+        isOptionalList(data, 'subExps', 100) &&
+        isValidImageSize(data);
+    }
+
+    function isValidDrug(data) {
+      return data.keys().hasAll(['id', 'name', 'category']) &&
+        data.keys().hasOnly([
+          'id', 'category', 'name', 'remaining', 'totalQty', 'receivedDate',
+          'receivedQty', 'minStock', 'batchRequest', 'unit', 'expDate', 'exp',
+          'lotNumber', 'lots', 'batches', 'tmtCode', 'hospitalDrugCode',
+          'spec', 'note', 'img', 'barcode', 'channelId', 'updatedAt'
+        ]) &&
+        isValidId(data.id) &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 300 &&
+        data.category is string && data.category in ['monthly', 'quarterly', 'adhoc'] &&
+        isOptionalNumber(data, 'remaining') &&
+        isOptionalNumber(data, 'totalQty') &&
+        isOptionalString(data, 'receivedDate', 100) &&
+        isOptionalNumber(data, 'receivedQty') &&
+        isOptionalNumber(data, 'minStock') &&
+        isOptionalString(data, 'batchRequest', 150) &&
+        isOptionalString(data, 'unit', 100) &&
+        isOptionalString(data, 'expDate', 1000) &&
+        isOptionalString(data, 'exp', 1000) &&
+        isOptionalString(data, 'lotNumber', 150) &&
+        isOptionalString(data, 'tmtCode', 100) &&
+        isOptionalString(data, 'hospitalDrugCode', 100) &&
+        isOptionalString(data, 'spec', 500) &&
+        isOptionalString(data, 'note', 1000) &&
+        isOptionalString(data, 'barcode', 150) &&
+        isOptionalString(data, 'channelId', 128) &&
+        isOptionalString(data, 'updatedAt', 100) &&
+        isOptionalList(data, 'lots', 100) &&
+        isOptionalList(data, 'batches', 100) &&
+        isValidImageSize(data);
+    }
+
+    function isValidInspectionRecord(data) {
+      return data.keys().hasAll(['id', 'timestamp', 'date', 'who', 'type']) &&
+        data.keys().hasOnly(['id', 'timestamp', 'date', 'time', 'who', 'type', 'title', 'rows', 'weekDates', 'channelId']) &&
+        isValidId(data.id) &&
+        data.timestamp is string && data.timestamp.size() <= 100 &&
+        data.date is string && data.date.size() <= 100 &&
+        data.who is string && data.who.size() <= 200 &&
+        data.type is string && data.type in ['eq', 'bag', 'cart', 'ambulance', 'drug'] &&
+        isOptionalString(data, 'time', 100) &&
+        isOptionalString(data, 'title', 300) &&
+        isOptionalString(data, 'channelId', 128) &&
+        isOptionalList(data, 'rows', 500);
+    }
+
+    function isValidUserProfile(data) {
+      return data.keys().hasAll(['id', 'name']) &&
+        data.keys().hasOnly([
+          'id', 'uid', 'email', 'username', 'name', 'role', 'position', 'signature',
+          'active', 'must', 'created', 'last', 'avatar', 'ringColor'
+        ]) &&
+        isValidId(data.id) &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 150 &&
+        (!('role' in data) || data.role in ['admin', 'user']) &&
+        isOptionalString(data, 'uid', 128) &&
+        isOptionalString(data, 'email', 200) &&
+        isOptionalString(data, 'username', 80) &&
+        isOptionalString(data, 'position', 150) &&
+        isOptionalString(data, 'created', 100) &&
+        isOptionalString(data, 'last', 100) &&
+        isOptionalString(data, 'ringColor', 50) &&
+        isOptionalBool(data, 'active') &&
+        isOptionalBool(data, 'must') &&
+        isValidImageSize(data);
+    }
+
+    function isValidSettings(data) {
+      return data.keys().hasOnly([
+          'sheetUrl', 'apiUrl', 'theme', 'globalChecks', 'lastSubmitted',
+          'drugsCleared', 'equipmentCleared', 'bagCleared', 'cartCleared',
+          'channelsInitialized', 'channels', 'updatedAt'
+        ]) &&
+        isOptionalString(data, 'sheetUrl', 1000) &&
+        isOptionalString(data, 'apiUrl', 1000) &&
+        isOptionalString(data, 'theme', 20) &&
+        isOptionalString(data, 'updatedAt', 100) &&
+        isOptionalBool(data, 'drugsCleared') &&
+        isOptionalBool(data, 'equipmentCleared') &&
+        isOptionalBool(data, 'bagCleared') &&
+        isOptionalBool(data, 'cartCleared') &&
+        isOptionalBool(data, 'channelsInitialized') &&
+        isOptionalList(data, 'channels', 100);
+    }
+
+    function isValidChannelData(data) {
+      return data.keys().hasAll(['id']) &&
+        data.keys().hasOnly([
+          'id', 'lists', 'globalChecks', 'emergencyWeekDates',
+          'drugsCleared', 'equipmentCleared', 'updatedAt'
+        ]) &&
+        isValidId(data.id) &&
+        isOptionalBool(data, 'drugsCleared') &&
+        isOptionalBool(data, 'equipmentCleared') &&
+        isOptionalString(data, 'updatedAt', 100);
+    }
+
+    function isValidRestockRequisition(data) {
+      return data.keys().hasAll(['id', 'createdAt', 'items']) &&
+        data.keys().hasOnly([
+          'id', 'channelId', 'targetCategory', 'requestedBy', 'requestedById',
+          'status', 'notes', 'items', 'createdAt', 'updatedAt',
+          'approvedBy', 'approvedAt', 'rejectedReason', 'receivedBy', 'receivedAt'
+        ]) &&
+        isValidId(data.id) &&
+        data.createdAt is string && data.createdAt.size() <= 100 &&
+        data.items is list && data.items.size() >= 1 && data.items.size() <= 200 &&
+        isOptionalString(data, 'channelId', 128) &&
+        isOptionalString(data, 'targetCategory', 100) &&
+        isOptionalString(data, 'requestedBy', 150) &&
+        isOptionalString(data, 'requestedById', 128) &&
+        isOptionalString(data, 'status', 50) &&
+        (!('status' in data) || data.status in ['draft', 'pending', 'approved', 'rejected', 'received']) &&
+        isOptionalString(data, 'notes', 1000) &&
+        isOptionalString(data, 'updatedAt', 100) &&
+        isOptionalString(data, 'approvedBy', 150) &&
+        isOptionalString(data, 'approvedAt', 100) &&
+        isOptionalString(data, 'rejectedReason', 500) &&
+        isOptionalString(data, 'receivedBy', 150) &&
+        isOptionalString(data, 'receivedAt', 100);
+    }
+
+    function matchesChannelScope(data, channelId) {
+      return !('channelId' in data) || data.channelId == null || data.channelId == channelId;
+    }
+
+    function isValidAuditLog(data) {
+      return data.keys().hasAll(['timestamp', 'userId', 'action', 'targetCollection']) &&
+        data.keys().hasOnly([
+          'id', 'timestamp', 'userId', 'userName', 'role', 'action',
+          'targetCollection', 'targetId', 'details', 'ipAddress'
+        ]) &&
+        data.timestamp is string && data.timestamp.size() <= 100 &&
+        data.userId is string && data.userId.size() <= 128 &&
+        data.action is string && data.action.size() <= 100 &&
+        data.targetCollection is string && data.targetCollection.size() <= 100 &&
+        isOptionalString(data, 'id', 128) &&
+        isOptionalString(data, 'userName', 150) &&
+        isOptionalString(data, 'role', 50) &&
+        isOptionalString(data, 'targetId', 128) &&
+        isOptionalString(data, 'ipAddress', 100);
+    }
+
+    // Admin Allowlist
     match /admins/{adminId} {
-      allow read: if isSignedIn();
-      allow write: if isAdmin();
+      allow get: if isVerifiedUser() && isValidId(adminId) && (request.auth.uid == adminId || isAdmin());
+      allow list: if isBootstrappedAdmin() || (isVerifiedUser() && existing().uid == request.auth.uid);
+      allow create, update: if isAdmin() && isValidId(adminId) && isValidAdminDoc(incoming());
+      allow delete: if isAdmin() && isValidId(adminId);
     }
 
-    // Audit Logs Collection: Strictly Append-Only (Create & Read allowed; Update & Delete Strictly Forbidden)
+    // User Profiles (PII protected: owner or admin only, no privilege escalation, no salt/hash)
+    match /users/{userId} {
+      allow get: if isVerifiedUser() && isValidId(userId) && (request.auth.uid == userId || isAdmin());
+      allow list: if isVerifiedUser() && (isBootstrappedAdmin() || existing().id == request.auth.uid);
+      allow create: if isVerifiedUser() && isValidId(userId) && isValidUserProfile(incoming()) && (
+        isAdmin() ||
+        (request.auth.uid == userId && (!('role' in incoming()) || incoming().role == 'user'))
+      );
+      allow update: if isVerifiedUser() && isValidId(userId) && isValidUserProfile(incoming()) && (
+        isAdmin() ||
+        (
+          request.auth.uid == userId &&
+          incoming().id == existing().id &&
+          (!('role' in incoming()) || incoming().role == existing().role) &&
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'uid', 'email', 'username', 'name', 'position', 'signature',
+            'active', 'must', 'created', 'last', 'avatar', 'ringColor'
+          ])
+        )
+      );
+      allow delete: if isAdmin() && isValidId(userId);
+    }
+
+    // Master & Global Inspection Workspace Collections
+    match /equipment/{itemId} {
+      allow get: if isVerifiedUser() && isValidId(itemId);
+      allow list: if isVerifiedUser();
+      allow create, update: if isVerifiedUser() && isValidId(itemId) && isValidEquipment(incoming());
+      allow delete: if isAdmin() && isValidId(itemId);
+    }
+
+    match /drugs/{drugId} {
+      allow get: if isVerifiedUser() && isValidId(drugId);
+      allow list: if isVerifiedUser();
+      allow create, update: if isVerifiedUser() && isValidId(drugId) && isValidDrug(incoming());
+      allow delete: if isAdmin() && isValidId(drugId);
+    }
+
+    match /inspection_records/{recordId} {
+      allow get: if isVerifiedUser() && isValidId(recordId);
+      allow list: if isVerifiedUser();
+      allow create, update: if isVerifiedUser() && isValidId(recordId) && isValidInspectionRecord(incoming());
+      allow delete: if isAdmin() && isValidId(recordId);
+    }
+
+    match /settings/{docId} {
+      allow get: if isVerifiedUser() && isValidId(docId) && docId in ['config', 'app_state', 'channels'];
+      allow list: if false;
+      allow create, update: if isVerifiedUser() && isValidId(docId) && isValidSettings(incoming()) && (
+        docId in ['app_state', 'channels'] ||
+        (docId == 'config' && isAdmin())
+      );
+      allow delete: if false;
+    }
+
+    match /restock_requisitions/{reqId} {
+      allow get: if isVerifiedUser() && isValidId(reqId);
+      allow list: if isVerifiedUser();
+      allow create: if isVerifiedUser() && isValidId(reqId) && isValidRestockRequisition(incoming()) && (
+        isAdmin() || !('status' in incoming()) || incoming().status in ['draft', 'pending']
+      );
+      allow update: if isVerifiedUser() && isValidId(reqId) && isValidRestockRequisition(incoming()) && (
+        isAdmin() ||
+        (existing().status != 'received' && incoming().status in ['draft', 'pending'] && existing().status in ['draft', 'pending', 'rejected'])
+      );
+      allow delete: if isAdmin() && isValidId(reqId) && existing().status != 'received';
+    }
+
+    // Channel-Isolated Ward Documents & Subcollections
+    match /channels/{channelId} {
+      allow get: if isVerifiedUser() && isValidId(channelId);
+      allow list: if isVerifiedUser();
+      allow create, update: if isVerifiedUser() && isValidId(channelId) && isValidChannelData(incoming());
+      allow delete: if isAdmin() && isValidId(channelId);
+
+      match /equipment/{itemId} {
+        allow get: if isVerifiedUser() && isValidId(channelId) && isValidId(itemId);
+        allow list: if isVerifiedUser();
+        allow create, update: if isVerifiedUser() && isValidId(channelId) && isValidId(itemId) && isValidEquipment(incoming()) && matchesChannelScope(incoming(), channelId);
+        allow delete: if isAdmin() && isValidId(channelId) && isValidId(itemId);
+      }
+
+      match /drugs/{drugId} {
+        allow get: if isVerifiedUser() && isValidId(channelId) && isValidId(drugId);
+        allow list: if isVerifiedUser();
+        allow create, update: if isVerifiedUser() && isValidId(channelId) && isValidId(drugId) && isValidDrug(incoming()) && matchesChannelScope(incoming(), channelId);
+        allow delete: if isAdmin() && isValidId(channelId) && isValidId(drugId);
+      }
+
+      match /inspection_records/{recordId} {
+        allow get: if isVerifiedUser() && isValidId(channelId) && isValidId(recordId);
+        allow list: if isVerifiedUser();
+        allow create, update: if isVerifiedUser() && isValidId(channelId) && isValidId(recordId) && isValidInspectionRecord(incoming()) && matchesChannelScope(incoming(), channelId);
+        allow delete: if isAdmin() && isValidId(channelId) && isValidId(recordId);
+      }
+
+      match /restock_requisitions/{reqId} {
+        allow get: if isVerifiedUser() && isValidId(channelId) && isValidId(reqId);
+        allow list: if isVerifiedUser();
+        allow create: if isVerifiedUser() && isValidId(channelId) && isValidId(reqId) && isValidRestockRequisition(incoming()) && matchesChannelScope(incoming(), channelId) && (
+          isAdmin() || !('status' in incoming()) || incoming().status in ['draft', 'pending']
+        );
+        allow update: if isVerifiedUser() && isValidId(channelId) && isValidId(reqId) && isValidRestockRequisition(incoming()) && matchesChannelScope(incoming(), channelId) && (
+          isAdmin() ||
+          (existing().status != 'received' && incoming().status in ['draft', 'pending'] && existing().status in ['draft', 'pending', 'rejected'])
+        );
+        allow delete: if isAdmin() && isValidId(channelId) && isValidId(reqId) && existing().status != 'received';
+      }
+    }
+
+    // Immutable Append-Only Audit Log Collection (includes HA & HL7 FHIR Dispensations)
     match /audit_logs/{logId} {
-      allow read, create: if true;
-      allow update, delete: if false; // Append-Only strictly enforced
+      allow get: if isVerifiedUser() && isValidId(logId) && (isAdmin() || existing().userId == request.auth.uid);
+      allow list: if isVerifiedUser() && (isBootstrappedAdmin() || existing().userId == request.auth.uid);
+      allow create: if isVerifiedUser() && isValidId(logId) && isValidAuditLog(incoming()) && (
+        isAdmin() || incoming().userId == request.auth.uid
+      );
+      allow update, delete: if false;
     }
   }
 }
-

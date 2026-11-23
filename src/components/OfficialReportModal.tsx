@@ -7,12 +7,17 @@ import {
   RefreshCw,
   Scaling,
   ChevronDown,
+  SlidersHorizontal,
   CheckCircle2,
   Calendar,
+  Maximize2,
+  Minimize2,
 } from 'lucide-react';
 import { InspectionHistoryRecord, User, DrugItem } from '../types';
 import { INITIAL_DRUGS_DATA } from '../constants/initialDrugs';
 import { sendInspectionToGas } from '../services/api';
+import { getBangkokYearCE } from '../utils/dateUtils';
+import { exportOfficialReportPdf } from '../utils/exportPdf';
 import {
   DrugInventoryReportPreview,
   generateDrugPrintHtml,
@@ -59,7 +64,7 @@ export interface OfficialReportItemRow {
 export interface OfficialReportModalProps {
   isOpen: boolean;
   onClose: () => void;
-  initialCategory?: 'eq' | 'bag' | 'cart' | 'drug';
+  initialCategory?: 'eq' | 'bag' | 'cart' | 'drug' | 'ambulance' | string;
   initialDrugSubCategory?: 'all' | 'monthly' | 'quarterly' | 'adhoc';
   title?: string;
   date?: string;
@@ -68,12 +73,14 @@ export interface OfficialReportModalProps {
   eqItems?: OfficialReportItemRow[];
   bagItems?: OfficialReportItemRow[];
   cartItems?: OfficialReportItemRow[];
+  ambulanceItems?: OfficialReportItemRow[];
   drugs?: DrugItem[];
   sheetUrl?: string;
   apiUrl?: string;
   historyRecords?: InspectionHistoryRecord[];
   currentUser?: User | null;
-  onDeleteHistoryRecord?: (recordId: string) => void;
+  onDeleteHistoryRecord?: (recordId: string, category?: 'eq' | 'bag' | 'cart' | 'drug' | 'ambulance' | string) => Promise<void> | void;
+  onDeleteAllHistoryRecords?: (category: 'eq' | 'bag' | 'cart' | 'drug' | 'ambulance' | string, recordIds: string[]) => Promise<void> | void;
   initialWeek?: number;
   initialWeekDates?: { [week: number]: string };
   initialRoundId?: string;
@@ -182,8 +189,8 @@ export function parseSubExpItems(expVal?: string | null): SubExpItem[] {
   const str = String(expVal).trim();
   if (!str || str === '-' || str === 'null' || str === 'undefined') return [];
 
-  const currentYearAD = new Date().getFullYear(); // 2026
-  const currentYearBE = currentYearAD + 543; // 2569
+  const currentYearAD = getBangkokYearCE();
+  const currentYearBE = currentYearAD + 543;
 
   const parts = str.includes(',') ? str.split(',') : [str];
   const items: SubExpItem[] = [];
@@ -343,26 +350,30 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
   eqItems = [],
   bagItems = [],
   cartItems = [],
+  ambulanceItems = [],
   drugs: propDrugs,
   apiUrl = '',
   historyRecords = [],
   currentUser = null,
   onDeleteHistoryRecord,
+  onDeleteAllHistoryRecords,
   initialWeek,
   initialWeekDates,
   initialRoundId,
 }) => {
   const { activeChannel } = useDataContext();
   const [isPrinting, setIsPrinting] = useState(false);
-  const [selectedCategory, setSelectedCategory] = useState<'eq' | 'bag' | 'cart' | 'drug'>('eq');
+  const [selectedCategory, setSelectedCategory] = useState<'eq' | 'bag' | 'cart' | 'drug' | 'ambulance'>('eq');
   const [selectedRoundId, setSelectedRoundId] = useState<string>('current');
   const [feedback, setFeedback] = useState<{ type: 'success' | 'info' | 'error'; message: string } | null>(null);
   const [recordToDelete, setRecordToDelete] = useState<InspectionHistoryRecord | null>(null);
+  const [confirmDeleteAllCategory, setConfirmDeleteAllCategory] = useState<'eq' | 'bag' | 'cart' | 'drug' | 'ambulance' | null>(null);
+  const [isDeletingAllHistory, setIsDeletingAllHistory] = useState(false);
   const [isExportingGas, setIsExportingGas] = useState<boolean>(false);
   const [drugSubCategory, setDrugSubCategory] = useState<'all' | 'monthly' | 'quarterly' | 'adhoc'>(initialDrugSubCategory);
   const [drugHeaderNote, setDrugHeaderNote] = useState<string>('');
-  const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   const [isFitToScreen, setIsFitToScreen] = useState<boolean>(true);
+  const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
   const [orientation] = useState<'landscape' | 'portrait'>('landscape');
 
   const [activeWeek, setActiveWeek] = useState<number>(1);
@@ -370,12 +381,24 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
   const [weekDates, setWeekDates] = useState<{ [wk: number]: string }>({});
   const [weekItemValues] = useState<{ [itemKey: string]: { [week: number]: string } }>({});
 
+  const [inspectorNameInput, setInspectorNameInput] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('user_display_name') || currentUser?.name || inspector || 'สาธิต';
+    }
+    return currentUser?.name || inspector || 'สาธิต';
+  });
+  const [inspectorPosInput, setInspectorPosInput] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('user_display_position') || currentUser?.position || 'พยาบาลวิสัญญี';
+    }
+    return currentUser?.position || 'พยาบาลวิสัญญี';
+  });
+
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const sheetRef = useRef<HTMLDivElement>(null);
   const [modalContentWidth, setModalContentWidth] = useState<number>(
-    typeof window !== 'undefined' ? Math.min(window.innerWidth - 32, 1200) : 1120
+    typeof window !== 'undefined' ? window.innerWidth : 1120
   );
-  const [sheetHeight, setSheetHeight] = useState<number>(850);
 
   // Mouse Drag-to-Scroll (Pan) states & handlers for desktop A4 paper
   const [isMouseDragging, setIsMouseDragging] = useState(false);
@@ -384,7 +407,7 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
   useEffect(() => {
     if (isOpen) {
       if (initialCategory) {
-        setSelectedCategory(initialCategory);
+        setSelectedCategory(initialCategory as any);
       }
       if (initialDrugSubCategory) {
         setDrugSubCategory(initialDrugSubCategory);
@@ -402,6 +425,7 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
       }
       setFeedback(null);
       setIsFitToScreen(true);
+      setIsSettingsOpen(false);
       if (scrollContainerRef.current) {
         scrollContainerRef.current.scrollTop = 0;
         scrollContainerRef.current.scrollLeft = 0;
@@ -428,32 +452,45 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
     });
   };
 
-  // Synchronous layout effect & observer for immediate mount render measurement
+  // Lightweight viewport width measurement for responsive paper zoom (no height ResizeObserver needed in normal flow)
   useLayoutEffect(() => {
     if (!isOpen) return;
 
-    const measureSizes = () => {
+    let rafId: number | null = null;
+    const measureWidth = () => {
       if (scrollContainerRef.current) {
         const cw = scrollContainerRef.current.clientWidth;
-        if (cw > 0) setModalContentWidth(cw);
-      }
-      if (sheetRef.current) {
-        const sh = sheetRef.current.offsetHeight;
-        if (sh > 0) setSheetHeight(sh);
+        if (cw > 0) {
+          setModalContentWidth((prev) => (Math.abs(prev - cw) > 1 ? cw : prev));
+        }
       }
     };
 
-    measureSizes();
-    const raf = requestAnimationFrame(measureSizes);
-    const timer = setTimeout(measureSizes, 60);
+    const scheduleMeasure = () => {
+      if (rafId !== null) return;
+      rafId = requestAnimationFrame(() => {
+        rafId = null;
+        measureWidth();
+      });
+    };
 
-    window.addEventListener('resize', measureSizes);
+    measureWidth();
+    const timer = setTimeout(measureWidth, 60);
+
+    let ro: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined' && scrollContainerRef.current) {
+      ro = new ResizeObserver(scheduleMeasure);
+      ro.observe(scrollContainerRef.current);
+    }
+
+    window.addEventListener('resize', scheduleMeasure);
     return () => {
-      cancelAnimationFrame(raf);
+      if (rafId !== null) cancelAnimationFrame(rafId);
       clearTimeout(timer);
-      window.removeEventListener('resize', measureSizes);
+      if (ro) ro.disconnect();
+      window.removeEventListener('resize', scheduleMeasure);
     };
-  }, [isOpen, selectedCategory, selectedRoundId, drugSubCategory, isFullscreen, isFitToScreen]);
+  }, [isOpen, selectedCategory, isFitToScreen]);
 
   const resolvedDrugs: DrugItem[] = useMemo(() => {
     if (propDrugs && propDrugs.length > 0) return propDrugs;
@@ -504,48 +541,126 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
 
   const filteredHistoryRecords = useMemo(() => {
     if (!historyRecords || !Array.isArray(historyRecords)) return [];
+    const seenIds = new Set<string>();
     return historyRecords.filter((r) => {
-      if (!r) return false;
+      if (!r || !r.id || seenIds.has(r.id)) return false;
+      seenIds.add(r.id);
       const t = String(r.type || '').toLowerCase();
       if (selectedCategory === 'eq') return !t || t === 'eq' || t === 'equipment' || t.includes('ครุภัณฑ์');
       if (selectedCategory === 'bag') return t === 'bag' || t.includes('กระเป๋า');
-      if (selectedCategory === 'cart') return t === 'cart' || t.includes('รถ');
+      if (selectedCategory === 'cart') return t === 'cart' || (t.includes('รถ') && !t.includes('พยาบาล'));
+      if (selectedCategory === 'ambulance') return t === 'ambulance' || t.includes('พยาบาล');
       if (selectedCategory === 'drug') return t === 'drug' || t === 'drugs' || t.includes('ยา');
       return true;
     });
   }, [historyRecords, selectedCategory]);
 
-  const activeUserName = useMemo(() => {
-    const stored = typeof window !== 'undefined' ? localStorage.getItem('user_display_name') : null;
-    return (stored || currentUser?.name || inspector || 'สาธิต').trim();
-  }, [currentUser, inspector]);
-
-  let activeItems: OfficialReportItemRow[] = [];
-  let displayTitle = title;
-  let displayDate = surveyDate;
-  let displayInspector = activeUserName;
-
-  if (selectedRecord) {
-    activeItems = selectedRecord.rows || [];
-    displayTitle = selectedRecord.title || title;
-    displayDate = selectedRecord.date || surveyDate;
-    displayInspector = selectedRecord.who || activeUserName;
-  } else {
-    displayInspector = activeUserName;
-    if (selectedCategory === 'eq') {
-      activeItems = eqItems.length > 0 ? eqItems : items;
-      displayTitle = 'คลินิกงานบริการผู้ป่วยในวิสัญญี';
-    } else if (selectedCategory === 'bag') {
-      activeItems = bagItems.length > 0 ? bagItems : items;
-      displayTitle = 'แบบฟอร์มตรวจสอบความพร้อม กระเป๋า Emergency';
-    } else if (selectedCategory === 'cart') {
-      activeItems = cartItems.length > 0 ? cartItems : items;
-      displayTitle = 'แบบฟอร์มตรวจสอบความพร้อม รถ Emergency';
-    } else {
-      activeItems = drugReportItems;
-      displayTitle = 'แบบฟอร์มตรวจสอบและเบิกจ่ายคลังยาและสารน้ำ';
+  useEffect(() => {
+    if (isOpen && typeof window !== 'undefined') {
+      const storedName = localStorage.getItem('user_display_name');
+      const storedPos = localStorage.getItem('user_display_position');
+      if (storedName) setInspectorNameInput(storedName);
+      if (storedPos) setInspectorPosInput(storedPos);
     }
-  }
+  }, [isOpen]);
+
+  const handleInspectorNameChange = (val: string) => {
+    setInspectorNameInput(val);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('user_display_name', val.trim() || 'สาธิต');
+      window.dispatchEvent(new Event('user_profile_updated'));
+    }
+  };
+
+  const handleInspectorPosChange = (val: string) => {
+    setInspectorPosInput(val);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('user_display_position', val.trim() || 'พยาบาลวิสัญญี');
+      window.dispatchEvent(new Event('user_profile_updated'));
+    }
+  };
+
+  const activeUserName = useMemo(() => {
+    return (inspectorNameInput || currentUser?.name || inspector || 'สาธิต').trim();
+  }, [inspectorNameInput, currentUser, inspector]);
+
+  const { activeItems, displayTitle, displayDate, displayInspector } = useMemo(() => {
+    if (selectedRecord) {
+      return {
+        activeItems: selectedRecord.rows || [],
+        displayTitle: selectedRecord.title || title,
+        displayDate: selectedRecord.date || surveyDate,
+        displayInspector: selectedRecord.who || activeUserName,
+      };
+    }
+    if (selectedCategory === 'eq') {
+      return {
+        activeItems: eqItems.length > 0 ? eqItems : items,
+        displayTitle: 'คลินิกงานบริการผู้ป่วยในวิสัญญี',
+        displayDate: surveyDate,
+        displayInspector: activeUserName,
+      };
+    }
+    if (selectedCategory === 'bag') {
+      return {
+        activeItems: bagItems.length > 0 ? bagItems : items,
+        displayTitle: 'แบบฟอร์มตรวจสอบความพร้อม กระเป๋า Emergency',
+        displayDate: surveyDate,
+        displayInspector: activeUserName,
+      };
+    }
+    if (selectedCategory === 'cart') {
+      return {
+        activeItems: cartItems.length > 0 ? cartItems : items,
+        displayTitle: 'แบบฟอร์มตรวจสอบความพร้อม รถ Emergency',
+        displayDate: surveyDate,
+        displayInspector: activeUserName,
+      };
+    }
+    if (selectedCategory === 'ambulance') {
+      return {
+        activeItems: ambulanceItems.length > 0 ? ambulanceItems : items,
+        displayTitle: 'แบบฟอร์มตรวจสอบความพร้อม รถพยาบาลฉุกเฉิน (Ambulance)',
+        displayDate: surveyDate,
+        displayInspector: activeUserName,
+      };
+    }
+    return {
+      activeItems: drugReportItems,
+      displayTitle: 'แบบฟอร์มตรวจสอบและเบิกจ่ายคลังยาและสารน้ำ',
+      displayDate: surveyDate,
+      displayInspector: activeUserName,
+    };
+  }, [selectedRecord, selectedCategory, eqItems, bagItems, cartItems, ambulanceItems, items, drugReportItems, title, surveyDate, activeUserName]);
+
+  const memoizedWeekItemValues = useMemo(() => {
+    if (selectedCategory !== 'bag' && selectedCategory !== 'cart' && selectedCategory !== 'ambulance') return {};
+    if (selectedRecord) {
+      return activeItems.reduce((acc, it) => {
+        if (it.name) {
+          acc[`${it.name}|${it.code || ''}`] = it.weekVals || {};
+        }
+        return acc;
+      }, {} as { [itemKey: string]: { [week: number]: string } });
+    }
+    return activeItems.reduce((acc, it) => {
+      if (it.name) {
+        const realVal = formatRealQuantity(it.qty, it.name, it.spec, it.exp, it.subItemQuantities);
+        const targetVal = getRealTargetCheckValue(it as any);
+        acc[`${it.name}|${it.code || ''}`] =
+          it.weekVals !== undefined
+            ? it.weekVals
+            : { [activeWeek]: it.res === 'ใช้งานได้' ? (realVal || targetVal) : (it.res === 'ใช้งานไม่ได้' ? '0' : '') };
+      }
+      return acc;
+    }, {} as { [itemKey: string]: { [week: number]: string } });
+  }, [selectedCategory, selectedRecord, activeItems, activeWeek]);
+
+  const resolvedPreviewUser = useMemo(() => {
+    return currentUser
+      ? { ...currentUser, name: activeUserName, position: inspectorPosInput }
+      : ({ name: activeUserName, position: inspectorPosInput } as any);
+  }, [currentUser, activeUserName, inspectorPosInput]);
 
   const cleanClinicName = useMemo(() => {
     if (activeChannel && !activeChannel.isDefault) {
@@ -555,7 +670,7 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
       .replace(/\s*\(ภาพรวมทุกห้อง\)/g, '')
       .replace(/^แบบฟอร์มตรวจสอบ.*$/g, '')
       .trim();
-    if (!raw || raw.includes('แบบฟอร์ม') || raw.includes('คลินิกงานบริการ') || selectedCategory === 'eq' || selectedCategory === 'bag' || selectedCategory === 'cart') {
+    if (!raw || raw.includes('แบบฟอร์ม') || raw.includes('คลินิกงานบริการ') || selectedCategory === 'eq' || selectedCategory === 'bag' || selectedCategory === 'cart' || selectedCategory === 'ambulance') {
       return 'คลินิกงานบริการผู้ป่วยในวิสัญญี';
     }
     return raw;
@@ -565,7 +680,7 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
     let monthVal = '';
     let yearVal = '';
     
-    if (isBlankForm && (selectedCategory === 'bag' || selectedCategory === 'cart')) {
+    if (isBlankForm && (selectedCategory === 'bag' || selectedCategory === 'cart' || selectedCategory === 'ambulance')) {
       monthVal = '....................................................';
       yearVal = '............';
     } else {
@@ -578,6 +693,7 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
     if (selectedCategory === 'eq') return `ทะเบียนรายการครุภัณฑ์และอุปกรณ์${chanTag}`;
     if (selectedCategory === 'bag') return `ตารางตรวจเช็คกระเป๋า Emergency${chanTag} ประจำเดือน ${monthVal} พ.ศ. ${yearVal}`;
     if (selectedCategory === 'cart') return `ตารางตรวจเช็ครถ Emergency${chanTag} ประจำเดือน ${monthVal} พ.ศ. ${yearVal}`;
+    if (selectedCategory === 'ambulance') return `ตารางตรวจเช็ครถพยาบาลฉุกเฉิน (Ambulance)${chanTag} ประจำเดือน ${monthVal} พ.ศ. ${yearVal}`;
     if (selectedCategory === 'drug') return getDrugCategoryTitle(drugSubCategory, displayDate);
     return `ทะเบียนรายการครุภัณฑ์และอุปกรณ์${chanTag}`;
   }, [selectedCategory, drugSubCategory, displayDate, activeChannel, isBlankForm]);
@@ -595,7 +711,7 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
 
   // Base Paper Width for clean A4 printing without font reflow
   const basePaperWidth = 1120;
-  const availableContentWidth = Math.max(300, modalContentWidth - 48);
+  const availableContentWidth = Math.max(280, modalContentWidth - 16);
   const scaleFactor = isFitToScreen ? Math.min(1, availableContentWidth / basePaperWidth) : 1;
 
   const handlePrintPdf = () => {
@@ -617,7 +733,7 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
         subCategory: drugSubCategory,
         headerNote: drugHeaderNote,
       });
-    } else if (selectedCategory === 'bag' || selectedCategory === 'cart') {
+    } else if (selectedCategory === 'bag' || selectedCategory === 'cart' || selectedCategory === 'ambulance') {
       const wkVals = selectedRecord ? activeItems.reduce((acc, it) => {
         if (it.name) {
           acc[`${it.name}|${it.code || ''}`] = it.weekVals || {};
@@ -627,11 +743,13 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
         if (it.name) {
           const realVal = formatRealQuantity(it.qty, it.name, it.spec, it.exp, it.subItemQuantities);
           const targetVal = getRealTargetCheckValue(it as any);
-          acc[`${it.name}|${it.code || ''}`] = it.weekVals && Object.keys(it.weekVals).length > 0
-            ? it.weekVals
-            : {
-                [activeWeek]: it.res === 'ใช้งานได้' ? (realVal || targetVal) : (it.res === 'ใช้งานไม่ได้' ? '0' : '')
-              };
+          if (it.weekVals !== undefined) {
+            acc[`${it.name}|${it.code || ''}`] = it.weekVals;
+          } else {
+            acc[`${it.name}|${it.code || ''}`] = {
+              [activeWeek]: it.res === 'ใช้งานได้' ? (realVal || targetVal) : (it.res === 'ใช้งานไม่ได้' ? '0' : '')
+            };
+          }
         }
         return acc;
       }, {} as any);
@@ -685,17 +803,102 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
     }
   };
 
-  const handleConfirmDeleteCurrentRecord = () => {
+  const handleDownloadThaiPdf = async () => {
+    setIsPrinting(true);
+    try {
+      let headers: string[] = [];
+      let rows: Array<Array<string | number>> = [];
+
+      if (selectedCategory === 'drug') {
+        const filteredDrugs =
+          drugSubCategory === 'all'
+            ? resolvedDrugs
+            : resolvedDrugs.filter((d) => d.category === drugSubCategory);
+        headers = ['ลำดับ', 'รหัสยา', 'ชื่อยาและสารน้ำ', 'คงเหลือ', 'Min', 'Lot', 'วันหมดอายุ', 'หมายเหตุ'];
+        rows = filteredDrugs.map((d, idx) => [
+          idx + 1,
+          d.tmtCode || d.hospitalDrugCode || d.barcode || '-',
+          d.name,
+          `${d.remaining ?? 0} ${d.unit || ''}`.trim(),
+          d.minStock ?? '-',
+          d.lotNumber || '-',
+          d.expDate || '-',
+          d.note || '-',
+        ]);
+      } else if (selectedCategory === 'bag' || selectedCategory === 'cart') {
+        headers = ['ลำดับ', 'หมวด/ชั้น', 'รายการอุปกรณ์/ยา', 'จำนวน', 'วันหมดอายุ', 'ผลการตรวจ'];
+        rows = activeItems.map((it, idx) => [
+          idx + 1,
+          it.group || '-',
+          sanitizeItemName(it.name),
+          formatRealQuantity(it.qty, it.name, it.spec, it.exp, it.subItemQuantities),
+          it.exp || it.date || '-',
+          isBlankForm ? '' : it.res || '-',
+        ]);
+      } else {
+        headers = ['ลำดับ', 'รหัสครุภัณฑ์', 'รายการครุภัณฑ์', 'จำนวน', 'สถานที่', 'ผลการตรวจ', 'หมายเหตุ'];
+        rows = activeItems.map((it, idx) => [
+          idx + 1,
+          it.code || it.sap || '-',
+          sanitizeItemName(it.name),
+          cleanQuantityUnit(it.qty),
+          it.location || '-',
+          it.res || '-',
+          it.note || '-',
+        ]);
+      }
+
+      await exportOfficialReportPdf({
+        reportType: selectedCategory,
+        title: mainDocHeading,
+        departmentName: cleanClinicName,
+        inspectorName: displayInspector || activeUserName,
+        inspectorPosition: inspectorPosInput || currentUser?.position || 'พยาบาลวิสัญญี',
+        dateStr: formatThaiDate(displayDate) || displayDate,
+        signatureDataUrl: userSignature,
+        headers,
+        rows,
+        summaryText: `รวมทั้งหมด ${rows.length} รายการ`,
+      });
+      setFeedback({
+        type: 'success',
+        message: '✓ ดาวน์โหลดไฟล์ PDF (ฟอนต์ภาษาไทย NotoSansThai) สำเร็จเรียบร้อย',
+      });
+    } catch (err: any) {
+      setFeedback({
+        type: 'error',
+        message: 'ไม่สามารถสร้างไฟล์ PDF ได้: ' + (err?.message || err),
+      });
+    } finally {
+      setIsPrinting(false);
+    }
+  };
+
+  const handleConfirmDeleteCurrentRecord = async () => {
     if (!recordToDelete || !onDeleteHistoryRecord) return;
     const recId = recordToDelete.id;
-    const targetTitle = recordToDelete.title || recordToDelete.timestamp;
+    const recCategory = (recordToDelete.type as any) || selectedCategory;
     setSelectedRoundId('current');
     setRecordToDelete(null);
-    onDeleteHistoryRecord(recId);
-    setFeedback({
-      type: 'success',
-      message: `✓ ลบประวัติการตรวจรอบ "${targetTitle}" เรียบร้อยแล้ว`,
-    });
+    setIsSettingsOpen(false);
+    setShowRoundDropdown(false);
+    await onDeleteHistoryRecord(recId, recCategory);
+  };
+
+  const handleConfirmDeleteAllCategoryHistory = async () => {
+    if (!confirmDeleteAllCategory || !onDeleteAllHistoryRecords) return;
+    const targetCategory = confirmDeleteAllCategory;
+    const idsToDelete = filteredHistoryRecords.map((r) => r.id).filter(Boolean);
+    setIsDeletingAllHistory(true);
+    try {
+      await onDeleteAllHistoryRecords(targetCategory, idsToDelete);
+      setSelectedRoundId('current');
+      setConfirmDeleteAllCategory(null);
+      setIsSettingsOpen(false);
+      setShowRoundDropdown(false);
+    } finally {
+      setIsDeletingAllHistory(false);
+    }
   };
 
   const handleSendReportToGas = async () => {
@@ -743,8 +946,12 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
             note: d.note,
           })),
         });
-      } else if (selectedCategory === 'bag' || selectedCategory === 'cart') {
-        const uniqueSheet = selectedCategory === 'bag' ? `กระเป๋า_EMER_${dateFormatted}` : `รถ_EMER_${dateFormatted}`;
+      } else if (selectedCategory === 'bag' || selectedCategory === 'cart' || selectedCategory === 'ambulance') {
+        const uniqueSheet = selectedCategory === 'bag'
+          ? `กระเป๋า_EMER_${dateFormatted}`
+          : selectedCategory === 'ambulance'
+          ? `รถพยาบาล_EMER_${dateFormatted}`
+          : `รถ_EMER_${dateFormatted}`;
         
         // Group and Sort Naturally for Sheets
         const groups: Record<string, OfficialReportItemRow[]> = {};
@@ -761,7 +968,7 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
 
         await sendInspectionToGas(apiUrl, {
           type: selectedCategory,
-          sheet: selectedCategory === 'bag' ? 'กระเป๋า Emergency' : 'รถ Emergency',
+          sheet: selectedCategory === 'bag' ? 'กระเป๋า Emergency' : selectedCategory === 'ambulance' ? 'รถพยาบาลฉุกเฉิน' : 'รถ Emergency',
           sheetName: uniqueSheet,
           title: mainDocHeading,
           date: displayDate,
@@ -845,34 +1052,6 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
     };
   };
 
-  // Touch Drag-to-Scroll (Pan) handlers for mobile touch devices
-  const touchStartRef = useRef({ x: 0, y: 0, scrollLeft: 0, scrollTop: 0 });
-
-  const handleTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
-    if (e.touches.length !== 1) return;
-    const target = e.target as HTMLElement | null;
-    if (target && target.closest('input, button, select, textarea, a, [role="button"], label')) {
-      return;
-    }
-    if (!scrollContainerRef.current) return;
-    const touch = e.touches[0];
-    touchStartRef.current = {
-      x: touch.clientX,
-      y: touch.clientY,
-      scrollLeft: scrollContainerRef.current.scrollLeft,
-      scrollTop: scrollContainerRef.current.scrollTop,
-    };
-  };
-
-  const handleTouchMove = (e: React.TouchEvent<HTMLDivElement>) => {
-    if (e.touches.length !== 1 || !scrollContainerRef.current) return;
-    const touch = e.touches[0];
-    const dx = touch.clientX - touchStartRef.current.x;
-    const dy = touch.clientY - touchStartRef.current.y;
-    scrollContainerRef.current.scrollLeft = touchStartRef.current.scrollLeft - dx;
-    scrollContainerRef.current.scrollTop = touchStartRef.current.scrollTop - dy;
-  };
-
   useEffect(() => {
     if (!isMouseDragging) return;
 
@@ -899,217 +1078,340 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
 
   return (
     <div
-      className="official-report-modal-backdrop"
+      className="official-report-modal-backdrop fixed inset-0 z-50 w-screen h-dvh overflow-hidden bg-slate-100 dark:bg-slate-950 flex flex-col"
       style={{
         position: 'fixed',
         inset: 0,
         zIndex: 50,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
+        width: '100vw',
+        height: '100dvh',
         overflow: 'hidden',
-        background: 'rgba(0, 0, 0, 0.65)',
-        padding: '12px',
+        padding: 0,
+        margin: 0,
         boxSizing: 'border-box',
       }}
     >
       <div
-        className="official-report-modal-card"
+        className="official-report-modal-card w-screen h-dvh flex flex-col overflow-hidden relative bg-slate-100 dark:bg-slate-950"
         style={{
-          width: isFullscreen ? '100vw' : '95vw',
-          maxWidth: isFullscreen ? '100vw' : '1240px',
-          height: isFullscreen ? '100vh' : '90vh',
-          maxHeight: isFullscreen ? '100vh' : '90vh',
+          width: '100vw',
+          maxWidth: '100vw',
+          height: '100dvh',
+          maxHeight: '100dvh',
           display: 'flex',
           flexDirection: 'column',
           overflow: 'hidden',
-          borderRadius: isFullscreen ? '0px' : '16px',
+          borderRadius: '0px',
           position: 'relative',
-          background: '#f8fafc',
-          boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
-          margin: 'auto',
+          margin: 0,
         }}
       >
-        {/* Modal Sticky Header Bar */}
-        <div
-          className="official-report-modal-header p-3 sm:p-4 border-b border-slate-200 bg-white flex flex-col gap-3 shrink-0"
+        {/* Minimalist Top Bar (<= 56px height): Category Switcher + Settings Trigger + Close */}
+        <header
+          className="official-report-modal-header h-14 max-h-[56px] shrink-0 px-2.5 sm:px-4 bg-white dark:bg-[#181A20] border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-2 z-30"
           style={{
-            position: 'sticky',
-            top: 0,
-            zIndex: 50,
-            background: '#ffffff',
+            height: '54px',
+            maxHeight: '56px',
             flexShrink: 0,
-            borderBottom: '1px solid #e5e7eb',
-            width: '100%',
             boxSizing: 'border-box',
           }}
         >
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1">
-              {[
-                { id: 'eq', label: 'ครุภัณฑ์', emoji: '🏫', count: eqItems.length || items.length },
-                { id: 'bag', label: 'กระเป๋าฉุกเฉิน', emoji: '🎒', count: bagItems.length },
-                { id: 'cart', label: 'รถฉุกเฉิน', emoji: '🛒', count: cartItems.length },
-                { id: 'drug', label: 'คลังยา & สารน้ำ', emoji: '💊', count: resolvedDrugs.length },
-              ].map((cat) => (
-                <button
-                  key={cat.id}
-                  type="button"
-                  onClick={() => {
-                    setSelectedCategory(cat.id as any);
-                    setSelectedRoundId('current');
-                  }}
-                  className={`flex items-center gap-2 px-3.5 py-2 rounded-2xl text-xs font-bold transition cursor-pointer active:scale-95 whitespace-nowrap ${
+          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-1 min-w-0">
+            {[
+              { id: 'eq', label: 'ครุภัณฑ์', emoji: '🏫', count: eqItems.length || items.length },
+              { id: 'bag', label: 'กระเป๋าฉุกเฉิน', emoji: '🎒', count: bagItems.length },
+              { id: 'cart', label: 'รถฉุกเฉิน', emoji: '🛒', count: cartItems.length },
+              { id: 'ambulance', label: 'รถพยาบาล', emoji: '🚑', count: ambulanceItems.length },
+              { id: 'drug', label: 'คลังยา & สารน้ำ', emoji: '💊', count: resolvedDrugs.length },
+            ].map((cat) => (
+              <button
+                key={cat.id}
+                type="button"
+                onClick={() => {
+                  setSelectedCategory(cat.id as any);
+                  setSelectedRoundId('current');
+                  setShowRoundDropdown(false);
+                }}
+                className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl text-[11px] sm:text-xs font-bold transition-colors cursor-pointer active:scale-95 whitespace-nowrap shrink-0 ${
+                  selectedCategory === cat.id
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                }`}
+              >
+                <span>{cat.emoji}</span>
+                <span>{cat.label}</span>
+                <span
+                  className={`px-1.5 py-0.5 rounded-full text-[10px] leading-none ${
                     selectedCategory === cat.id
-                      ? 'bg-blue-600 text-white shadow-md'
-                      : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200'
+                      ? 'bg-white/20 text-white'
+                      : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
                   }`}
                 >
-                  <span>{cat.emoji}</span>
-                  <span>{cat.label}</span>
-                  <span className={`px-2 py-0.5 rounded-full text-[10px] ${
-                    selectedCategory === cat.id ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
-                  }`}>
-                    {cat.count}
-                  </span>
-                </button>
-              ))}
-            </div>
+                  {cat.count}
+                </span>
+              </button>
+            ))}
+          </div>
+
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                setIsSettingsOpen((prev) => !prev);
+                setShowRoundDropdown(false);
+              }}
+              className={`relative flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-bold border transition-colors cursor-pointer active:scale-95 ${
+                isSettingsOpen
+                  ? 'bg-blue-50 dark:bg-blue-950/60 border-blue-400 text-blue-700 dark:text-blue-300'
+                  : 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700'
+              }`}
+              title="ตั้งค่า / ข้อมูลผู้ตรวจ / เลือกรอบตรวจ"
+            >
+              <SlidersHorizontal className="w-4 h-4 shrink-0" />
+              <span className="hidden sm:inline">ตั้งค่า / ผู้ตรวจ</span>
+              {(selectedRoundId !== 'current' || isBlankForm) && (
+                <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
+              )}
+            </button>
 
             <button
               type="button"
               onClick={onClose}
-              className="p-2 rounded-full hover:bg-slate-200 text-slate-600 transition cursor-pointer"
+              className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-rose-50 dark:hover:bg-rose-950/50 text-slate-600 dark:text-slate-300 hover:text-rose-600 transition-colors cursor-pointer active:scale-95"
               title="ปิดพรีวิว"
             >
-              <X className="w-5 h-5" />
+              <X className="w-4 h-4 sm:w-5 sm:h-5" />
             </button>
           </div>
+        </header>
 
-          {/* Action Toolbar: Clean Unified Card for Controls */}
-          <div className="bg-slate-50 dark:bg-black/20 p-3 sm:p-4 rounded-[1.5rem] border border-slate-200 dark:border-white/10 flex flex-col gap-4 w-full shadow-sm">
-            
-            {/* Top Row: Dropdown & Basic Options */}
-            <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
-              <div className="relative flex-1 min-w-0 md:max-w-md">
+        {/* Feedback Toast (Non-blocking overlay below top bar) */}
+        {feedback && (
+          <div
+            className={`absolute top-16 left-1/2 -translate-x-1/2 z-40 max-w-[92vw] sm:max-w-lg px-4 py-2 rounded-2xl shadow-lg text-xs font-bold flex items-center gap-3 border ${
+              feedback.type === 'success'
+                ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                : feedback.type === 'error'
+                ? 'bg-rose-50 border-rose-200 text-rose-800'
+                : 'bg-blue-50 border-blue-200 text-blue-800'
+            }`}
+          >
+            <span className="truncate">{feedback.message}</span>
+            <button
+              type="button"
+              onClick={() => setFeedback(null)}
+              className="text-xs font-extrabold underline shrink-0 cursor-pointer"
+            >
+              ปิด
+            </button>
+          </div>
+        )}
+
+        {/* Collapsible Settings Drawer / Popover (Hidden by default to keep 100% reading focus) */}
+        {isSettingsOpen && (
+          <div
+            className="fixed inset-0 z-40 flex items-end sm:items-start sm:justify-end bg-black/40 p-0 sm:pt-16 sm:pr-4"
+            onClick={() => {
+              setIsSettingsOpen(false);
+              setShowRoundDropdown(false);
+            }}
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              className="w-full sm:w-[440px] max-h-[82dvh] overflow-y-auto bg-white dark:bg-[#1E2028] rounded-t-3xl sm:rounded-2xl border border-slate-200 dark:border-slate-700 shadow-2xl p-4 sm:p-5 space-y-4 animate-in slide-in-from-bottom-4 sm:slide-in-from-top-2 duration-200"
+              style={{
+                paddingBottom: 'calc(16px + env(safe-area-inset-bottom, 0px))',
+              }}
+            >
+              <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
+                <div className="flex items-center gap-2">
+                  <SlidersHorizontal className="w-4 h-4 text-blue-600" />
+                  <h3 className="text-sm font-extrabold text-slate-900 dark:text-white">
+                    ตั้งค่าเอกสาร &amp; ข้อมูลผู้ตรวจ
+                  </h3>
+                </div>
                 <button
                   type="button"
-                  onClick={() => setShowRoundDropdown(!showRoundDropdown)}
-                  className="w-full flex items-center justify-between gap-3 px-4 py-2.5 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800 text-emerald-900 dark:text-emerald-100 text-xs font-bold transition-all hover:bg-emerald-100/80 shadow-xs cursor-pointer"
+                  onClick={() => {
+                    setIsSettingsOpen(false);
+                    setShowRoundDropdown(false);
+                  }}
+                  className="px-3 py-1 rounded-xl bg-blue-600 text-white text-xs font-bold cursor-pointer active:scale-95"
                 >
-                  <div className="flex items-center gap-2 truncate">
-                    <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />
-                    <span className="truncate">
-                      {selectedRoundId === 'current'
-                        ? '🟢 รอบปัจจุบัน (Live Draft)'
-                        : `📅 ${selectedRecord?.timestamp || selectedRecord?.date || selectedRoundId} (${selectedRecord?.who || 'ผู้ตรวจ'})`}
-                    </span>
-                  </div>
-                  <ChevronDown className={`w-4 h-4 text-emerald-600 transition-transform shrink-0 ${showRoundDropdown ? 'rotate-180' : ''}`} />
+                  เสร็จสิ้น
                 </button>
+              </div>
 
-                {/* รายการตัวเลือกรอบย้อนหลัง */}
-                {showRoundDropdown && (
-                  <div className="absolute top-full left-0 mt-2 w-full sm:w-80 bg-white dark:bg-[#1C1F26] rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 p-2 z-[9999] space-y-1 max-h-72 overflow-y-auto animate-in slide-in-from-top-2 duration-200">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSelectedRoundId('current');
-                        setShowRoundDropdown(false);
-                      }}
-                      className={`w-full text-left px-3 py-2.5 rounded-xl text-xs font-bold flex items-center justify-between transition cursor-pointer ${
-                        selectedRoundId === 'current'
-                          ? 'bg-emerald-50 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300'
-                          : 'text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
-                      }`}
-                    >
-                      <span className="flex items-center gap-2.5">
-                        <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                        <span>รอบปัจจุบัน (Live Draft)</span>
+              {/* 1. เลือกรอบตรวจ (Round Selector + History) */}
+              <div className="space-y-1.5">
+                <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
+                  รอบบันทึกการตรวจ
+                </p>
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setShowRoundDropdown(!showRoundDropdown)}
+                    className="w-full flex items-center justify-between gap-3 px-3.5 py-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800 text-emerald-900 dark:text-emerald-100 text-xs font-bold transition-all hover:bg-emerald-100/80 cursor-pointer"
+                  >
+                    <div className="flex items-center gap-2 truncate">
+                      <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                      <span className="truncate">
+                        {selectedRoundId === 'current'
+                          ? '🟢 รอบปัจจุบัน (Live Draft)'
+                          : `📅 ${selectedRecord?.timestamp || selectedRecord?.date || selectedRoundId} (${selectedRecord?.who || 'ผู้ตรวจ'})`}
                       </span>
-                      {selectedRoundId === 'current' && <CheckCircle2 className="w-4 h-4 text-emerald-600" />}
-                    </button>
+                    </div>
+                    <ChevronDown className={`w-4 h-4 text-emerald-600 transition-transform shrink-0 ${showRoundDropdown ? 'rotate-180' : ''}`} />
+                  </button>
 
-                    <div className="h-[1px] bg-slate-100 dark:bg-slate-800 my-1.5" />
-                    <p className="px-3 py-1 text-[10px] text-slate-400 font-black uppercase tracking-widest">
-                      ประวัติบันทึก ({filteredHistoryRecords.length})
-                    </p>
+                  {showRoundDropdown && (
+                    <div className="mt-2 w-full bg-white dark:bg-[#16181E] rounded-2xl shadow-xl border border-slate-200 dark:border-slate-700 p-2 space-y-1 max-h-60 overflow-y-auto">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedRoundId('current');
+                          setShowRoundDropdown(false);
+                        }}
+                        className={`w-full text-left px-3 py-2 rounded-xl text-xs font-bold flex items-center justify-between transition cursor-pointer ${
+                          selectedRoundId === 'current'
+                            ? 'bg-emerald-50 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300'
+                            : 'text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
+                        }`}
+                      >
+                        <span className="flex items-center gap-2">
+                          <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                          <span>รอบปัจจุบัน (Live Draft)</span>
+                        </span>
+                        {selectedRoundId === 'current' && <CheckCircle2 className="w-4 h-4 text-emerald-600" />}
+                      </button>
 
-                    {filteredHistoryRecords && filteredHistoryRecords.length > 0 ? (
-                      filteredHistoryRecords.map((record) => (
-                        <div
-                          key={record.id}
-                          className={`flex items-center justify-between px-3 py-2 rounded-xl text-xs transition-all ${
-                            selectedRoundId === record.id 
-                              ? 'bg-blue-50 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 font-bold border border-blue-200 dark:border-blue-800' 
-                              : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
-                          }`}
-                        >
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setSelectedRoundId(record.id);
-                              setShowRoundDropdown(false);
-                            }}
-                            className="flex-1 text-left font-semibold truncate pr-3 cursor-pointer py-1"
-                          >
-                            📅 {record.timestamp || record.date}
-                            <div className="text-[9px] opacity-60 font-medium">ตรวจโดย: {record.who || 'ไม่ระบุชื่อ'}</div>
-                          </button>
-                          
+                      <div className="h-[1px] bg-slate-100 dark:bg-slate-800 my-1" />
+                      <div className="flex items-center justify-between px-3 py-1 gap-2">
+                        <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest">
+                          ประวัติบันทึก ({filteredHistoryRecords.length})
+                        </p>
+                        {filteredHistoryRecords.length > 0 && onDeleteAllHistoryRecords && (
                           <button
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation();
-                              if (confirm(`คุณต้องการลบประวัติการตรวจรอบนี้ ใช่หรือไม่?`)) {
-                                if (onDeleteHistoryRecord) onDeleteHistoryRecord(record.id);
-                                if (selectedRoundId === record.id) setSelectedRoundId('current');
-                                setFeedback({ type: 'success', message: '🗑️ ลบประวัติเรียบร้อยแล้ว' });
-                              }
+                              setConfirmDeleteAllCategory(selectedCategory);
+                              setShowRoundDropdown(false);
                             }}
-                            className="p-1.5 rounded-lg text-rose-500 hover:bg-rose-100 dark:hover:bg-rose-900/50 transition-colors shrink-0 cursor-pointer"
-                            title="ลบประวัติตรวจนี้"
+                            className="flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition cursor-pointer"
+                            title="ลบประวัติทั้งหมดในหมวดนี้"
                           >
-                            <Trash2 size={15} />
+                            <Trash2 size={11} />
+                            <span>ลบทั้งหมด</span>
                           </button>
-                        </div>
-                      ))
-                    ) : (
-                      <p className="px-3 py-3 text-xs text-slate-400 italic text-center">ยังไม่มีประวัติในหมวดนี้</p>
-                    )}
-                  </div>
-                )}
+                        )}
+                      </div>
+
+                      {filteredHistoryRecords && filteredHistoryRecords.length > 0 ? (
+                        filteredHistoryRecords.map((record) => (
+                          <div
+                            key={record.id}
+                            className={`flex items-center justify-between px-3 py-2 rounded-xl text-xs transition-all ${
+                              selectedRoundId === record.id
+                                ? 'bg-blue-50 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 font-bold border border-blue-200 dark:border-blue-800'
+                                : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
+                            }`}
+                          >
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedRoundId(record.id);
+                                setShowRoundDropdown(false);
+                              }}
+                              className="flex-1 text-left font-semibold truncate pr-3 cursor-pointer py-0.5"
+                            >
+                              📅 {record.timestamp || record.date}
+                              <div className="text-[10px] opacity-60 font-medium">ตรวจโดย: {record.who || 'ไม่ระบุชื่อ'}</div>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setRecordToDelete(record);
+                                setShowRoundDropdown(false);
+                              }}
+                              className="p-1.5 rounded-lg text-rose-500 hover:bg-rose-100 dark:hover:bg-rose-900/50 transition-colors shrink-0 cursor-pointer"
+                              title="ลบประวัติตรวจนี้"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                        ))
+                      ) : (
+                        <p className="px-3 py-2.5 text-xs text-slate-400 italic text-center">ยังไม่มีประวัติในหมวดนี้</p>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
 
-              {/* Auxiliary Controls (Blank Form, Delete Record) */}
-              <div className="flex items-center gap-2 overflow-x-auto no-scrollbar">
-                {(selectedCategory === 'bag' || selectedCategory === 'cart') && (
+              {/* 2. ข้อมูลผู้ตรวจ และตำแหน่ง */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <label className="flex flex-col gap-1">
+                  <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">ชื่อผู้ตรวจ:</span>
+                  <input
+                    type="text"
+                    value={inspectorNameInput}
+                    onChange={(e) => handleInspectorNameChange(e.target.value)}
+                    placeholder="ชื่อ-นามสกุลผู้ตรวจ..."
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-bold text-slate-900 dark:text-white outline-none focus:border-blue-500"
+                  />
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">ตำแหน่ง:</span>
+                  <input
+                    type="text"
+                    value={inspectorPosInput}
+                    onChange={(e) => handleInspectorPosChange(e.target.value)}
+                    placeholder="เช่น พยาบาลวิสัญญี / วิสัญญีแพทย์"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-bold text-slate-900 dark:text-white outline-none focus:border-blue-500"
+                  />
+                </label>
+              </div>
+
+              {/* 3. ตัวเลือกเพิ่มเติม: มุมมองกระดาษ / แบบฟอร์มเปล่า / ลบประวัติ */}
+              <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={handleToggleFitToScreen}
+                  className={`flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border transition active:scale-95 cursor-pointer ${
+                    isFitToScreen
+                      ? 'bg-blue-600 text-white border-blue-700'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700'
+                  }`}
+                >
+                  <Scaling className="w-3.5 h-3.5" />
+                  <span>{isFitToScreen ? 'พอดีความกว้างจอ' : 'ขนาดจริง 100%'}</span>
+                </button>
+
+                {(selectedCategory === 'bag' || selectedCategory === 'cart' || selectedCategory === 'ambulance') && (
                   <button
                     type="button"
-                    onClick={() => {
-                      setIsBlankForm(!isBlankForm);
-                    }}
-                    className={`flex items-center justify-center gap-2 px-3.5 py-2.5 rounded-xl text-xs font-bold border transition-all active:scale-95 shrink-0 shadow-xs ${
+                    onClick={() => setIsBlankForm(!isBlankForm)}
+                    className={`flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border transition active:scale-95 cursor-pointer ${
                       isBlankForm
-                        ? 'bg-amber-600 text-white border-amber-700 ring-2 ring-amber-400/30'
-                        : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:border-amber-400'
+                        ? 'bg-amber-600 text-white border-amber-700'
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700'
                     }`}
                   >
                     <span>{isBlankForm ? '☑ แบบฟอร์มเปล่า' : '☐ แสดงฟอร์มเปล่า'}</span>
                   </button>
                 )}
 
-                {selectedRoundId !== 'current' && (
+                {selectedRoundId !== 'current' && selectedRecord && (
                   <button
                     type="button"
                     onClick={() => {
-                      if (confirm(`ต้องการลบรอบประวัตินี้ออกถาวร?`)) {
-                        if (onDeleteHistoryRecord) onDeleteHistoryRecord(selectedRoundId);
-                        setSelectedRoundId('current');
-                        setFeedback({ type: 'success', message: '🗑️ ลบเรียบร้อย' });
-                      }
+                      setIsSettingsOpen(false);
+                      setRecordToDelete(selectedRecord);
                     }}
-                    className="px-3.5 py-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-300 border border-rose-200 dark:border-rose-800 transition active:scale-95 shrink-0 flex items-center gap-1.5 text-xs font-bold shadow-xs cursor-pointer"
+                    className="px-3 py-2 rounded-xl bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-300 border border-rose-200 dark:border-rose-800 transition active:scale-95 flex items-center gap-1.5 text-xs font-bold cursor-pointer"
                   >
                     <Trash2 size={14} />
                     <span>ลบประวัตินี้</span>
@@ -1117,78 +1419,19 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
                 )}
               </div>
             </div>
-
-            {/* Bottom Row: Export Actions & Scaling */}
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-3 border-t border-slate-200 dark:border-white/5">
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={handleToggleFitToScreen}
-                  className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold border transition-all active:scale-95 cursor-pointer shadow-sm ${
-                    isFitToScreen
-                      ? 'bg-blue-600 text-white border-blue-700'
-                      : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700'
-                  }`}
-                >
-                  <Scaling className="w-4 h-4" />
-                  <span>{isFitToScreen ? 'มุมมอง: พอดีจอ' : 'มุมมอง: ขนาดจริง (ใช้นิ้วปัดดูได้)'}</span>
-                </button>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={handleSendReportToGas}
-                  disabled={isExportingGas}
-                  className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-bold rounded-xl shadow-lg shadow-emerald-600/20 transition-all cursor-pointer disabled:opacity-50"
-                >
-                  {isExportingGas ? <RefreshCw className="w-4 h-4 animate-spin" /> : <FileSpreadsheet className="w-4 h-4" />}
-                  <span>ส่ง Sheets</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handlePrintPdf}
-                  disabled={isPrinting}
-                  className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white text-xs font-bold rounded-xl shadow-lg shadow-blue-600/20 transition-all cursor-pointer disabled:opacity-50"
-                >
-                  {isPrinting ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Printer className="w-4 h-4" />}
-                  <span>พิมพ์ PDF</span>
-                </button>
-              </div>
-            </div>
           </div>
+        )}
 
-          {feedback && (
-            <div
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center justify-between ${
-                feedback.type === 'success'
-                  ? 'bg-emerald-100 text-emerald-800'
-                  : feedback.type === 'error'
-                  ? 'bg-rose-100 text-rose-800'
-                  : 'bg-blue-100 text-blue-800'
-              }`}
-            >
-              <span>{feedback.message}</span>
-              <button
-                type="button"
-                onClick={() => setFeedback(null)}
-                className="text-xs font-bold ml-2 underline"
-              >
-                ปิด
-              </button>
-            </div>
-          )}
-        </div>
-
-        {/* Printable Area Content Scrollable Wrapper */}
+        {/* Full-Height Smooth Document Viewer Area */}
         <div
           ref={scrollContainerRef}
           onMouseDown={handleMouseDown}
-          className="paper-viewport-area paper-scroll-viewport report-viewport-area w-full bg-slate-100 dark:bg-slate-950 p-2 sm:p-6"
+          className="paper-viewport-area paper-scroll-viewport report-viewport-area w-full flex-1 bg-slate-200/80 dark:bg-slate-950 p-2 sm:p-4"
           style={{
             flex: 1,
-            overflow: 'auto',
+            overflowX: 'auto',
+            overflowY: 'auto',
+            overscrollBehavior: 'contain',
             position: 'relative',
             width: '100%',
             height: '100%',
@@ -1197,54 +1440,42 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
             alignItems: isFitToScreen ? 'center' : 'flex-start',
             justifyContent: 'flex-start',
             boxSizing: 'border-box',
-            WebkitOverflowScrolling: 'touch',
+            paddingBottom: 'calc(88px + env(safe-area-inset-bottom, 0px))',
             touchAction: 'pan-x pan-y pinch-zoom',
             cursor: isFitToScreen ? 'default' : (isMouseDragging ? 'grabbing' : 'grab'),
             userSelect: isMouseDragging ? 'none' : 'auto',
           }}
         >
-
-          {/* Scaled A4 Paper Holder (Isolated Canvas Viewport) */}
+          {/* Normal-Flow A4 Paper Holder (Uses CSS zoom instead of transform:scale + position:absolute to eliminate mobile white cutouts and scroll lag) */}
           <div
             className="a4-paper-holder w-full"
             style={{
-              width: isFitToScreen
-                ? (scaleFactor >= 1 ? '100%' : `${basePaperWidth * scaleFactor}px`)
-                : `${basePaperWidth}px`,
-              maxWidth: '100%',
-              minWidth: isFitToScreen ? undefined : `${basePaperWidth}px`,
-              height: isFitToScreen ? (scaleFactor >= 1 ? 'auto' : `${sheetHeight * scaleFactor}px`) : 'auto',
-              minHeight: isFitToScreen ? (scaleFactor >= 1 ? '794px' : `${794 * scaleFactor}px`) : '794px',
+              width: '100%',
+              display: 'flex',
+              justifyContent: isFitToScreen ? 'center' : 'flex-start',
+              alignItems: 'flex-start',
               position: 'relative',
-              margin: '0 auto',
               boxSizing: 'border-box',
-              overflow: isFitToScreen && scaleFactor < 1 ? 'hidden' : 'visible',
+              overflow: 'visible',
               flexShrink: 0,
             }}
           >
             <div
+              id="printable-report"
               ref={sheetRef}
-              className="a4-paper-sheet a4-paper-wrapper w-full bg-white text-gray-900 rounded-2xl shadow-xl space-y-6"
+              className="a4-paper-sheet a4-paper-wrapper bg-white text-gray-900 rounded-xl space-y-6"
               style={{
-                width: scaleFactor >= 1 && isFitToScreen ? '100%' : '1120px',
-                minWidth: scaleFactor >= 1 && isFitToScreen ? '100%' : '1120px',
-                maxWidth: '100%',
-                transform: (isFitToScreen && scaleFactor < 1)
-                  ? `scale(${scaleFactor})`
-                  : 'none',
-                WebkitTransform: (isFitToScreen && scaleFactor < 1)
-                  ? `scale(${scaleFactor})`
-                  : 'none',
-                transformOrigin: 'top left',
-                willChange: 'transform',
+                width: isFitToScreen && scaleFactor >= 1 ? '100%' : '1120px',
+                minWidth: isFitToScreen && scaleFactor >= 1 ? '100%' : '1120px',
+                maxWidth: isFitToScreen && scaleFactor >= 1 ? '100%' : 'none',
+                zoom: isFitToScreen && scaleFactor < 1 ? scaleFactor : 1,
                 background: '#ffffff',
-                boxShadow: '0 10px 25px rgba(0,0,0,0.12), 0 4px 6px -2px rgba(0,0,0,0.05)',
-                borderRadius: '16px',
+                border: '1px solid #e2e8f0',
+                boxShadow: 'none',
+                borderRadius: '12px',
                 boxSizing: 'border-box',
-                padding: '24px',
-                position: (isFitToScreen && scaleFactor < 1) ? 'absolute' : 'relative',
-                top: 0,
-                left: 0,
+                padding: '20px',
+                position: 'relative',
                 minHeight: '794px',
                 display: 'flex',
                 flexDirection: 'column',
@@ -1296,7 +1527,7 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
                     headerNote={drugHeaderNote}
                   />
                 </div>
-              ) : selectedCategory === 'bag' || selectedCategory === 'cart' ? (
+              ) : selectedCategory === 'bag' || selectedCategory === 'cart' || selectedCategory === 'ambulance' ? (
                 <EmergencyChecklistReportPreview
                   type={selectedCategory}
                   items={activeItems}
@@ -1304,25 +1535,10 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
                   inspector={displayInspector}
                   signature={userSignature}
                   agencyName={cleanClinicName}
-                  weekItemValues={selectedRecord ? activeItems.reduce((acc, it) => {
-                    if (it.name) {
-                      acc[`${it.name}|${it.code || ''}`] = it.weekVals || {};
-                    }
-                    return acc;
-                  }, {} as any) : activeItems.reduce((acc, it) => {
-                    if (it.name) {
-                      const realVal = formatRealQuantity(it.qty, it.name, it.spec, it.exp, it.subItemQuantities);
-                      const targetVal = getRealTargetCheckValue(it as any);
-                      // Prefer multi-week live data (it.weekVals) if available
-                      acc[`${it.name}|${it.code || ''}`] = it.weekVals && Object.keys(it.weekVals).length > 0
-                        ? it.weekVals
-                        : { [activeWeek]: it.res === 'ใช้งานได้' ? (realVal || targetVal) : (it.res === 'ใช้งานไม่ได้' ? '0' : '') };
-                    }
-                    return acc;
-                  }, {} as any)}
+                  weekItemValues={memoizedWeekItemValues}
                   weekDates={selectedRecord ? selectedRecord.weekDates : weekDates}
                   activeWeek={activeWeek}
-                  currentUser={currentUser ? { ...currentUser, name: activeUserName } : ({ name: activeUserName } as any)}
+                  currentUser={resolvedPreviewUser}
                   isBlankForm={isBlankForm}
                 />
               ) : (
@@ -1333,22 +1549,66 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
                   signature={userSignature}
                   clinicName={cleanClinicName}
                   mainDocHeading={mainDocHeading}
-                  currentUser={currentUser ? { ...currentUser, name: activeUserName } : ({ name: activeUserName } as any)}
+                  currentUser={resolvedPreviewUser}
                 />
               )}
             </div>
           </div>
         </div>
 
+        {/* Floating Bottom Action Bar (Fixed Bottom: Scale Toggle + Send Sheets + Print PDF) */}
+        <div
+          className="fixed bottom-0 left-0 right-0 z-30 pointer-events-none flex justify-center px-3"
+          style={{
+            paddingBottom: 'calc(12px + env(safe-area-inset-bottom, 0px))',
+          }}
+        >
+          <div className="pointer-events-auto flex items-center gap-2 p-1.5 rounded-2xl bg-white/95 dark:bg-[#181A20]/95 border border-slate-200 dark:border-slate-700 shadow-xl max-w-full">
+            <button
+              type="button"
+              onClick={handleToggleFitToScreen}
+              className={`flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-bold border transition-all active:scale-95 cursor-pointer whitespace-nowrap ${
+                isFitToScreen
+                  ? 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700'
+                  : 'bg-indigo-600 text-white border-indigo-700 shadow-sm'
+              }`}
+              title={isFitToScreen ? 'สลับเป็นขนาดจริง 100% (เลื่อนดูซ้าย-ขวาได้)' : 'สลับเป็นพอดีความกว้างจอ'}
+            >
+              {isFitToScreen ? <Maximize2 className="w-4 h-4 shrink-0" /> : <Minimize2 className="w-4 h-4 shrink-0" />}
+              <span>{isFitToScreen ? 'ขนาด 100%' : 'พอดีจอ'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleSendReportToGas}
+              disabled={isExportingGas}
+              className="flex items-center justify-center gap-1.5 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-bold rounded-xl shadow-md shadow-emerald-600/20 transition-all cursor-pointer disabled:opacity-50 whitespace-nowrap"
+            >
+              {isExportingGas ? <RefreshCw className="w-4 h-4 animate-spin shrink-0" /> : <FileSpreadsheet className="w-4 h-4 shrink-0" />}
+              <span>ส่ง Sheets</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handlePrintPdf}
+              disabled={isPrinting}
+              className="flex items-center justify-center gap-1.5 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white text-xs font-bold rounded-xl shadow-md shadow-blue-600/20 transition-all cursor-pointer disabled:opacity-50 whitespace-nowrap"
+            >
+              {isPrinting ? <RefreshCw className="w-4 h-4 animate-spin shrink-0" /> : <Printer className="w-4 h-4 shrink-0" />}
+              <span>พิมพ์ PDF</span>
+            </button>
+          </div>
+        </div>
+
         {/* Delete Confirmation Modal */}
         {recordToDelete && (
-          <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
-            <div className="bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl animate-in zoom-in-95">
+          <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-black/65 animate-in fade-in">
+            <div className="bg-white dark:bg-[#1E2028] rounded-3xl p-6 max-w-sm w-full shadow-2xl animate-in zoom-in-95">
               <div className="w-12 h-12 rounded-full bg-rose-100 flex items-center justify-center text-rose-600 mb-4">
                 <Trash2 className="w-6 h-6" />
               </div>
-              <h3 className="text-lg font-bold text-slate-900 mb-2">ยืนยันการลบประวัติ?</h3>
-              <p className="text-sm text-slate-600 mb-6">
+              <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-2">ยืนยันการลบประวัติ?</h3>
+              <p className="text-sm text-slate-600 dark:text-slate-300 mb-6">
                 คุณกำลังจะลบประวัติการตรวจรอบ "{recordToDelete.title || recordToDelete.timestamp}" ออกจากระบบถาวร ไม่สามารถกู้คืนได้
               </p>
               <div className="flex gap-3">
@@ -1370,6 +1630,41 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
             </div>
           </div>
         )}
+
+        {/* Delete All History Confirmation Modal */}
+        {confirmDeleteAllCategory && (
+          <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-black/65 animate-in fade-in">
+            <div className="bg-white dark:bg-[#1E2028] rounded-3xl p-6 max-w-sm w-full shadow-2xl animate-in zoom-in-95">
+              <div className="w-12 h-12 rounded-full bg-rose-100 flex items-center justify-center text-rose-600 mb-4">
+                <Trash2 className="w-6 h-6" />
+              </div>
+              <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-2">
+                ยืนยันลบประวัติทั้งหมด?
+              </h3>
+              <p className="text-sm text-slate-600 dark:text-slate-300 mb-6">
+                ประวัติการตรวจทั้งหมดในหมวดนี้ ({filteredHistoryRecords.length} รายการ) จะถูกลบออกจากระบบถาวร ไม่สามารถกู้คืนได้
+              </p>
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  disabled={isDeletingAllHistory}
+                  onClick={() => setConfirmDeleteAllCategory(null)}
+                  className="flex-1 px-4 py-2.5 rounded-xl bg-slate-100 text-slate-700 font-bold text-sm cursor-pointer disabled:opacity-50"
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  type="button"
+                  disabled={isDeletingAllHistory}
+                  onClick={handleConfirmDeleteAllCategoryHistory}
+                  className="flex-1 px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-sm cursor-pointer disabled:opacity-50"
+                >
+                  {isDeletingAllHistory ? 'กำลังลบ...' : 'ยืนยันลบทั้งหมด'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       <style>{`
@@ -1380,25 +1675,21 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
           position: fixed !important;
           inset: 0 !important;
           z-index: 50 !important;
+          width: 100vw !important;
+          height: 100dvh !important;
           overflow: hidden !important;
         }
 
         .official-report-modal-card {
           display: flex !important;
           flex-direction: column !important;
-          max-width: 95vw !important;
-          max-height: 90vh !important;
-          margin: auto !important;
+          width: 100vw !important;
+          height: 100dvh !important;
+          max-width: 100vw !important;
+          max-height: 100dvh !important;
+          margin: 0 !important;
           overflow: hidden !important;
-          border-radius: 16px !important;
-        }
-
-        .official-report-modal-header {
-          flex-shrink: 0 !important;
-          position: sticky !important;
-          top: 0 !important;
-          z-index: 20 !important;
-          background: #ffffff !important;
+          border-radius: 0 !important;
         }
 
         .paper-viewport-area {
@@ -1408,8 +1699,7 @@ export const OfficialReportModal: React.FC<OfficialReportModalProps> = ({
           position: relative !important;
           width: 100% !important;
           height: 100% !important;
-          padding: 16px !important;
-          -webkit-overflow-scrolling: touch !important;
+          overscroll-behavior: contain !important;
         }
 
         .a4-print-container {

@@ -2,6 +2,8 @@ import { getChannelDbKey, getChannelListsKey, getStored, setStored, STORAGE_KEYS
 import { ChannelData } from '../context/DataContext';
 import { EquipmentItem, DrugItem } from '../types';
 import { categoryCovers } from '../assets/categoryCovers';
+import { extractSignificantNumbers, findBestMedicalMatches, matchMedicalItemName, scoreMedicalItemMatch } from '../utils/itemUtils';
+import { authorizedFetch } from './aiService';
 
 export interface VisionExtractionResult {
   success: boolean;
@@ -24,6 +26,15 @@ export interface VisionExtractionResult {
  */
 export function isSimilar(input: string, target: string, threshold: number = 2): boolean {
   if (!input || !target) return false;
+
+  // Strict medical size/number guard (never match 7.0 with 7.5 or 18G with 20G)
+  const qNums = extractSignificantNumbers(input);
+  const tNums = extractSignificantNumbers(target);
+  if (qNums.length > 0 && tNums.length > 0) {
+    const hasShared = qNums.some((qn) => tNums.includes(qn));
+    if (!hasShared) return false;
+  }
+
   const s1 = input.toLowerCase().replace(/[^a-z0-9ก-๙]/g, '').trim();
   const s2 = target.toLowerCase().replace(/[^a-z0-9ก-๙]/g, '').trim();
   
@@ -69,7 +80,13 @@ export function findClosestMatches(query: string, data: ChannelData, drugs: Drug
 
   const uniqueCandidates = Array.from(new Set(candidates));
   return uniqueCandidates
-    .filter(c => isSimilar(q, c, 3))
+    .map((c) => ({
+      name: c,
+      score: Math.max(scoreMedicalItemMatch(q, c), isSimilar(q, c, 3) ? 35 : 0),
+    }))
+    .filter((entry) => entry.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .map((entry) => entry.name)
     .slice(0, limit);
 }
 
@@ -163,7 +180,7 @@ export async function extractItemsFromImage(file: File, userPrompt?: string): Pr
     formData.append('filterInstructions', userPrompt.trim());
   }
 
-  const response = await fetch('/api/ai/vision', {
+  const response = await authorizedFetch('/api/ai/vision', {
     method: 'POST',
     body: formData,
   });
@@ -544,6 +561,7 @@ export type AuraIntent =
   | 'TRANSFER'
   | 'CHANNEL_OPS'
   | 'AUTO_CHECK'
+  | 'VOICE_AUTO_FILL'
   | 'CHAT';
 
 export interface DetectedIntent {
@@ -565,6 +583,26 @@ export interface DetectedIntent {
 export function detectAuraIntent(query: string): DetectedIntent {
   const q = normalizeText(query);
   const entities: DetectedIntent['entities'] = {};
+
+  // 0. VOICE_AUTO_FILL: Voice phrases with item names, counts, or pass status
+  // e.g. "ออร่า IV catheter เบอร์ 20 เหลือ 1 เส้น, NSS เหลือ 2 ขวด, Adrenaline 5 หลอด ปกติ"
+  const voiceAutoFillKeywords = [
+    'เหลือ', 'หมด', 'ครบหมด', 'ครบทุกรายการ', 'เช็กผ่านหมด', 'เบิก', 'มีอยู่', 'นับได้', 'ชำรุด', 'เช็กเรียบร้อย'
+  ];
+  const hasMultipleItems = q.includes(',') || q.includes('และ') || (q.match(/\d+\s*(ชิ้น|เส้น|ขวด|หลอด|แอมป์|ชุด|อัน|กล่อง|เบอร์)/g)?.length || 0) >= 1;
+  if (voiceAutoFillKeywords.some(k => q.includes(k)) && (hasMultipleItems || q.includes('สัปดาห์') || q.includes('week'))) {
+    if (q.includes('รถ')) entities.category = 'cart';
+    else if (q.includes('กระเป๋า') || q.includes('เป๋า')) entities.category = 'bag';
+    else if (q.includes('ยา') || q.includes('คลัง')) entities.category = 'medicine';
+
+    const weekMatch = q.match(/สัปดาห์ที่\s*(\d+)|wk\s*(\d+)|week\s*(\d+)/i);
+    if (weekMatch) {
+      const wk = parseInt(weekMatch[1] || weekMatch[2] || weekMatch[3], 10);
+      if (wk >= 1 && wk <= 5) entities.week = [wk];
+    }
+
+    return { intent: 'VOICE_AUTO_FILL', confidence: 0.92, entities };
+  }
 
   // 1. QUERY_MEDIA: Patterns for images, visual appearance
   const mediaPatterns = [
@@ -600,13 +638,16 @@ export function detectAuraIntent(query: string): DetectedIntent {
     return { intent: 'AUDIT_ZONE', confidence: 0.85, entities };
   }
 
-  // 3. CHECK_STOCK_EXPIRY: Check stock levels or expiry
+  // 3. CHECK_STOCK_EXPIRY: Instant local check for stock levels, counts, or expiry
   const stockPatterns = [
-    'ใกล้หมดอายุ', 'เหลือเท่าไหร่', 'ของขาดไหม', 'เช็กของ', 'สต็อก', 'คงเหลือ', 'exp', 'วันหมดอายุ'
+    'ใกล้หมดอายุ', 'หมดอายุ', 'เหลือเท่าไร', 'เหลือเท่าไหร่', 'มีกี่', 'กี่ชิ้น', 'กี่หลอด', 'กี่ขวด', 'กี่แอมป์', 'กี่อัน', 'ของขาดไหม', 'เช็กของ', 'เช็กสต็อก', 'เช็คสต็อก', 'สต็อก', 'คงเหลือ', 'exp', 'วันหมดอายุ', 'มียา'
   ];
-  if (stockPatterns.some(p => q.includes(p))) {
-    entities.item = q.replace(new RegExp(`(${stockPatterns.join('|')}|ออร่า|น้องออร่า|ให้หน่อย|ที|นะ|ครับ|ค่ะ|เช็ก|ตรวจสอบ)`, 'gi'), '').trim();
-    return { intent: 'CHECK_STOCK_EXPIRY', confidence: 0.8, entities };
+  if (stockPatterns.some(p => q.includes(p)) && !q.includes('แก้') && !q.includes('อัปเดต') && !q.includes('เปลี่ยน')) {
+    entities.item = q
+      .replace(/(ใกล้หมดอายุ|หมดอายุ|วันหมดอายุ|เมื่อไร|เมื่อไหร่|เหลือเท่าไร|เหลือเท่าไหร่|มีกี่|กี่ชิ้น|กี่หลอด|กี่ขวด|กี่แอมป์|กี่อัน|ของขาดไหม|เช็กของ|เช็กสต็อก|เช็คสต็อก|เช็ก|เช็ค|ตรวจสอบ|สต็อก|คงเหลือ|มียา|exp|ออร่า|น้องออร่า|ให้หน่อย|ที|นะ|ครับ|ค่ะ|บ้าง|ไหม|อยู่|ในคลัง)/gi, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    return { intent: 'CHECK_STOCK_EXPIRY', confidence: 0.92, entities };
   }
 
   // 4. CHANNEL_OPS: Ward/Channel management
@@ -619,9 +660,12 @@ export function detectAuraIntent(query: string): DetectedIntent {
     return { intent: 'AUTO_CHECK', confidence: 0.9, entities };
   }
 
-  // 6. CLEAR / RESET
-  if ((q.includes('ลบ') || q.includes('เคลียร์')) && (q.includes('ทั้งหมด') || q.includes('ตาราง'))) {
-    return { intent: 'CLEAR', confidence: 0.9, entities };
+  // 6. CLEAR / RESET (Supports natural nurse slang like "ล้างของในครุออกให้หมด", "ล้างค่า", "รีเซ็ต", "เคลียร์")
+  const clearPatterns = [
+    'ล้างของในครุ', 'ล้างค่า', 'รีเซ็ตการตรวจ', 'เคลียร์เช็กลิสต์', 'เริ่มตรวจใหม่', 'ลบทั้งหมด', 'เคลียร์ทั้งหมด', 'ล้างข้อมูล', 'reset'
+  ];
+  if (clearPatterns.some(p => q.includes(p)) || ((q.includes('ลบ') || q.includes('เคลียร์') || q.includes('ล้าง')) && (q.includes('ทั้งหมด') || q.includes('ตาราง') || q.includes('ของ') || q.includes('ค่า')))) {
+    return { intent: 'CLEAR', confidence: 0.95, entities };
   }
 
   // 7. TRANSFER: Move items
@@ -674,21 +718,27 @@ export function queryItemDetails(
     {
       type: 'ยา/สารน้ำ',
       items: drugs,
-      searchFn: (d) => normalizeText(d.name).includes(q) || isSimilar(q, d.name) || (d.barcode && String(d.barcode).includes(q)),
+      searchFn: (d) =>
+        matchMedicalItemName(q, d.name || '', d.spec || d.unit || '') ||
+        isSimilar(q, d.name) ||
+        Boolean(d.barcode && String(d.barcode).includes(q)),
       formatFn: (d) => ({
         found: true,
         item: d,
         image: categoryCovers.drugs,
         location: 'คลังยา OR',
         code: d.barcode || 'N/A',
-        stock: `${d.remaining || 0} ${d.unit || 'Unit'}`,
+        stock: `${d.remaining ?? d.totalQty ?? 0} ${d.unit || 'Unit'}`,
         categoryType: 'ยา/สารน้ำ'
       })
     },
     {
       type: 'กระเป๋าฉุกเฉิน',
       items: Object.entries(data.lists?.bag?.groups || {}).flatMap(([g, its]) => its.map(it => ({ ...it, groupName: g }))),
-      searchFn: (it) => normalizeText(it.name).includes(q) || isSimilar(q, it.name) || (it.code && normalizeText(it.code).includes(q)),
+      searchFn: (it) =>
+        matchMedicalItemName(q, it.name || '', it.spec || '') ||
+        isSimilar(q, it.name) ||
+        Boolean(it.code && normalizeText(it.code).includes(q)),
       formatFn: (it) => ({
         found: true,
         item: it,
@@ -702,7 +752,10 @@ export function queryItemDetails(
     {
       type: 'รถฉุกเฉิน',
       items: Object.entries(data.lists?.cart?.groups || {}).flatMap(([g, its]) => its.map(it => ({ ...it, groupName: g }))),
-      searchFn: (it) => normalizeText(it.name).includes(q) || isSimilar(q, it.name) || (it.code && normalizeText(it.code).includes(q)),
+      searchFn: (it) =>
+        matchMedicalItemName(q, it.name || '', it.spec || '') ||
+        isSimilar(q, it.name) ||
+        Boolean(it.code && normalizeText(it.code).includes(q)),
       formatFn: (it) => ({
         found: true,
         item: it,
@@ -716,7 +769,10 @@ export function queryItemDetails(
     {
       type: 'ครุภัณฑ์ห้องผ่าตัด',
       items: Object.entries(equipment).flatMap(([room, its]) => its.map(it => ({ ...it, roomId: room }))),
-      searchFn: (it) => normalizeText(it.name).includes(q) || isSimilar(q, it.name) || (it.code && normalizeText(it.code).includes(q)),
+      searchFn: (it) =>
+        matchMedicalItemName(q, it.name || '', it.spec || '') ||
+        isSimilar(q, it.name) ||
+        Boolean(it.code && normalizeText(it.code).includes(q)),
       formatFn: (it) => ({
         found: true,
         item: it,
@@ -747,10 +803,14 @@ export function queryItemDetails(
     }
   }
 
-  // Execute Search
+  // Execute Search with best score first (ensures exact size matches outrank generic ones)
   for (const provider of searchOrder) {
-    const match = provider.items.find(provider.searchFn);
-    if (match) return provider.formatFn(match);
+    const bestMatches = findBestMedicalMatches(q, provider.items, (it) => it.name || '', (it) => it.spec || '');
+    if (bestMatches.length > 0) {
+      return provider.formatFn(bestMatches[0]);
+    }
+    const fallbackMatch = provider.items.find(provider.searchFn);
+    if (fallbackMatch) return provider.formatFn(fallbackMatch);
   }
 
   // 3. Not found, return suggestions from entire system
@@ -803,3 +863,130 @@ export function scanAnomalies(data: ChannelData, drugs: DrugItem[], locationFilt
 
   return anomalies;
 }
+
+export interface VoiceAutoFillResult {
+  action: 'check' | 'restock' | 'bulk_pass';
+  category: 'bag' | 'cart' | 'drug';
+  week: number;
+  items: Array<{
+    name: string;
+    qty?: string;
+    status: 'ปกติ' | 'ขาด' | 'ชำรุด' | 'หมดอายุ';
+    matchedKey?: string;
+    originalItem?: any;
+  }>;
+  summaryText: string;
+}
+
+/**
+ * Mode 4: Voice Auto-Fill Parser
+ * Extracts spoken item names, remaining quantities, and statuses from natural Thai speech
+ * e.g. "ออร่า IV catheter เบอร์ 20 เหลือ 1 เส้น, NSS เหลือ 2 ขวด, Adrenaline 5 หลอด ปกติ"
+ */
+export function parseVoiceAutoFill(
+  query: string,
+  channelData?: any,
+  drugs: any[] = []
+): VoiceAutoFillResult {
+  const q = normalizeText(query);
+  const isRestock = q.includes('เบิก') || q.includes('ขอเพิ่ม') || q.includes('สั่งของ');
+  const isBulkPass = q.includes('ครบหมด') || q.includes('ครบทุกรายการ') || q.includes('เช็กผ่านหมด');
+
+  // Detect category (default to 'bag' if unspecified or currently active)
+  let category: 'bag' | 'cart' | 'drug' = 'bag';
+  if (q.includes('รถ') || q.includes('cart')) category = 'cart';
+  else if (q.includes('ยา') || q.includes('คลัง') || q.includes('drug')) category = 'drug';
+
+  // Detect target week (default to 1)
+  let week = 1;
+  const weekMatch = q.match(/สัปดาห์ที่\s*(\d+)|wk\s*(\d+)|week\s*(\d+)/i);
+  if (weekMatch) {
+    week = parseInt(weekMatch[1] || weekMatch[2] || weekMatch[3], 10) || 1;
+  }
+
+  // Get list items for fuzzy matching
+  const listItems: any[] = [];
+  if (category === 'bag' || category === 'cart') {
+    const groups = channelData?.lists?.[category]?.groups || {};
+    Object.entries(groups).forEach(([groupName, gItems]: [string, any]) => {
+      (gItems || []).forEach((item: any, idx: number) => {
+        listItems.push({
+          ...item,
+          groupName,
+          key: item.id || `${category}_${groupName}_${idx}`,
+        });
+      });
+    });
+  } else {
+    drugs.forEach((d) => {
+      listItems.push({
+        ...d,
+        name: d.name,
+        key: d.id,
+      });
+    });
+  }
+
+  // Split query into phrases by comma, 'และ', or semicolons
+  const cleanQ = q.replace(/(น้องออร่า|ออร่า|ช่วย|หน่อย|นะ|ครับ|ค่ะ|สัปดาห์ที่\s*\d+|wk\s*\d+)/gi, '').trim();
+  const phrases = cleanQ
+    .split(/[,;\n]|และ/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  const parsedItems: VoiceAutoFillResult['items'] = [];
+
+  for (const phrase of phrases) {
+    // Extract count: e.g. "เหลือ 1 เส้น", "2 ขวด", "5 หลอด", "0"
+    const countMatch = phrase.match(/(?:เหลือ|มี|นับได้|จำนวน)?\s*(\d+)\s*(ชิ้น|เส้น|ขวด|หลอด|แอมป์|ชุด|อัน|กล่อง|เบอร์)?/i);
+    const count = countMatch ? countMatch[1] : undefined;
+
+    // Status: defect vs normal
+    let status: 'ปกติ' | 'ขาด' | 'ชำรุด' | 'หมดอายุ' = 'ปกติ';
+    if (phrase.includes('ชำรุด') || phrase.includes('เสีย') || phrase.includes('แตก') || phrase.includes('พัง')) {
+      status = 'ชำรุด';
+    } else if (phrase.includes('หมดอายุ') || phrase.includes('exp')) {
+      status = 'หมดอายุ';
+    } else if (phrase.includes('ขาด') || phrase.includes('หมด') || count === '0') {
+      status = 'ขาด';
+    }
+
+    // Extract item name from phrase by removing count and action words
+    const strippedName = phrase
+      .replace(/(?:เหลือ|มี|นับได้|จำนวน|เบิก|ขอ)?\s*\d+\s*(?:ชิ้น|เส้น|ขวด|หลอด|แอมป์|ชุด|อัน|กล่อง|เบอร์)?/gi, '')
+      .replace(/(ปกติ|ขาด|ชำรุด|หมดอายุ|เช็กแล้ว|โอเค|ผ่าน|ในกระเป๋า|ในรถ|คลัง)/gi, '')
+      .trim();
+
+    if (strippedName.length >= 2) {
+      // Find closest match in listItems using precise medical matching
+      const matched = listItems.find((li) => {
+        return matchMedicalItemName(strippedName, li.name || '', li.spec || '');
+      });
+
+      parsedItems.push({
+        name: matched?.name || strippedName,
+        qty: count,
+        status,
+        matchedKey: matched?.key,
+        originalItem: matched,
+      });
+    }
+  }
+
+  const action = isRestock ? 'restock' : isBulkPass ? 'bulk_pass' : 'check';
+  const summaryText = parsedItems.length > 0
+    ? `น้องออร่าตรวจพบ ${parsedItems.length} รายการจากคำสั่งเสียง:\n` +
+      parsedItems.map((it, idx) => `${idx + 1}. **${it.name}** : ${it.qty ? `${it.qty} ชิ้น` : ''} (${it.status})`).join('\n')
+    : isBulkPass
+    ? `น้องออร่าจะดำเนินการเช็กผ่าน 100% ให้ทุกรายการใน [${category === 'bag' ? 'กระเป๋าฉุกเฉิน' : 'รถฉุกเฉิน'}] สัปดาห์ที่ ${week} ค่ะ ✨🌸`
+    : 'น้องออร่ารับทราบคำสั่งเสียงเรียบร้อยแล้วค่ะ';
+
+  return {
+    action,
+    category,
+    week,
+    items: parsedItems,
+    summaryText,
+  };
+}
+

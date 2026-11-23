@@ -2,31 +2,32 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   X,
   Printer,
+  Download,
   FileSpreadsheet,
   ShieldCheck,
   Calendar,
   Clock,
-  UserCheck,
-  CheckCircle2,
-  AlertTriangle,
-  Activity,
-  Layers,
-  ArrowRight,
   RefreshCw,
   Send,
   Database,
   Search,
   Filter,
   Check,
+  CheckCircle2,
+  UserCheck,
+  AlertTriangle,
   Cpu,
-  FileText,
   Building,
-  ClipboardList
+  ClipboardList,
+  Activity
 } from 'lucide-react';
-import * as XLSX from 'xlsx';
 import { User, DrugItem, EquipmentItem, HaAuditLogEntry, FhirMedicationDispensePayload } from '../types';
 import { logAuditEvent } from '../services/auditLogger';
-import { fetchHaAuditLogs, subscribeHaAuditLogs } from '../services/firebase';
+import { auth, fetchHaAuditLogs, subscribeHaAuditLogs } from '../services/firebase';
+import { exportHaAuditExcel } from '../utils/exportExcel';
+import { exportHaAuditPdf } from '../utils/exportPdf';
+import { authorizedFetch } from '../services/aiService';
+import { getBangkokTodayIso } from '../utils/dateUtils';
 
 export interface HaAuditReportModalProps {
   isOpen: boolean;
@@ -48,7 +49,7 @@ export const HaAuditReportModal: React.FC<HaAuditReportModalProps> = ({
   activeChannelName = 'ห้องผ่าตัด OR (Master)',
 }) => {
   const [activeTab, setActiveTab] = useState<HaReportType>('daily_cart');
-  const [selectedDate, setSelectedDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
+  const [selectedDate, setSelectedDate] = useState<string>(() => getBangkokTodayIso());
   const [selectedShift, setSelectedShift] = useState<'all' | 'morning' | 'afternoon' | 'night'>('morning');
   const [inspectorName, setInspectorName] = useState<string>(() => currentUser?.name || 'พว. วิสัญญี ปฏิบัติการ');
   const [wardHeadName, setWardHeadName] = useState<string>('พว. หัวหน้าแผนกวิสัญญีวิทยา');
@@ -79,36 +80,33 @@ export const HaAuditReportModal: React.FC<HaAuditReportModalProps> = ({
     }
   }, [currentUser]);
 
-  // Load audit logs on open or tab switch
+  // Load audit logs on open or tab switch (only hit Firestore when Firebase Auth user is signed in)
   useEffect(() => {
     if (!isOpen) return;
 
-    setIsLoadingLogs(true);
-    fetchHaAuditLogs(80)
-      .then((logs) => {
-        if (logs && logs.length > 0) {
-          setAuditLogs(logs);
-        } else {
-          try {
-            const cached = localStorage.getItem('ha_audit_logs_cache');
-            if (cached) setAuditLogs(JSON.parse(cached));
-          } catch {}
-        }
-      })
-      .catch((err) => {
-        console.warn('Audit logs fetch warning:', err);
-        try {
-          const cached = localStorage.getItem('ha_audit_logs_cache');
-          if (cached) setAuditLogs(JSON.parse(cached));
-        } catch {}
-      })
-      .finally(() => setIsLoadingLogs(false));
+    let unsubscribe: (() => void) | undefined;
 
-    const unsubscribe = subscribeHaAuditLogs((updatedLogs) => {
-      if (updatedLogs && updatedLogs.length > 0) {
-        setAuditLogs(updatedLogs);
-      }
-    }, 80);
+    if (auth.currentUser) {
+      setIsLoadingLogs(true);
+      fetchHaAuditLogs(80)
+        .then((logs) => {
+          if (logs && logs.length > 0) {
+            setAuditLogs(logs);
+          }
+        })
+        .catch((err) => {
+          console.warn('Audit logs fetch warning:', err);
+        })
+        .finally(() => setIsLoadingLogs(false));
+
+      unsubscribe = subscribeHaAuditLogs((updatedLogs) => {
+        if (updatedLogs && updatedLogs.length > 0) {
+          setAuditLogs(updatedLogs);
+        }
+      }, 80);
+    } else {
+      setIsLoadingLogs(false);
+    }
 
     const handleLocalAudit = (e: any) => {
       if (e.detail) {
@@ -190,83 +188,26 @@ export const HaAuditReportModal: React.FC<HaAuditReportModalProps> = ({
                      selectedShift === 'afternoon' ? 'เวรบ่าย (16:00 - 24:00 น.)' :
                      selectedShift === 'night' ? 'เวรดึก (24:00 - 08:00 น.)' : 'ทุกผลัดเวร';
 
-  // Excel Export Handler
+  // Excel Export Handler (via shared exportHaAuditExcel helper)
   const handleExportExcel = async () => {
     setIsExporting(true);
     try {
-      const wb = XLSX.utils.book_new();
+      const totalAnomalies = Object.values(equipment || {}).reduce(
+        (acc, arr) => acc + (arr || []).filter((it: any) => it?.status === 'ผิดปกติ' || it?.result === 'ผิดปกติ').length,
+        0
+      );
+      const lowStockCount = (drugs || []).filter((d) => Number(d.remaining || 0) <= Number(d.minStock || 0)).length;
 
-      // Sheet 1: Daily Cart Check Sheet
-      const cartRows = dailyCartChecklist.map((item, idx) => ({
-        ลำดับ: idx + 1,
-        หมวดหมู่: item.cat,
-        รายการตรวจเช็ค: item.name,
-        เกณฑ์มาตรฐาน: item.std,
-        ผลการตรวจ: item.result,
-        รายละเอียดผลตรวจ: item.note,
-        วันที่ตรวจ: selectedDate,
-        เวร: shiftLabel,
-        ผู้ตรวจ: inspectorName,
-        หัวหน้าวอร์ด: wardHeadName,
-      }));
-      const ws1 = XLSX.utils.json_to_sheet(cartRows);
-      ws1['!cols'] = [{ wch: 6 }, { wch: 24 }, { wch: 38 }, { wch: 36 }, { wch: 12 }, { wch: 25 }, { wch: 14 }, { wch: 22 }, { wch: 20 }, { wch: 20 }];
-      XLSX.utils.book_append_sheet(wb, ws1, 'Daily_Cart_Check');
+      const fileName = exportHaAuditExcel({
+        channelName: activeChannelName,
+        currentUserName: inspectorName,
+        totalChecksCompleted: dailyCartChecklist.length + controlledAndExpiryDrugs.length + equipmentCalibrations.length,
+        totalAnomalies,
+        criticalLowStockCount: lowStockCount,
+        drugs: drugs || [],
+        auditLogs,
+      });
 
-      // Sheet 2: Controlled Drugs & Expiry
-      const drugRows = controlledAndExpiryDrugs.map((item, idx) => ({
-        ลำดับ: idx + 1,
-        รหัสยา: item.code,
-        ชื่อยาและสารน้ำ: item.name,
-        กลุ่มยา: item.category,
-        Lot_Batch: item.lot,
-        วันหมดอายุ: item.exp,
-        ยอดคงเหลือจริง: item.stock,
-        เกณฑ์Par: item.par,
-        หน่วย: item.unit,
-        สถานะการประเมิน: item.status,
-      }));
-      const ws2 = XLSX.utils.json_to_sheet(drugRows);
-      ws2['!cols'] = [{ wch: 6 }, { wch: 12 }, { wch: 38 }, { wch: 18 }, { wch: 16 }, { wch: 14 }, { wch: 14 }, { wch: 10 }, { wch: 8 }, { wch: 26 }];
-      XLSX.utils.book_append_sheet(wb, ws2, 'Controlled_Drugs_Log');
-
-      // Sheet 3: Equipment Calibration
-      const eqRows = equipmentCalibrations.map((item, idx) => ({
-        ลำดับ: idx + 1,
-        รหัสครุภัณฑ์: item.code,
-        รหัสSAP: item.sap,
-        ชื่อเครื่องมือแพทย์: item.name,
-        รุ่น_ยี่ห้อ: item.model,
-        สถานที่ตั้ง: item.loc,
-        วันที่สอบเทียบล่าสุด: item.lastCal,
-        รอบสอบเทียบถัดไป: item.nextCal,
-        สถานะความพร้อม: item.status,
-        ผู้ดูแล_วิศวกร: item.engineer,
-      }));
-      const ws3 = XLSX.utils.json_to_sheet(eqRows);
-      ws3['!cols'] = [{ wch: 6 }, { wch: 16 }, { wch: 16 }, { wch: 38 }, { wch: 24 }, { wch: 20 }, { wch: 16 }, { wch: 16 }, { wch: 24 }, { wch: 24 }];
-      XLSX.utils.book_append_sheet(wb, ws3, 'Equipment_Calibration');
-
-      // Sheet 4: Activity Log / Audit Trail
-      const logRows = auditLogs.slice(0, 100).map((log, idx) => ({
-        ลำดับ: idx + 1,
-        วันเวลา_Timestamp: log.timestamp,
-        ผู้ใช้งาน: log.userName,
-        บทบาท_Role: log.role,
-        รหัสคำสั่ง_Action: log.action,
-        ตารางเป้าหมาย: log.targetCollection,
-        รหัสอ้างอิง: log.targetId,
-        รายละเอียด: JSON.stringify(log.details || {}),
-        IP_Address: log.ipAddress || '-',
-      }));
-      const ws4 = XLSX.utils.json_to_sheet(logRows);
-      ws4['!cols'] = [{ wch: 6 }, { wch: 24 }, { wch: 20 }, { wch: 14 }, { wch: 26 }, { wch: 16 }, { wch: 16 }, { wch: 45 }, { wch: 16 }];
-      XLSX.utils.book_append_sheet(wb, ws4, 'Audit_Trail_Log');
-
-      const fileName = `HA_JCI_Audit_Report_${selectedDate}_${selectedShift}.xlsx`;
-      XLSX.writeFile(wb, fileName);
-
-      // Audit Log on Export
       await logAuditEvent({
         action: 'EXPORT_EXCEL',
         targetCollection: 'reports',
@@ -284,7 +225,38 @@ export const HaAuditReportModal: React.FC<HaAuditReportModalProps> = ({
       setNotificationMsg('✓ ส่งออกไฟล์ Excel มาตรฐาน HA/JCI สำเร็จเรียบร้อย');
       setTimeout(() => setNotificationMsg(''), 4000);
     } catch (err: any) {
-      alert('เกิดข้อผิดพลาดในการส่งออก Excel: ' + err.message);
+      setNotificationMsg('เกิดข้อผิดพลาดในการส่งออก Excel: ' + (err?.message || err));
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  // Direct Thai PDF Download Handler (NotoSansThai embedded)
+  const handleDownloadThaiPdf = async () => {
+    setIsExporting(true);
+    try {
+      const lowStockCount = (drugs || []).filter((d) => Number(d.remaining || 0) <= Number(d.minStock || 0)).length;
+      await exportHaAuditPdf({
+        channelName: activeChannelName,
+        exporterName: inspectorName,
+        exporterPosition: currentUser?.position || 'พยาบาลวิสัญญี',
+        signatureDataUrl: currentUser?.signature,
+        totalChecksCompleted: dailyCartChecklist.length + equipmentCalibrations.length,
+        totalAnomalies: 0,
+        criticalLowStockCount: lowStockCount,
+        auditLogs,
+      });
+      await logAuditEvent({
+        action: 'EXPORT_HA_REPORT',
+        targetCollection: 'reports',
+        targetId: `HA_THAI_PDF_${activeTab}`,
+        details: { reportType: activeTab, selectedDate, fileType: 'pdf' },
+        currentUser,
+      });
+      setNotificationMsg('✓ ดาวน์โหลดรายงาน HA/JCI PDF (ฟอนต์ภาษาไทย) สำเร็จเรียบร้อย');
+      setTimeout(() => setNotificationMsg(''), 4000);
+    } catch (err: any) {
+      setNotificationMsg('เกิดข้อผิดพลาดในการสร้าง PDF: ' + (err?.message || err));
     } finally {
       setIsExporting(false);
     }
@@ -382,7 +354,7 @@ export const HaAuditReportModal: React.FC<HaAuditReportModalProps> = ({
         note: [{ text: 'ทดสอบการส่ง Webhook ตัดสต็อกอัตโนมัติจากระบบ HIS (HL7 FHIR R4)' }],
       };
 
-      const res = await fetch('/api/fhir/MedicationDispense', {
+      const res = await authorizedFetch('/api/fhir/MedicationDispense', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -395,7 +367,11 @@ export const HaAuditReportModal: React.FC<HaAuditReportModalProps> = ({
       const updated = await fetchHaAuditLogs(50);
       setAuditLogs(updated);
 
-      setNotificationMsg('✓ จำลองคำสั่งเบิกจ่าย HL7 FHIR และตัดสต็อกบันทึกลง Audit Trail สำเร็จ');
+      if (res.ok) {
+        setNotificationMsg('✓ จำลองคำสั่งเบิกจ่าย HL7 FHIR และตัดสต็อกลง Firestore จริงสำเร็จ');
+      } else {
+        setNotificationMsg(`⚠️ FHIR ตอบกลับสถานะ ${res.status}: ${data?.message || data?.error || 'ไม่สำเร็จ'}`);
+      }
       setTimeout(() => setNotificationMsg(''), 4000);
     } catch (err: any) {
       setFhirSimStatus({ error: err.message });
@@ -554,7 +530,8 @@ export const HaAuditReportModal: React.FC<HaAuditReportModalProps> = ({
             </div>
 
             {/* Quick Export Actions */}
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
+
               <button
                 type="button"
                 onClick={handlePrintPdf}

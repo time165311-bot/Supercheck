@@ -1,3 +1,5 @@
+import { authorizedFetch } from './aiService';
+
 export interface ApiTestResult {
   ok: boolean;
   message: string;
@@ -192,17 +194,19 @@ export async function pullDataFromGoogleSheets(
 export async function comparePaperWithWeb(
   fileOrBlob: File | Blob,
   currentWebItems: any[],
-  targetType: 'bag' | 'cart' | 'drug' = 'bag',
-  fileName?: string
+  targetType: 'bag' | 'cart' | 'ambulance' | 'drug' | string = 'bag',
+  fileName?: string,
+  signal?: AbortSignal
 ): Promise<{ success: boolean; result: any; message?: string; isQuotaExceeded?: boolean }> {
   const formData = new FormData();
   formData.append('image', fileOrBlob, fileName || 'paper_checklist.jpg');
   formData.append('currentWebItems', JSON.stringify(currentWebItems));
   formData.append('targetType', targetType);
 
-  const res = await fetch('/api/ai/audit-paper', {
+  const res = await authorizedFetch('/api/ai/audit-paper', {
     method: 'POST',
     body: formData,
+    signal,
   });
 
   if (!res.ok) {

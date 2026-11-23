@@ -11,6 +11,7 @@ import {
 } from '../types';
 import { DEFAULT_LISTS, ROOMS, INITIAL_MASTER_DATA } from '../constants/initialData';
 import { INITIAL_DRUGS_DATA } from '../constants/initialDrugs';
+import { diffDaysFromBangkokToday, getBangkokTodayIso } from '../utils/dateUtils';
 
 export const STORAGE_KEYS = {
   API_URL: 'anesthesia_api_url',
@@ -49,6 +50,32 @@ export function getChannelWeekDatesKey(channelId: string): string {
   return `server_db_${channelId}_week_dates`;
 }
 
+export interface ChannelCyclePeriods {
+  bagMonth?: string;
+  cartMonth?: string;
+  equipmentYear?: string;
+}
+
+export function getChannelCyclePeriodsKey(channelId: string): string {
+  return `server_db_${channelId || 'channel_master'}_cycle_periods`;
+}
+
+export function getBangkokPeriodKeys(): { monthKey: string; yearKey: string } {
+  const todayIso = getBangkokTodayIso();
+  return {
+    monthKey: todayIso.slice(0, 7),
+    yearKey: todayIso.slice(0, 4),
+  };
+}
+
+export function getStoredCyclePeriods(channelId: string): ChannelCyclePeriods {
+  return getStored<ChannelCyclePeriods>(getChannelCyclePeriodsKey(channelId), {});
+}
+
+export function setStoredCyclePeriods(channelId: string, periods: ChannelCyclePeriods): void {
+  setStored(getChannelCyclePeriodsKey(channelId), periods);
+}
+
 export function getStored<T>(key: string, defaultValue: T): T {
   try {
     const item = localStorage.getItem(key);
@@ -58,11 +85,42 @@ export function getStored<T>(key: string, defaultValue: T): T {
   }
 }
 
+function evictHeavyCachesFromLocalStorage(): void {
+  const heavyKeys = [
+    STORAGE_KEYS.HISTORY,
+    STORAGE_KEYS.AUDIT_LOGS,
+    'ha_audit_logs_cache',
+    'anesthesia_requisitions',
+  ];
+  heavyKeys.forEach((k) => {
+    try {
+      localStorage.removeItem(k);
+    } catch {
+      // ignore
+    }
+  });
+}
+
 export function setStored<T>(key: string, value: T): void {
+  // Skip persisting bulky audit log / inspection history blobs in localStorage (Firestore handles them natively)
+  if (key === STORAGE_KEYS.HISTORY || key === STORAGE_KEYS.AUDIT_LOGS || key === 'ha_audit_logs_cache') {
+    return;
+  }
+  const serialized = JSON.stringify(value);
   try {
-    localStorage.setItem(key, JSON.stringify(value));
-  } catch (e) {
-    console.error('Failed to save to localStorage:', e);
+    localStorage.setItem(key, serialized);
+  } catch (e: any) {
+    if (e?.name === 'QuotaExceededError' || e?.code === 22) {
+      evictHeavyCachesFromLocalStorage();
+      try {
+        localStorage.setItem(key, serialized);
+        return;
+      } catch (retryErr) {
+        console.warn('localStorage quota exceeded after cache eviction:', retryErr);
+      }
+    } else {
+      console.error('Failed to save to localStorage:', e);
+    }
   }
 }
 
@@ -77,8 +135,18 @@ export function getStoredString(key: string, defaultValue: string = ''): string 
 export function setStoredString(key: string, value: string): void {
   try {
     localStorage.setItem(key, value);
-  } catch (e) {
-    console.error('Failed to save string to localStorage:', e);
+  } catch (e: any) {
+    if (e?.name === 'QuotaExceededError' || e?.code === 22) {
+      evictHeavyCachesFromLocalStorage();
+      try {
+        localStorage.setItem(key, value);
+        return;
+      } catch (retryErr) {
+        console.warn('localStorage string quota exceeded after eviction:', retryErr);
+      }
+    } else {
+      console.error('Failed to save string to localStorage:', e);
+    }
   }
 }
 
@@ -355,23 +423,16 @@ export function importFullBackup(jsonInput: string | object): {
   }
 }
 
-// Expiration calculation
+// Expiration calculation locked to Asia/Bangkok (UTC+7)
 export function calculateExpirationStatus(expDateStr?: string): { daysRemaining: number; status: 'expired' | 'warning' | 'good' } {
-  if (!expDateStr || !expDateStr.trim()) {
+  if (!expDateStr || !expDateStr.trim() || expDateStr.trim() === '-' || /no\s*exp/i.test(expDateStr)) {
     return { daysRemaining: 9999, status: 'good' };
   }
 
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
-  const expDate = new Date(expDateStr);
-  if (isNaN(expDate.getTime())) {
+  const diffDays = diffDaysFromBangkokToday(expDateStr);
+  if (diffDays === null) {
     return { daysRemaining: 9999, status: 'good' };
   }
-  expDate.setHours(0, 0, 0, 0);
-
-  const diffTime = expDate.getTime() - today.getTime();
-  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
   if (diffDays < 0) {
     return { daysRemaining: diffDays, status: 'expired' };
@@ -425,7 +486,6 @@ export function addAuditLog(
   location: string = '-',
   apiUrl?: string
 ): AuditLogEntry {
-  const logs = getLocalAuditLogs();
   const username = user?.username || 'anonymous';
   const name = user?.name || 'ผู้ใช้งาน';
   const now = new Date().toLocaleString('th-TH');
@@ -440,9 +500,6 @@ export function addAuditLog(
     details,
     location,
   };
-
-  const updatedLogs = [newEntry, ...logs].slice(0, 100); // keep last 100 in memory
-  setStored(STORAGE_KEYS.AUDIT_LOGS, updatedLogs);
 
   // If API URL is provided, push to Google Sheets Audit Log sheet
   const activeApiUrl = apiUrl || getStoredString(STORAGE_KEYS.API_URL, '');

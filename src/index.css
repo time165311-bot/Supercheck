@@ -1,57 +1,263 @@
 @import "tailwindcss";
 
-@custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
+@custom-variant dark (&:where(.dark, .dark *, [data-theme=dark], [data-theme=dark] *));
 
 @layer base {
-  /* ลบขอบขาว/เทา นอกสุดของเบราว์เซอร์ออกทั้งหมด */
-  html, body, #root {
+  /* Single scroll container strategy: lock html/body/#root to 100dvh so <main> scrolls smoothly without double scrollbars */
+  html, body {
+    max-width: 100vw !important;
+    overflow-x: hidden !important;
+  }
+
+  html, body, #root, div[data-reactroot] {
     margin: 0 !important;
     padding: 0 !important;
     width: 100% !important;
-    min-height: 100% !important;
-    max-width: 100% !important;
+    height: 100dvh !important;
+    max-width: 100vw !important;
+    overflow: hidden !important;
     overflow-x: hidden !important;
-    background-color: #f8fafc; /* สีพื้นหลังกลมกลืน */
+    -webkit-tap-highlight-color: transparent !important;
+    touch-action: manipulation;
   }
 
   :root {
     --font-sans: 'TH Sarabun New', 'TH Sarabun PSK', 'Sarabun', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    --fb-blue: #1877f2;
-    --fb-blue-hover: #166fe5;
-    --fb-bg: #f8fafc;
-    --fb-card: #ffffff;
-    --fb-border: #e2e8f0;
-    --fb-text: #1e293b;
-    --fb-text-sub: #64748b;
-    
-    /* Dynamic Accent Color Variable: Gemini Blue */
-    --app-accent: #2563eb;
-    --app-accent-hover: #1d4ed8;
-    --app-accent-light: rgba(37, 99, 235, 0.1);
+    --app-accent: #a8c7fa;
+    --app-accent-hover: #8ab4f8;
+    --app-accent-light: rgba(168, 199, 250, 0.15);
+    --app-success: #81c995;
+    --app-bg: #131314;
   }
 
   body {
+    @apply bg-slate-50 text-slate-900 antialiased transition-colors duration-200;
     font-family: 'TH Sarabun New', 'TH Sarabun PSK', 'Sarabun', sans-serif !important;
     font-weight: 500;
     line-height: 1.5;
     letter-spacing: -0.2px;
     word-break: keep-all !important;
     -webkit-tap-highlight-color: transparent;
-    -webkit-font-smoothing: antialiased;
-    background-color: #F8FAFC !important;
-    color: #1E293B !important;
   }
 
-  /* Prevent Thai text awkward line-breaks across all headings, buttons, and inputs */
-  button, input, select, textarea, h1, h2, h3, h4, h5, h6, p, span {
+  .dark body,
+  [data-theme="dark"] body {
+    background-color: #131314 !important;
+    color: #e3e3e3 !important;
+  }
+
+  /* Prevent Thai text awkward line-breaks & remove 300ms mobile tap delay */
+  button, a, [role="button"], input, select, textarea, h1, h2, h3, h4, h5, h6, p, span {
     font-family: 'TH Sarabun New', 'TH Sarabun PSK', 'Sarabun', sans-serif !important;
     word-break: keep-all;
     line-height: normal;
+  }
+
+  button, a, [role="button"], input, select, textarea {
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
   }
 }
 
 .nowrap-unit {
   white-space: nowrap !important;
+}
+
+/* =========================================================
+   GEMINI-STYLE DARK MODE (โทนเทาชาร์โคล อ่านง่าย สบายตา)
+   ========================================================= */
+.dark,
+[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+/* 1. พื้นหลังการ์ด, Modal และกล่องเนื้อหา (#1E1F20) */
+.dark .bg-white,
+.dark .bg-slate-900,
+[data-theme="dark"] .bg-white,
+[data-theme="dark"] .bg-slate-900 {
+  background-color: #1e1f20 !important;
+}
+
+/* 2. พื้นหลังย่อย, หัวตาราง, แถบค้นหา, บับเบิลแชท (#282A2C) */
+.dark .bg-slate-50,
+.dark .bg-gray-50,
+.dark .bg-slate-100,
+.dark .bg-gray-100,
+.dark .bg-slate-800,
+.dark .bg-slate-800\/90,
+.dark .bg-slate-800\/95,
+[data-theme="dark"] .bg-slate-50,
+[data-theme="dark"] .bg-gray-50,
+[data-theme="dark"] .bg-slate-100,
+[data-theme="dark"] .bg-gray-100,
+[data-theme="dark"] .bg-slate-800,
+[data-theme="dark"] .bg-slate-800\/90,
+[data-theme="dark"] .bg-slate-800\/95 {
+  background-color: #282a2c !important;
+}
+
+.dark .bg-slate-200,
+.dark .bg-gray-200,
+.dark .bg-slate-700,
+[data-theme="dark"] .bg-slate-200,
+[data-theme="dark"] .bg-gray-200,
+[data-theme="dark"] .bg-slate-700 {
+  background-color: #333537 !important;
+}
+
+/* Hover บนแถวตารางหรือปุ่มย่อย */
+.dark .hover\:bg-slate-50:hover,
+.dark .hover\:bg-slate-100:hover,
+.dark .hover\:bg-gray-50:hover,
+.dark .hover\:bg-slate-700:hover,
+.dark .hover\:bg-slate-800:hover,
+[data-theme="dark"] .hover\:bg-slate-50:hover,
+[data-theme="dark"] .hover\:bg-slate-100:hover,
+[data-theme="dark"] .hover\:bg-gray-50:hover,
+[data-theme="dark"] .hover\:bg-slate-700:hover,
+[data-theme="dark"] .hover\:bg-slate-800:hover {
+  background-color: #2d2f31 !important;
+}
+
+/* 3. สีตัวอักษรหลัก (#E3E3E3) และรอง (#C4C7C5 / #8E918F) */
+.dark .text-slate-900:not(.keep-dark-text),
+.dark .text-slate-800:not(.keep-dark-text),
+.dark .text-gray-900:not(.keep-dark-text),
+.dark .text-gray-800:not(.keep-dark-text),
+[data-theme="dark"] .text-slate-900:not(.keep-dark-text),
+[data-theme="dark"] .text-slate-800:not(.keep-dark-text),
+[data-theme="dark"] .text-gray-900:not(.keep-dark-text),
+[data-theme="dark"] .text-gray-800:not(.keep-dark-text) {
+  color: #e3e3e3 !important;
+}
+
+.dark .bg-amber-400,
+.dark .bg-yellow-400,
+.dark .keep-dark-text,
+[data-theme="dark"] .bg-amber-400,
+[data-theme="dark"] .bg-yellow-400,
+[data-theme="dark"] .keep-dark-text {
+  color: #0f172a !important;
+}
+
+.dark .text-slate-700,
+.dark .text-gray-700,
+.dark .text-slate-600,
+.dark .text-gray-600,
+[data-theme="dark"] .text-slate-700,
+[data-theme="dark"] .text-gray-700,
+[data-theme="dark"] .text-slate-600,
+[data-theme="dark"] .text-gray-600 {
+  color: #c4c7c5 !important;
+}
+
+.dark .text-slate-500,
+.dark .text-gray-500,
+.dark .text-slate-400,
+[data-theme="dark"] .text-slate-500,
+[data-theme="dark"] .text-gray-500,
+[data-theme="dark"] .text-slate-400 {
+  color: #8e918f !important;
+}
+
+/* 4. เส้นขอบบางๆ ไม่ให้ตัดสายตา (#333537) */
+.dark .border-slate-100,
+.dark .border-slate-200,
+.dark .border-slate-300,
+.dark .border-slate-700,
+.dark .border-slate-800,
+.dark .border-gray-100,
+.dark .border-gray-200,
+.dark .border-gray-300,
+.dark .divide-slate-100 > :not(:last-child),
+.dark .divide-slate-200 > :not(:last-child),
+[data-theme="dark"] .border-slate-100,
+[data-theme="dark"] .border-slate-200,
+[data-theme="dark"] .border-slate-300,
+[data-theme="dark"] .border-slate-700,
+[data-theme="dark"] .border-slate-800,
+[data-theme="dark"] .border-gray-100,
+[data-theme="dark"] .border-gray-200,
+[data-theme="dark"] .border-gray-300 {
+  border-color: #333537 !important;
+}
+
+/* 5. ช่องกรอกข้อมูล Input, Select, Textarea ทรงมนแบบ Gemini */
+.dark input:not([type="checkbox"]):not([type="radio"]):not(.search-transparent),
+.dark select,
+.dark textarea,
+[data-theme="dark"] input:not([type="checkbox"]):not([type="radio"]):not(.search-transparent),
+[data-theme="dark"] select,
+[data-theme="dark"] textarea {
+  background-color: #282a2c !important;
+  border-color: #3c4043 !important;
+  color: #e3e3e3 !important;
+}
+
+.dark input.search-transparent,
+[data-theme="dark"] input.search-transparent {
+  background-color: transparent !important;
+  border-color: transparent !important;
+  color: #e3e3e3 !important;
+}
+
+.dark input:focus:not(.search-transparent),
+.dark select:focus,
+.dark textarea:focus,
+[data-theme="dark"] input:focus:not(.search-transparent),
+[data-theme="dark"] select:focus,
+[data-theme="dark"] textarea:focus {
+  border-color: #a8c7fa !important;
+  outline: none !important;
+}
+
+.dark input.search-transparent:focus,
+[data-theme="dark"] input.search-transparent:focus {
+  border-color: transparent !important;
+  outline: none !important;
+}
+
+.dark input::placeholder,
+.dark textarea::placeholder,
+[data-theme="dark"] input::placeholder,
+[data-theme="dark"] textarea::placeholder {
+  color: #8e918f !important;
+}
+
+/* 6. ปรับสี Badge แจ้งเตือนโทนพาสเทลนุ่มตา (Google Material Dark Tokens) */
+.dark .bg-emerald-50, [data-theme="dark"] .bg-emerald-50 { background-color: rgba(129, 201, 149, 0.14) !important; }
+.dark .text-emerald-700, .dark .text-emerald-800, [data-theme="dark"] .text-emerald-700, [data-theme="dark"] .text-emerald-800 { color: #81c995 !important; }
+
+.dark .bg-amber-50, [data-theme="dark"] .bg-amber-50 { background-color: rgba(253, 214, 99, 0.14) !important; }
+.dark .text-amber-700, .dark .text-amber-800, [data-theme="dark"] .text-amber-700, [data-theme="dark"] .text-amber-800 { color: #fdd663 !important; }
+
+.dark .bg-rose-50, .dark .bg-red-50, [data-theme="dark"] .bg-rose-50, [data-theme="dark"] .bg-red-50 { background-color: rgba(242, 139, 130, 0.14) !important; }
+.dark .text-rose-700, .dark .text-red-700, [data-theme="dark"] .text-rose-700, [data-theme="dark"] .text-red-700 { color: #f28b82 !important; }
+
+.dark .bg-blue-50, .dark .bg-sky-50, .dark .bg-teal-50, [data-theme="dark"] .bg-blue-50, [data-theme="dark"] .bg-sky-50, [data-theme="dark"] .bg-teal-50 { background-color: rgba(168, 199, 250, 0.14) !important; }
+.dark .text-blue-700, .dark .text-sky-700, .dark .text-teal-700, [data-theme="dark"] .text-blue-700, [data-theme="dark"] .text-sky-700, [data-theme="dark"] .text-teal-700 { color: #a8c7fa !important; }
+
+.dark .bg-purple-50, [data-theme="dark"] .bg-purple-50 { background-color: rgba(215, 174, 251, 0.14) !important; }
+.dark .text-purple-700, [data-theme="dark"] .text-purple-700 { color: #d7aefb !important; }
+
+/* 7. ยกเว้นหน้ากระดาษพิมพ์รายงาน (#printable-report) ให้เป็นสีขาวเสมอ */
+.dark #printable-report,
+.dark #printable-report *,
+[data-theme="dark"] #printable-report,
+[data-theme="dark"] #printable-report * {
+  background-color: #ffffff !important;
+  color: #000000 !important;
+  border-color: #cbd5e1 !important;
+}
+
+@media print {
+  html.dark,
+  .dark body,
+  [data-theme="dark"] body {
+    background-color: #ffffff !important;
+    color: #000000 !important;
+  }
 }
 
 /* Gemini Aura Motion Animations (120 FPS) */
@@ -80,20 +286,6 @@
 .accent-ring { ring-color: var(--app-accent) !important; }
 .bg-accent-light { background-color: var(--app-accent-light) !important; }
 
-/* Light & Dark UI Overrides */
-[data-theme="light"],
-[data-theme="light"] body {
-  background-color: #F0F2F5 !important;
-  color: #1C1E21 !important;
-}
-
-[data-theme="dark"],
-[data-theme="dark"] body {
-  background-color: #18191a !important;
-  color: #e4e6eb !important;
-  color-scheme: dark;
-}
-
 /* Swiper 3D Coverflow Cards Slider */
 .swiper-cards,
 .main-swiper {
@@ -115,7 +307,6 @@
   border-radius: 24px;
   overflow: visible;
   transition: opacity 0.3s ease;
-  /* 120 FPS Hardware Acceleration */
   will-change: transform, opacity;
   transform: translateZ(0);
   backface-visibility: hidden;
@@ -148,61 +339,11 @@
 .swiper-pagination-bullet-active {
   width: 22px !important;
   border-radius: 6px !important;
-  background: #2563eb !important;
+  background: #a8c7fa !important;
   opacity: 1;
 }
 
-/* Facebook Dark Mode Panels & Cards */
-[data-theme="dark"] .bg-white,
-[data-theme="dark"] .dark\:bg-neutral-900,
-[data-theme="dark"] .dark\:bg-slate-900,
-[data-theme="dark"] .dark\:bg-\[\#161822\],
-[data-theme="dark"] .dark\:bg-\[\#1a1d2d\],
-[data-theme="dark"] .dark\:bg-\[\#15171e\] {
-  background-color: #242526 !important;
-}
-
-/* Facebook Dark Secondary Backgrounds (Pills, inputs, hover states) */
-[data-theme="dark"] .dark\:bg-neutral-800,
-[data-theme="dark"] .dark\:bg-slate-800,
-[data-theme="dark"] .dark\:bg-slate-800\/60,
-[data-theme="dark"] .dark\:bg-slate-800\/80,
-[data-theme="dark"] .dark\:bg-neutral-800\/80,
-[data-theme="dark"] .dark\:bg-neutral-800\/50,
-[data-theme="dark"] .dark\:bg-neutral-900\/60 {
-  background-color: #3a3b3c !important;
-}
-
-/* Facebook Dark Borders */
-[data-theme="dark"] .border-neutral-200,
-[data-theme="dark"] .border-slate-200,
-[data-theme="dark"] .dark\:border-neutral-800,
-[data-theme="dark"] .dark\:border-neutral-700,
-[data-theme="dark"] .dark\:border-slate-800,
-[data-theme="dark"] .dark\:border-slate-700 {
-  border-color: #3a3b3c !important;
-}
-
-/* Facebook Dark Text */
-[data-theme="dark"] .text-neutral-900,
-[data-theme="dark"] .text-slate-900,
-[data-theme="dark"] .dark\:text-white,
-[data-theme="dark"] .dark\:text-neutral-100 {
-  color: #e4e6eb !important;
-}
-
-[data-theme="dark"] .text-neutral-500,
-[data-theme="dark"] .text-neutral-600,
-[data-theme="dark"] .text-slate-500,
-[data-theme="dark"] .text-slate-600,
-[data-theme="dark"] .dark\:text-neutral-400,
-[data-theme="dark"] .dark\:text-neutral-300,
-[data-theme="dark"] .dark\:text-slate-400,
-[data-theme="dark"] .dark\:text-slate-300 {
-  color: #b0b3b8 !important;
-}
-
-/* Facebook Style Touch & Interactive classes */
+/* Touch & Interactive classes */
 .fb-touch {
   transition: transform 0.12s ease, background-color 0.12s ease, opacity 0.12s ease;
 }
@@ -216,22 +357,21 @@
   border-radius: 1rem;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
 }
+.dark .fb-card,
 [data-theme="dark"] .fb-card {
-  background-color: #242526;
-  border-color: #3a3b3c;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  background-color: #1e1f20;
+  border-color: #333537;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
 }
 
-/* Facebook Primary Button */
 .fb-btn-primary {
-  background-color: #1877f2;
-  color: #ffffff;
+  background-color: var(--app-accent);
+  color: #131314;
 }
 .fb-btn-primary:hover {
-  background-color: #166fe5;
+  background-color: var(--app-accent-hover);
 }
 
-/* Facebook Secondary Button */
 .fb-btn-secondary {
   background-color: #e4e6eb;
   color: #050505;
@@ -239,31 +379,36 @@
 .fb-btn-secondary:hover {
   background-color: #d8dadf;
 }
+.dark .fb-btn-secondary,
 [data-theme="dark"] .fb-btn-secondary {
-  background-color: #3a3b3c;
-  color: #e4e6eb;
+  background-color: #282a2c;
+  color: #e3e3e3;
 }
+.dark .fb-btn-secondary:hover,
 [data-theme="dark"] .fb-btn-secondary:hover {
-  background-color: #4e4f50;
+  background-color: #333537;
 }
 
 /* Custom scrollbars */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+.dark ::-webkit-scrollbar,
+[data-theme="dark"] ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
 }
-::-webkit-scrollbar-track {
-  background: transparent;
+.dark ::-webkit-scrollbar-track,
+[data-theme="dark"] ::-webkit-scrollbar-track {
+  background: #131314;
 }
-::-webkit-scrollbar-thumb {
-  background: rgba(148, 163, 184, 0.4);
+.dark ::-webkit-scrollbar-thumb,
+[data-theme="dark"] ::-webkit-scrollbar-thumb {
+  background: #333537;
   border-radius: 9999px;
 }
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(100, 116, 139, 0.6);
+.dark ::-webkit-scrollbar-thumb:hover,
+[data-theme="dark"] ::-webkit-scrollbar-thumb:hover {
+  background: #444746;
 }
 
-/* Clearly visible horizontal scrollbar for tables on mobile & desktop */
 .table-horizontal-scrollbar::-webkit-scrollbar {
   height: 8px;
 }
@@ -271,6 +416,7 @@
   background: rgba(0, 0, 0, 0.06);
   border-radius: 9999px;
 }
+.dark .table-horizontal-scrollbar::-webkit-scrollbar-track,
 [data-theme="dark"] .table-horizontal-scrollbar::-webkit-scrollbar-track {
   background: rgba(255, 255, 255, 0.08);
 }
@@ -282,225 +428,152 @@
   background: rgba(100, 116, 139, 0.8);
 }
 
-/* Weather background animation keyframes */
+/* Weather & motion keyframes */
 @keyframes rainDrop {
-  0% {
-    transform: translateY(-20px) scaleY(1);
-    opacity: 0;
-  }
-  30% {
-    opacity: 0.7;
-  }
-  100% {
-    transform: translateY(120px) scaleY(1.2);
-    opacity: 0;
-  }
+  0% { transform: translateY(-20px) scaleY(1); opacity: 0; }
+  30% { opacity: 0.7; }
+  100% { transform: translateY(120px) scaleY(1.2); opacity: 0; }
 }
-
 @keyframes driftClouds {
-  0% {
-    transform: translateX(-30%);
-  }
-  50% {
-    transform: translateX(30%);
-  }
-  100% {
-    transform: translateX(-30%);
-  }
+  0% { transform: translateX(-30%); }
+  50% { transform: translateX(30%); }
+  100% { transform: translateX(-30%); }
 }
-
 @keyframes sunbeamPulse {
-  0%, 100% {
-    opacity: 0.25;
-    transform: scale(0.95) rotate(0deg);
-  }
-  50% {
-    opacity: 0.55;
-    transform: scale(1.1) rotate(15deg);
-  }
+  0%, 100% { opacity: 0.25; transform: scale(0.95) rotate(0deg); }
+  50% { opacity: 0.55; transform: scale(1.1) rotate(15deg); }
 }
-
 @keyframes lightningFlash {
-  0%, 92%, 100% {
-    opacity: 0;
-  }
-  93%, 95% {
-    opacity: 0.7;
-  }
-  94% {
-    opacity: 0.1;
-  }
+  0%, 92%, 100% { opacity: 0; }
+  93%, 95% { opacity: 0.7; }
+  94% { opacity: 0.1; }
 }
-
 @keyframes twinkleStar {
-  0%, 100% {
-    opacity: 0.3;
-    transform: scale(0.8);
-  }
-  50% {
-    opacity: 0.9;
-    transform: scale(1.2);
-  }
+  0%, 100% { opacity: 0.3; transform: scale(0.8); }
+  50% { opacity: 0.9; transform: scale(1.2); }
 }
-
-@keyframes fogFloat {
-  0%, 100% {
-    transform: translateX(-15px) translateY(0);
-    opacity: 0.3;
-  }
-  50% {
-    transform: translateX(15px) translateY(-5px);
-    opacity: 0.5;
-  }
-}
-
-.animate-rain-drop {
-  animation: rainDrop 1.2s infinite linear;
-}
-
-.animate-drift-clouds {
-  animation: driftClouds 25s ease-in-out infinite;
-}
-
-.animate-sunbeam {
-  animation: sunbeamPulse 6s ease-in-out infinite;
-}
-
-.animate-lightning {
-  animation: lightningFlash 4s infinite;
-}
-
-.animate-twinkle {
-  animation: twinkleStar 2.5s ease-in-out infinite;
-}
-
 @keyframes twilightGlow {
   0%, 100% { opacity: 0.4; transform: scale(1); }
   50% { opacity: 0.6; transform: scale(1.1); }
 }
-
 @keyframes sunrisePulse {
   0%, 100% { transform: translateY(0) scale(1); opacity: 0.5; }
   50% { transform: translateY(-10px) scale(1.05); opacity: 0.8; }
 }
-
 @keyframes pulseWave {
   0% { transform: scaleX(0.9); opacity: 0.25; }
   50% { transform: scaleX(1.15); opacity: 0.65; }
   100% { transform: scaleX(0.9); opacity: 0.25; }
 }
-
 @keyframes defibSpark {
   0%, 100% { opacity: 0.2; transform: scale(0.95); }
   50% { opacity: 0.75; transform: scale(1.15); }
 }
-
 @keyframes spinRadar {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
 }
-
 @keyframes floatMolecule {
   0%, 100% { transform: translateY(0) rotate(0deg); }
   50% { transform: translateY(-8px) rotate(8deg); }
 }
-
-.animate-twilight {
-  animation: twilightGlow 10s ease-in-out infinite;
-}
-
-.animate-sunrise {
-  animation: sunrisePulse 8s ease-in-out infinite;
-}
-
-.animate-pulse-wave {
-  animation: pulseWave 3s ease-in-out infinite;
-}
-
-.animate-defib-spark {
-  animation: defibSpark 2s ease-in-out infinite;
-}
-
-.animate-spin-radar {
-  animation: spinRadar 12s linear infinite;
-}
-
-.animate-float-molecule {
-  animation: floatMolecule 4s ease-in-out infinite;
-}
-
 @keyframes gradientAnimation {
   0% { background-position: 0% 50%; }
   50% { background-position: 100% 50%; }
   100% { background-position: 0% 50%; }
 }
-
 @keyframes ambientGlow {
   0% { background-position: 0% 50%; }
   50% { background-position: 100% 50%; }
   100% { background-position: 0% 50%; }
 }
 
-.animate-gradient {
-  background-size: 200% 200%;
-  animation: gradientAnimation 8s ease infinite;
-}
+.animate-rain-drop { animation: rainDrop 1.2s infinite linear; }
+.animate-drift-clouds { animation: driftClouds 25s ease-in-out infinite; }
+.animate-sunbeam { animation: sunbeamPulse 6s ease-in-out infinite; }
+.animate-lightning { animation: lightningFlash 4s infinite; }
+.animate-twinkle { animation: twinkleStar 2.5s ease-in-out infinite; }
+.animate-twilight { animation: twilightGlow 10s ease-in-out infinite; }
+.animate-sunrise { animation: sunrisePulse 8s ease-in-out infinite; }
+.animate-pulse-wave { animation: pulseWave 3s ease-in-out infinite; }
+.animate-defib-spark { animation: defibSpark 2s ease-in-out infinite; }
+.animate-spin-radar { animation: spinRadar 12s linear infinite; }
+.animate-float-molecule { animation: floatMolecule 4s ease-in-out infinite; }
+.animate-gradient { background-size: 200% 200%; animation: gradientAnimation 8s ease infinite; }
+.animate-ambient-glow { background-size: 200% 200%; animation: ambientGlow 8s ease infinite !important; }
 
-.animate-ambient-glow {
-  background-size: 200% 200%;
-  animation: ambientGlow 8s ease infinite !important;
-}
-
-/* Global Smooth Transitions & Animations */
 .smooth-modal {
   animation: modalIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
-
 @keyframes modalIn {
   from { opacity: 0; transform: scale(0.95) translateY(10px); }
   to { opacity: 1; transform: scale(1) translateY(0); }
 }
-
+@keyframes gameToastPop {
+  0% {
+    opacity: 0;
+    transform: scale(0.72) translateY(10px);
+  }
+  14% {
+    opacity: 1;
+    transform: scale(1.05) translateY(0);
+  }
+  22% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+  78% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.94) translateY(-6px);
+  }
+}
+.animate-game-toast {
+  animation: gameToastPop 1.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  will-change: transform, opacity;
+}
 .smooth-drawer {
   transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
-
 .smooth-touch {
-  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: transform 0.12s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.12s ease;
+  touch-action: manipulation;
 }
 .smooth-touch:active {
-  transform: scale(0.95);
+  transform: scale(0.97);
+  opacity: 0.85;
 }
-
 .smooth-colors {
-  transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease;
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
 }
-
+.card-perf {
+  contain: layout style paint;
+}
 
 .luxury-card {
-  background-color: rgba(255, 255, 255, 0.85);
-  backdrop-filter: blur(12px);
-  border-radius: 32px;
-  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.5);
+  background-color: rgba(255, 255, 255, 0.96);
+  border-radius: 28px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  border: 1px solid rgba(226, 232, 240, 0.9);
 }
+.dark .luxury-card,
 [data-theme="dark"] .luxury-card {
-  background-color: rgba(15, 23, 42, 0.7);
-  border: 1px solid rgba(255, 255, 255, 0.05);
-  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3), 0 10px 10px -5px rgba(0, 0, 0, 0.2);
+  background-color: rgba(30, 31, 32, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
 }
 
-/* Vibrant Quick Checklist Styles */
 .checklist-item {
-  will-change: transform;
-  transform: translateZ(0);
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  contain: layout style paint;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
 }
-
 .checklist-item:active {
-  transform: scale(0.98) translateZ(0);
+  opacity: 0.92;
 }
-
 .status-btn {
-  @apply flex-1 py-3 px-4 rounded-2xl text-[11px] font-black tracking-tight transition-all duration-200 active:scale-90 flex items-center justify-center gap-1.5 shadow-sm;
+  @apply flex-1 py-3 px-4 rounded-2xl text-[11px] font-black tracking-tight transition-colors duration-150 active:scale-95 active:opacity-80 flex items-center justify-center gap-1.5 shadow-xs;
+  touch-action: manipulation;
 }

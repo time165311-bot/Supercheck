@@ -139,7 +139,7 @@ export type AuraVoiceEngine = 'browser' | 'elevenlabs' | 'responsivevoice' | 'go
 export interface AuraVoiceConfig {
   engine: AuraVoiceEngine;
   pitch: number;          // 1.2 to 1.35 (default 1.28 for cute Alya anime girl tone)
-  rate: number;           // 0.95 to 1.0 (default 0.98 for gentle, cute pacing)
+  rate: number;           // 1.15 to 1.2 (default 1.18 for crisp, natural pacing)
   volume: number;         // 0.0 to 1.0 (default 0.85)
   voiceName?: string;     // Preferred browser voice name
   elevenLabsApiKey?: string;
@@ -147,14 +147,14 @@ export interface AuraVoiceConfig {
   googleApiKey?: string;
 }
 
-// 🔊 Locked Permanent Anime Soft Voice for Aura Assistant (ResponsiveVoice / Pitch 1.44x, Speed 1.11x)
+// 🔊 Locked Permanent Anime Soft Voice for Aura Assistant (ResponsiveVoice / Pitch 1.44x, Speed 1.18x)
 export const AURA_LOCKED_PITCH = 1.44;
-export const AURA_LOCKED_RATE = 1.11;
+export const AURA_LOCKED_RATE = 1.18;
 
 export const DEFAULT_AURA_VOICE_CONFIG: AuraVoiceConfig = {
   engine: 'responsivevoice',
-  pitch: 1.44,
-  rate: 1.11,
+  pitch: AURA_LOCKED_PITCH,
+  rate: AURA_LOCKED_RATE,
   volume: 0.85,
   voiceName: '',
   elevenLabsApiKey: '',
@@ -170,8 +170,8 @@ export function getStoredVoiceConfig(): AuraVoiceConfig {
     const raw = localStorage.getItem('aura_voice_config');
     if (raw) {
       const parsed = JSON.parse(raw);
-      // Migrate to permanently locked pitch 1.44 and rate 1.11
-      if (parsed.pitch !== 1.44 || parsed.rate !== 1.11 || parsed.engine !== 'responsivevoice') {
+      // Migrate to permanently locked pitch 1.44 and rate 1.18
+      if (parsed.pitch !== AURA_LOCKED_PITCH || parsed.rate !== AURA_LOCKED_RATE || parsed.engine !== 'responsivevoice') {
         saveVoiceConfig(DEFAULT_AURA_VOICE_CONFIG);
         return DEFAULT_AURA_VOICE_CONFIG;
       }
@@ -363,7 +363,7 @@ function speakWithBrowserSpeech(
   try {
     const utterance = new SpeechSynthesisUtterance(speechText);
     utterance.lang = 'th-TH';
-    // 🔊 Alya Anime Voice: Pitch 1.44 (อนิเมะสาวน้อย), Speed 1.11 (ละมุน นุ่มนวล)
+    // 🔊 Alya Anime Voice: Pitch 1.44 (อนิเมะสาวน้อย), Speed 1.18 (กระชับ ชัดเจน)
     utterance.pitch = config.pitch || AURA_LOCKED_PITCH;
     utterance.rate = config.rate || AURA_LOCKED_RATE;
     utterance.volume = config.volume ?? 0.85;

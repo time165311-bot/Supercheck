@@ -2,14 +2,14 @@ export type Role = 'admin' | 'user';
 
 export interface User {
   id: string;
+  uid?: string;
+  email?: string;
   username: string;
   name: string;
   role: Role;
   position?: string; // e.g. 'วิสัญญีแพทย์' | 'พยาบาลวิสัญญี' | 'เจ้าหน้าที่'
   signature?: string; // Base64 data URL for digital signature
   active: boolean;
-  salt: string;
-  hash: string;
   must: boolean;
   created: string;
   last: string;
@@ -44,12 +44,20 @@ export interface EquipmentItem {
   category?: string;
   groupName?: string;
   roomId?: string;
+  barcode?: string;
+  serialNumber?: string;
   subExps?: Array<{ label?: string; exp?: string; qty?: number; hasNoExp?: boolean }>;
   subItemQuantities?: number[];
   checkType?: 'single' | 'sub_items';
   subItems?: string[];
   unitText?: string;
   initialQtyText?: string;
+  orderNumber?: string; // ลำดับตามทะเบียนครุภัณฑ์ (1-N)
+  assetCode?: string;   // หมายเลขพัสดุ
+  sapCode?: string;     // รหัสสินทรัพย์ SAP
+  brandModel?: string;  // ยี่ห้อ / รุ่น / S/N
+  status?: string;      // สถานะ ('ปกติ' | 'ส่งคืน' | 'ชำรุด' | 'เก็บสำรอง')
+  isMarked?: boolean;   // มีรอยขีดฆ่า กากบาท หรือลายมือปากกากำกับ
 }
 
 export interface CheckItemState {
@@ -149,20 +157,70 @@ export interface InspectionHistoryRecord {
 
 export type DrugCategory = 'monthly' | 'quarterly' | 'adhoc';
 
+export interface DrugLotBatch {
+  lotNumber: string;
+  expiryDate: string;      // YYYY-MM-DD (CE)
+  quantity: number;
+  receivedDate?: string;   // YYYY-MM-DD (CE)
+}
+
 export interface DrugItem {
   id: string;
   category: DrugCategory;
   name: string;
-  remaining: number;       // คงเหลือ
+  remaining: number;       // คงเหลือรวมทุก Lot
+  totalQty?: number;       // alias for remaining
   receivedDate: string;    // วันที่รับ (YYYY-MM-DD)
   receivedQty: number;     // จำนวนที่รับ
   minStock: number;        // ยอดต่ำสุด
   batchRequest: string;    // เบิกครั้งละ
   unit?: string;           // หน่วยนับ เช่น amp, vial, box, ขวด, หลอด
-  expDate: string;         // วันหมดอายุ (YYYY-MM-DD)
+  expDate: string;         // วันหมดอายุที่ใกล้ที่สุด (YYYY-MM-DD)
+  exp?: string;            // alias for expDate
+  lotNumber?: string;      // เลข Lot ล่าสุด/ใกล้หมดอายุที่สุด
+  lots?: DrugLotBatch[];   // โครงสร้างแยกหลาย Lot / หลายวันหมดอายุ (FEFO)
+  batches?: DrugLotBatch[]; // alias สำหรับ lots
+  tmtCode?: string;        // รหัสยา TMT มาตรฐานกระทรวงสาธารณสุข (HL7 FHIR)
+  hospitalDrugCode?: string; // รหัสยาประจำโรงพยาบาล (HIS/HOSxP)
+  spec?: string;           // ขนาด/ความเข้มข้น/รายละเอียด
   note: string;            // หมายเหตุ
   img?: string;            // รูปภาพยา/สารน้ำ (Base64 หรือ URL)
   barcode?: string;        // รหัสบาร์โค้ด / รหัสยา
+  channelId?: string;
+  updatedAt?: string;
+}
+
+export type RestockRequisitionStatus = 'draft' | 'pending' | 'approved' | 'received' | 'rejected';
+
+export interface RestockRequisitionItem {
+  no?: number;
+  drugId?: string;
+  name: string;
+  neededQty: number;
+  approvedQty?: number;
+  receivedQty?: number;
+  unit?: string;
+  reason?: string;
+  lotNumber?: string;
+  expiryDate?: string;
+}
+
+export interface RestockRequisition {
+  id: string;
+  channelId?: string;
+  targetCategory?: string;
+  requestedBy: string;
+  requestedById?: string;
+  status: RestockRequisitionStatus;
+  notes?: string;
+  items: RestockRequisitionItem[];
+  createdAt: string;
+  updatedAt?: string;
+  approvedBy?: string;
+  approvedAt?: string;
+  receivedBy?: string;
+  receivedAt?: string;
+  rejectedReason?: string;
 }
 
 export interface HaAuditLogEntry {
@@ -249,4 +307,22 @@ export interface PaperAuditResult {
     issue: string;
   }>;
   summaryText: string;
+}
+
+export interface AuraDataSnapshot {
+  id: string;
+  label: string;
+  createdAt: string;
+  channelId: string;
+  drugs?: DrugItem[];
+  equipment?: Record<string, EquipmentItem[]>;
+  lists?: Record<'bag' | 'cart', ListConfig>;
+  globalChecks?: Record<string, Record<string, CheckItemState>>;
+  emergencyWeekDates?: Record<string, Record<number, string>>;
+  clearedFlags?: {
+    drugsCleared?: boolean;
+    equipmentCleared?: boolean;
+    bagCleared?: boolean;
+    cartCleared?: boolean;
+  };
 }

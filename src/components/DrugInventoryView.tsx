@@ -1,26 +1,42 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   AlertTriangle,
-  ArrowLeft,
-  Calendar,
   Check,
   CheckCircle2,
-  Clock,
-  Info,
-  Minus,
-  Pencil,
+  ClipboardList,
   Plus,
   Printer,
   Search,
   Trash2,
   X,
   Package,
-  Save,
-  FileSpreadsheet,
+  ShieldCheck,
+  RefreshCw,
 } from 'lucide-react';
-import { DrugCategory, DrugItem, User } from '../types';
+import {
+  DrugCategory,
+  DrugItem,
+  DrugLotBatch,
+  RestockRequisition,
+  User,
+} from '../types';
 import { INITIAL_DRUGS_DATA } from '../constants/initialDrugs';
-import { parseExpDateObj } from '../utils/itemUtils';
+import { recomputeDrugFromLots } from '../utils/itemUtils';
+import {
+  diffDaysFromBangkokToday,
+  getBangkokTodayIso,
+  isCurrentYearExpBangkok,
+  normalizeExpDateToIso,
+} from '../utils/dateUtils';
+import {
+  canApproveRequisition,
+  subscribeRestockRequisitions,
+  saveRestockRequisitionWorkflow,
+  transitionRestockRequisitionStatus,
+  receiveRestockRequisitionTransaction,
+} from '../services/firestoreService';
+import { useDataContext } from '../context/DataContext';
+import { DrugItemCard } from './ItemCard';
 
 interface DrugInventoryViewProps {
   currentUser: User | null;
@@ -34,14 +50,17 @@ interface DrugInventoryViewProps {
 }
 
 export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
-  currentUser,
-  onBack,
+  currentUser: _currentUser,
+  onBack: _onBack,
   apiUrl: _apiUrl,
   onOpenPreview,
   drugs: externalDrugs,
   onDrugsChange,
   onCelebrate,
 }) => {
+  const { activeChannelId } = useDataContext();
+  const canApprove = canApproveRequisition(_currentUser);
+
   // Active Tab: 'monthly' (ประจำเดือน) | 'quarterly' (3 เดือน) | 'adhoc' (ครั้งคราว)
   const [activeTab, setActiveTab] = useState<DrugCategory>('monthly');
 
@@ -60,6 +79,8 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingDrug, setEditingDrug] = useState<DrugItem | null>(null);
   const [itemToDelete, setItemToDelete] = useState<DrugItem | null>(null);
+  const [showClearCategoryConfirm, setShowClearCategoryConfirm] = useState(false);
+  const [formError, setFormError] = useState<string>('');
 
   // Form State for Add / Edit
   const [formName, setFormName] = useState('');
@@ -73,6 +94,15 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
   const [formExpDate, setFormExpDate] = useState('');
   const [formNote, setFormNote] = useState('');
   const [formBarcode, setFormBarcode] = useState('');
+  const [formTmtCode, setFormTmtCode] = useState('');
+  const [formHospitalDrugCode, setFormHospitalDrugCode] = useState('');
+  const [formLotNumber, setFormLotNumber] = useState('');
+  const [formLots, setFormLots] = useState<DrugLotBatch[]>([]);
+
+  // Restock Requisition Workflow Modal State
+  const [showRequisitionsModal, setShowRequisitionsModal] = useState(false);
+  const [requisitions, setRequisitions] = useState<RestockRequisition[]>([]);
+  const [isReqBusy, setIsReqBusy] = useState(false);
 
   // Toast Feedback state
   const [toastMsg, setToastMsg] = useState('');
@@ -80,6 +110,17 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
     setToastMsg(msg);
     setTimeout(() => setToastMsg(''), 3500);
   };
+
+  useEffect(() => {
+    const unsub = subscribeRestockRequisitions(activeChannelId || 'channel_master', (items) => {
+      setRequisitions(items);
+    });
+    return () => {
+      try {
+        unsub?.();
+      } catch {}
+    };
+  }, [activeChannelId]);
 
   // Helper to update drugs list
   const updateDrugsList = (nextList: DrugItem[]) => {
@@ -90,32 +131,31 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
     }
   };
 
-  // Check if expiration date is in current year (2026 / 2569)
-  const isExpCurrentYear = (dateStr?: string) => {
-    if (!dateStr) return false;
-    const str = String(dateStr).trim();
-    if (!str || str === '-' || str === 'null') return false;
-    const currentYearAD = new Date().getFullYear(); // 2026
-    const currentYearBE = currentYearAD + 543;       // 2569
-    const shortAD = String(currentYearAD).slice(-2); // "26"
-    const shortBE = String(currentYearBE).slice(-2); // "69"
-    return (
-      str.includes(String(currentYearAD)) ||
-      str.includes(String(currentYearBE)) ||
-      new RegExp(`[\\/.-]${shortAD}$`).test(str) ||
-      new RegExp(`[\\/.-]${shortBE}$`).test(str)
-    );
+  // Bulk action: Clear all drugs in the current active tab
+  const handleClearAllCategory = () => {
+    setShowClearCategoryConfirm(true);
   };
 
-  // Calculate expiration status with robust Buddhist Era (พ.ศ.) and Gregorian parsing
+  const executeClearAllCategory = () => {
+    const categoryName = activeTab === 'monthly' ? 'ประจำเดือน' : activeTab === 'quarterly' ? '3 เดือน' : 'ครั้งคราว';
+    const nextList = drugs.filter((d) => d.category !== activeTab);
+    updateDrugsList(nextList);
+    setShowClearCategoryConfirm(false);
+    showToast(`🗑️ เคลียร์รายการในหมวด ${categoryName} เรียบร้อยแล้วค่ะ`);
+  };
+
+  // Check if expiration date is in current year (Asia/Bangkok UTC+7)
+  const isExpCurrentYear = (dateStr?: string) => {
+    return isCurrentYearExpBangkok(dateStr);
+  };
+
+  // Calculate expiration status with strict Asia/Bangkok (UTC+7) date diff & Buddhist Era normalization
   const getExpirationInfo = (expDate?: string) => {
-    if (!expDate || expDate === '-' || expDate === 'null') return { text: 'ไม่ระบุวันหมดอายุ', status: 'none' as const };
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const exp = parseExpDateObj(expDate);
-    if (!exp || isNaN(exp.getTime())) return { text: expDate, status: 'none' as const };
-    exp.setHours(0, 0, 0, 0);
-    const diff = Math.ceil((exp.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+    if (!expDate || expDate === '-' || expDate === 'null') {
+      return { text: 'ไม่ระบุวันหมดอายุ', status: 'none' as const };
+    }
+    const diff = diffDaysFromBangkokToday(expDate);
+    if (diff === null) return { text: expDate, status: 'none' as const };
     if (diff < 0) return { text: 'หมดอายุแล้ว', status: 'expired' as const };
     if (diff <= 90) return { text: `เหลือ ${diff} วัน`, status: 'expiring' as const };
     return { text: expDate, status: 'ok' as const };
@@ -150,7 +190,7 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
   }, [drugs, activeTab, searchTerm, statusFilter]);
 
   // Adjust stock count (+/-)
-  const handleDeltaQty = (drugId: string, delta: number) => {
+  const handleDeltaQty = useCallback((drugId: string, delta: number) => {
     const nextList = drugs.map((d) => {
       if (d.id === drugId) {
         const nextRem = Math.max(0, Number(d.remaining || 0) + delta);
@@ -161,10 +201,12 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
     updateDrugsList(nextList);
 
     // Sync detail item modal if open
-    if (detailItem && detailItem.id === drugId) {
-      setDetailItem((prev) => (prev ? { ...prev, remaining: Math.max(0, Number(prev.remaining || 0) + delta) } : null));
-    }
-  };
+    setDetailItem((prev) =>
+      prev && prev.id === drugId
+        ? { ...prev, remaining: Math.max(0, Number(prev.remaining || 0) + delta) }
+        : prev
+    );
+  }, [drugs]);
 
   // Batch Check All Normal
   const handleBatchCheckAll = () => {
@@ -174,7 +216,8 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
   };
 
   // Open Edit Modal
-  const handleOpenEdit = (drug: DrugItem) => {
+  const handleOpenEdit = useCallback((drug: DrugItem) => {
+    setFormError('');
     setEditingDrug(drug);
     setFormName(drug.name);
     setFormCategory(drug.category);
@@ -187,8 +230,12 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
     setFormExpDate(drug.expDate || '');
     setFormNote(drug.note || '');
     setFormBarcode(drug.barcode || '');
+    setFormTmtCode(drug.tmtCode || '');
+    setFormHospitalDrugCode(drug.hospitalDrugCode || '');
+    setFormLotNumber(drug.lotNumber || '');
+    setFormLots(Array.isArray(drug.lots) ? drug.lots : []);
     setShowAddModal(true);
-  };
+  }, []);
 
   // Open Add Modal
   const handleOpenAdd = () => {
@@ -199,11 +246,15 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
     setFormMinStock(5);
     setFormBatchRequest('10');
     setFormUnit('amp');
-    setFormReceivedDate(new Date().toISOString().split('T')[0]);
+    setFormReceivedDate(getBangkokTodayIso());
     setFormReceivedQty(10);
     setFormExpDate('');
     setFormNote('');
     setFormBarcode('');
+    setFormTmtCode('');
+    setFormHospitalDrugCode('');
+    setFormLotNumber('');
+    setFormLots([]);
     setShowAddModal(true);
   };
 
@@ -211,14 +262,25 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
   const handleSaveDrugForm = (e: React.FormEvent) => {
     e.preventDefault();
     if (!formName.trim()) {
-      alert('กรุณากรอกชื่อยา/สารน้ำ');
+      setFormError('กรุณากรอกชื่อยา/สารน้ำ');
       return;
     }
+    setFormError('');
+
+    const normalizedExp = normalizeExpDateToIso(formExpDate) || formExpDate.trim();
+    const cleanedLots: DrugLotBatch[] = formLots
+      .filter((l) => l.lotNumber.trim() || l.expiryDate.trim() || l.quantity > 0)
+      .map((l) => ({
+        lotNumber: l.lotNumber.trim() || 'LOT-DEFAULT',
+        expiryDate: normalizeExpDateToIso(l.expiryDate) || l.expiryDate.trim(),
+        quantity: Math.max(0, Number(l.quantity) || 0),
+        receivedDate: l.receivedDate || getBangkokTodayIso(),
+      }));
 
     if (editingDrug) {
       const nextList = drugs.map((d) => {
         if (d.id === editingDrug.id) {
-          return {
+          const updatedBase: DrugItem = {
             ...d,
             name: formName.trim(),
             category: formCategory,
@@ -228,17 +290,23 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
             unit: formUnit.trim(),
             receivedDate: formReceivedDate,
             receivedQty: Number(formReceivedQty),
-            expDate: formExpDate,
+            expDate: normalizedExp,
             note: formNote.trim(),
             barcode: formBarcode.trim(),
+            tmtCode: formTmtCode.trim() || undefined,
+            hospitalDrugCode: formHospitalDrugCode.trim() || undefined,
+            lotNumber: formLotNumber.trim() || undefined,
+            lots: cleanedLots.length > 0 ? cleanedLots : undefined,
+            batches: cleanedLots.length > 0 ? cleanedLots : undefined,
           };
+          return cleanedLots.length > 0 ? recomputeDrugFromLots(updatedBase) : updatedBase;
         }
         return d;
       });
       updateDrugsList(nextList);
       showToast(`✓ แก้ไขข้อมูลยา "${formName.trim()}" เรียบร้อยแล้ว`);
     } else {
-      const newDrug: DrugItem = {
+      const baseDrug: DrugItem = {
         id: `drug_${Date.now()}`,
         name: formName.trim(),
         category: formCategory,
@@ -248,15 +316,100 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
         unit: formUnit.trim() || 'amp',
         receivedDate: formReceivedDate,
         receivedQty: Number(formReceivedQty),
-        expDate: formExpDate,
+        expDate: normalizedExp,
         note: formNote.trim(),
         barcode: formBarcode.trim(),
+        tmtCode: formTmtCode.trim() || undefined,
+        hospitalDrugCode: formHospitalDrugCode.trim() || undefined,
+        lotNumber: formLotNumber.trim() || undefined,
+        lots: cleanedLots.length > 0 ? cleanedLots : undefined,
+        batches: cleanedLots.length > 0 ? cleanedLots : undefined,
       };
+      const newDrug = cleanedLots.length > 0 ? recomputeDrugFromLots(baseDrug) : baseDrug;
       updateDrugsList([...drugs, newDrug]);
       showToast(`✓ เพิ่มรายการยา "${formName.trim()}" เรียบร้อยแล้ว`);
     }
 
     setShowAddModal(false);
+  };
+
+  // Requisition Workflow Helpers
+  const handleCreateLowStockRequisition = async (submitNow: boolean) => {
+    const lowDrugs = drugs.filter((d) => Number(d.remaining || 0) <= Number(d.minStock || 0));
+    if (lowDrugs.length === 0) {
+      showToast('ไม่มียาที่ต่ำกว่าเกณฑ์ Min Stock ในขณะนี้');
+      return;
+    }
+    setIsReqBusy(true);
+    try {
+      const nowIso = new Date().toISOString();
+      const newReq: RestockRequisition = {
+        id: `REQ-${Date.now()}`,
+        channelId: activeChannelId || 'channel_master',
+        targetCategory: activeTab,
+        requestedBy: _currentUser?.name || 'พยาบาลวิสัญญี',
+        requestedById: _currentUser?.id,
+        status: submitNow ? 'pending' : 'draft',
+        notes: `ขอเบิกยาต่ำกว่า Min Stock (${lowDrugs.length} รายการ)`,
+        items: lowDrugs.map((d, idx) => ({
+          no: idx + 1,
+          drugId: d.id,
+          name: d.name,
+          neededQty: Math.max(1, Number(d.batchRequest || d.minStock || 5)),
+          approvedQty: Math.max(1, Number(d.batchRequest || d.minStock || 5)),
+          receivedQty: Math.max(1, Number(d.batchRequest || d.minStock || 5)),
+          unit: d.unit || 'amp',
+          reason: `คงเหลือ ${d.remaining} (Min: ${d.minStock})`,
+        })),
+        createdAt: nowIso,
+        updatedAt: nowIso,
+      };
+      await saveRestockRequisitionWorkflow(newReq);
+      showToast(submitNow ? `✓ ส่งใบเบิก ${newReq.id} รออนุมัติแล้ว` : `✓ บันทึกฉบับร่าง ${newReq.id} แล้ว`);
+    } finally {
+      setIsReqBusy(false);
+    }
+  };
+
+  const handleTransitionReq = async (req: RestockRequisition, nextStatus: 'pending' | 'approved' | 'rejected') => {
+    setIsReqBusy(true);
+    try {
+      const res = await transitionRestockRequisitionStatus({
+        channelId: activeChannelId || 'channel_master',
+        reqId: req.id,
+        nextStatus,
+        actor: _currentUser,
+        rejectedReason: nextStatus === 'rejected' ? 'ไม่ผ่านเกณฑ์การอนุมัติคลังยา' : undefined,
+      });
+      if (!res.ok) {
+        showToast(`⚠️ ${res.error || 'ไม่สามารถอัปเดตสถานะได้'}`);
+      } else {
+        showToast(`✓ อัปเดตใบเบิก ${req.id} เป็นสถานะ "${nextStatus}" เรียบร้อย`);
+      }
+    } finally {
+      setIsReqBusy(false);
+    }
+  };
+
+  const handleAtomicReceiveReq = async (req: RestockRequisition) => {
+    setIsReqBusy(true);
+    try {
+      const res = await receiveRestockRequisitionTransaction({
+        channelId: activeChannelId || 'channel_master',
+        reqId: req.id,
+        receivedItems: req.items,
+        currentDrugs: drugs,
+        actor: _currentUser,
+      });
+      if (!res.ok) {
+        showToast(`⚠️ ${res.error || 'รับเข้าคลังไม่สำเร็จ'}`);
+      } else {
+        updateDrugsList(res.updatedDrugs);
+        showToast(`✓ รับเข้าคลังใบเบิก ${req.id} และบันทึก Lot/Audit สำเร็จ`);
+      }
+    } finally {
+      setIsReqBusy(false);
+    }
   };
 
   // Confirm Delete
@@ -270,39 +423,39 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
     showToast(`✓ ลบรายการยา "${targetName}" เรียบร้อยแล้ว`);
   };
 
-  const isAdmin = !currentUser || currentUser.role === 'admin';
-
   return (
-    <div className="space-y-4 max-w-6xl mx-auto pb-10 font-['TH_Sarabun_New','Sarabun',sans-serif]">
+    <div className="space-y-4 max-w-6xl mx-auto pb-8 font-['TH_Sarabun_New','Sarabun',sans-serif]">
       {/* Toast Feedback Notification Banner */}
       {toastMsg && (
-        <div className="fixed top-4 right-4 z-50 bg-emerald-600 text-white font-bold px-4 py-2.5 rounded-2xl shadow-xl text-xs flex items-center gap-2 animate-in fade-in border border-emerald-400">
+        <div className="fixed top-4 right-4 z-50 bg-emerald-600 text-white font-bold px-4 py-2.5 rounded-2xl shadow-md text-xs flex items-center gap-2 border border-emerald-400">
           <CheckCircle2 className="w-4 h-4 shrink-0" />
           <span>{toastMsg}</span>
         </div>
       )}
 
-      {/* Header Bar - Clean One UI Palette (Royal Blue Gradient) */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-gradient-to-r from-blue-600 via-blue-500 to-cyan-500 text-white p-4 rounded-3xl border border-blue-400/30 shadow-md">
+      {/* Header Bar - Clean One UI Palette (Gemini Dark Surface in Dark Mode) */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-gradient-to-r from-blue-600 via-blue-500 to-cyan-500 dark:from-[#1E1F20] dark:via-[#1A1B1C] dark:to-[#131314] text-white p-4 rounded-3xl border border-blue-400/30 dark:border-white/10 shadow-md">
         <div className="flex items-center gap-3">
-          <button
-            onClick={onBack}
-            className="p-2 rounded-xl bg-white/20 hover:bg-white/30 text-white transition cursor-pointer flex items-center justify-center border border-white/20"
-            title="กลับหน้าหลัก"
-          >
-            <ArrowLeft className="w-4 h-4" />
-          </button>
           <div>
             <h2 className="text-lg font-bold text-white tracking-tight leading-tight">
               ระบบคลังยาและสารน้ำ (Medicine Inventory)
             </h2>
-            <p className="text-xs text-blue-100/90 font-medium">
+            <p className="text-xs text-blue-100/90 dark:text-[#C4C7C5] font-medium">
               ตรวจสอบสต็อก ยอดคงเหลือ และวันหมดอายุคลังยาวิสัญญี
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+        <div className="flex items-center gap-2 w-full sm:w-auto justify-end flex-wrap">
+          <button
+            type="button"
+            onClick={() => setShowRequisitionsModal(true)}
+            className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs flex items-center gap-1.5 transition shadow-xs cursor-pointer active:scale-95"
+          >
+            <ClipboardList className="w-4 h-4" />
+            <span>ใบเบิกยา ({requisitions.filter((r) => r.status === 'pending' || r.status === 'approved').length})</span>
+          </button>
+
           {onOpenPreview && (
             <button
               onClick={() => onOpenPreview(activeTab)}
@@ -313,15 +466,16 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
             </button>
           )}
 
-          {isAdmin && (
-            <button
-              onClick={handleOpenAdd}
-              className="px-3.5 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-700 text-white font-bold text-xs flex items-center gap-1.5 transition shadow-xs cursor-pointer active:scale-95"
-            >
-              <Plus className="w-4 h-4" />
-              <span>เพิ่มรายการยาใหม่</span>
-            </button>
-          )}
+          <button
+            onClick={() => {
+              setFormError('');
+              handleOpenAdd();
+            }}
+            className="px-3.5 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-700 text-white font-bold text-xs flex items-center gap-1.5 transition shadow-xs cursor-pointer active:scale-95"
+          >
+            <Plus className="w-4 h-4" />
+            <span>เพิ่มรายการยาใหม่</span>
+          </button>
         </div>
       </div>
 
@@ -330,9 +484,9 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
         <button
           type="button"
           onClick={() => setActiveTab('monthly')}
-          className={`px-4 py-2.5 rounded-2xl transition-all cursor-pointer whitespace-nowrap flex-shrink-0 ${
+          className={`px-4 py-2.5 rounded-2xl transition-colors duration-150 active:opacity-80 cursor-pointer whitespace-nowrap shrink-0 ${
             activeTab === 'monthly'
-              ? 'bg-blue-600 text-white shadow-md font-extrabold'
+              ? 'bg-blue-600 text-white shadow-sm font-extrabold'
               : 'bg-white text-slate-700 hover:bg-slate-50 border border-slate-200'
           }`}
         >
@@ -341,9 +495,9 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
         <button
           type="button"
           onClick={() => setActiveTab('quarterly')}
-          className={`px-4 py-2.5 rounded-2xl transition-all cursor-pointer whitespace-nowrap flex-shrink-0 ${
+          className={`px-4 py-2.5 rounded-2xl transition-colors duration-150 active:opacity-80 cursor-pointer whitespace-nowrap shrink-0 ${
             activeTab === 'quarterly'
-              ? 'bg-blue-600 text-white shadow-md font-extrabold'
+              ? 'bg-blue-600 text-white shadow-sm font-extrabold'
               : 'bg-white text-slate-700 hover:bg-slate-50 border border-slate-200'
           }`}
         >
@@ -352,9 +506,9 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
         <button
           type="button"
           onClick={() => setActiveTab('adhoc')}
-          className={`px-4 py-2.5 rounded-2xl transition-all cursor-pointer whitespace-nowrap flex-shrink-0 ${
+          className={`px-4 py-2.5 rounded-2xl transition-colors duration-150 active:opacity-80 cursor-pointer whitespace-nowrap shrink-0 ${
             activeTab === 'adhoc'
-              ? 'bg-blue-600 text-white shadow-md font-extrabold'
+              ? 'bg-blue-600 text-white shadow-sm font-extrabold'
               : 'bg-white text-slate-700 hover:bg-slate-50 border border-slate-200'
           }`}
         >
@@ -425,24 +579,35 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
                   : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
               }`}
             >
-              หมดอายุแล้ว
+              <span>หมดอายุ</span>
             </button>
           </div>
         </div>
 
-        {/* Quick Batch Check Action Bar */}
-        <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs">
+        <div className="flex items-center justify-between border-t border-slate-100 pt-3">
           <span className="text-slate-500 font-medium">
             พบ <b>{displayedDrugs.length}</b> รายการยาในหมวดนี้
           </span>
 
-          <button
-            onClick={handleBatchCheckAll}
-            className="px-3.5 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold flex items-center gap-1.5 transition cursor-pointer active:scale-95 shadow-xs"
-          >
-            <Check className="w-4 h-4 shrink-0" />
-            <span>บันทึกเช็คปกติครบทุกรายการ</span>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleClearAllCategory}
+              disabled={displayedDrugs.length === 0}
+              className="px-3.5 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold flex items-center gap-1.5 transition cursor-pointer active:scale-95 border border-rose-200 disabled:opacity-30"
+              title="ลบรายการทั้งหมดในหมวดนี้"
+            >
+              <Trash2 className="w-4 h-4 shrink-0" />
+              <span className="hidden sm:inline">ลบทั้งหมด</span>
+            </button>
+
+            <button
+              onClick={handleBatchCheckAll}
+              className="px-3.5 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold flex items-center gap-1.5 transition cursor-pointer active:scale-95 shadow-xs"
+            >
+              <Check className="w-4 h-4 shrink-0" />
+              <span>บันทึกเช็คปกติ</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -461,134 +626,19 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
             const isCurrentYear = isExpCurrentYear(item.expDate);
 
             return (
-              <div
+              <DrugItemCard
                 key={item.id || idx}
-                className={`p-3 sm:p-3.5 rounded-2xl border transition-all duration-150 transform-gpu contain-content flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs hover:border-blue-300 ${
-                  isExpired
-                    ? 'bg-rose-50/70 border-rose-200'
-                    : isExpiringSoon
-                    ? 'bg-amber-50/70 border-amber-200'
-                    : isLowStock
-                    ? 'bg-orange-50/70 border-orange-200'
-                    : 'bg-white border-slate-200'
-                }`}
-              >
-                {/* Left Info Column */}
-                <div
-                  className="flex items-center gap-3 flex-1 min-w-0 cursor-pointer"
-                  onClick={() => setDetailItem(item)}
-                >
-                  <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-700 font-black border border-blue-100 flex items-center justify-center shrink-0 text-sm">
-                    {idx + 1}
-                  </div>
-
-                  <div className="space-y-0.5 min-w-0 flex-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <h3 className="text-xs sm:text-sm font-bold text-slate-800 truncate leading-tight">
-                        {item.name}
-                      </h3>
-                      {item.unit && (
-                        <span className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 text-[10px] font-bold border border-slate-200 shrink-0">
-                          {item.unit}
-                        </span>
-                      )}
-                    </div>
-
-                    <div className="flex items-center gap-3 text-[11px] text-slate-500 flex-wrap font-sans">
-                      <span>
-                        คงเหลือ: <b className="text-slate-900 font-extrabold">{item.remaining}</b> {item.unit || ''} (Min: {item.minStock})
-                      </span>
-                      {item.expDate && (
-                        <span className={`flex items-center gap-1 font-semibold ${isCurrentYear ? 'text-rose-600 font-bold' : ''}`}>
-                          <span>EXP: <span className={isCurrentYear ? 'underline' : ''}>{item.expDate}</span></span>
-                          {isCurrentYear && (
-                            <span className="px-1.5 py-0.2 rounded bg-rose-100 text-rose-700 text-[9px] font-bold border border-rose-200 shrink-0">
-                              EXP ปีนี้
-                            </span>
-                          )}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Right Actions & Stepper Controls */}
-                <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto justify-between sm:justify-end pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100">
-                  {/* Status Badge */}
-                  <div
-                    className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase shrink-0 ${
-                      isExpired
-                        ? 'bg-rose-600 text-white'
-                        : isExpiringSoon
-                        ? 'bg-amber-500 text-white'
-                        : isLowStock
-                        ? 'bg-orange-500 text-white'
-                        : 'bg-emerald-500 text-white'
-                    }`}
-                  >
-                    {isExpired ? 'หมดอายุ' : isExpiringSoon ? 'ใกล้หมดอายุ' : isLowStock ? 'สต็อกต่ำ' : 'ปกติ'}
-                  </div>
-
-                  {/* Quantity Stepper [-] count [+] */}
-                  <div className="flex items-center bg-slate-100 rounded-xl p-0.5 border border-slate-200">
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDeltaQty(item.id, -1);
-                      }}
-                      className="w-7 h-7 rounded-lg bg-white text-slate-700 hover:bg-slate-200 flex items-center justify-center transition cursor-pointer active:scale-95 shadow-xs"
-                      title="ลดจำนวน 1"
-                    >
-                      <Minus className="w-3.5 h-3.5" />
-                    </button>
-                    <span className="w-9 text-center font-extrabold text-xs text-slate-900">
-                      {item.remaining}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDeltaQty(item.id, 1);
-                      }}
-                      className="w-7 h-7 rounded-lg bg-white text-slate-700 hover:bg-slate-200 flex items-center justify-center transition cursor-pointer active:scale-95 shadow-xs"
-                      title="เพิ่มจำนวน 1"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-
-                  {/* Quick Detail Modal Button (ℹ️ รายละเอียด) */}
-                  <button
-                    onClick={() => setDetailItem(item)}
-                    className="px-2.5 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-xs flex items-center gap-1 transition cursor-pointer border border-blue-100"
-                    title="ดูรายละเอียดข้อมูลยาครบถ้วน"
-                  >
-                    <Info className="w-3.5 h-3.5" />
-                    <span className="hidden md:inline">รายละเอียด</span>
-                  </button>
-
-                  {/* Edit / Delete Buttons */}
-                  {isAdmin && (
-                    <div className="flex items-center gap-1">
-                      <button
-                        onClick={() => handleOpenEdit(item)}
-                        className="p-1.5 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition cursor-pointer"
-                        title="แก้ไขข้อมูลยา"
-                      >
-                        <Pencil className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={() => setItemToDelete(item)}
-                        className="p-1.5 rounded-xl text-rose-500 hover:bg-rose-50 transition cursor-pointer"
-                        title="ลบรายการยา"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </div>
+                item={item}
+                index={idx}
+                isExpired={isExpired}
+                isExpiringSoon={isExpiringSoon}
+                isLowStock={isLowStock}
+                isCurrentYear={isCurrentYear}
+                onSelectDetail={setDetailItem}
+                onDeltaQty={handleDeltaQty}
+                onEdit={handleOpenEdit}
+                onDelete={setItemToDelete}
+              />
             );
           })}
         </div>
@@ -635,6 +685,29 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
               </div>
             </div>
 
+            {detailItem.lots && detailItem.lots.length > 0 && (
+              <div className="p-3 rounded-2xl bg-blue-50/70 border border-blue-200 space-y-1.5 text-xs">
+                <div className="font-bold text-blue-900">รายการ Lot / Batch (เรียงตาม FEFO หมดอายุก่อนตัดก่อน)</div>
+                <div className="space-y-1">
+                  {detailItem.lots.map((l, lIdx) => (
+                    <div key={lIdx} className="flex items-center justify-between bg-white px-2.5 py-1.5 rounded-xl border border-blue-100 text-[11px]">
+                      <span className="font-mono font-bold text-slate-800">{l.lotNumber}</span>
+                      <span className="text-slate-600">EXP: {l.expiryDate || '-'}</span>
+                      <span className="font-bold text-blue-700">{l.quantity} {detailItem.unit || ''}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {(detailItem.tmtCode || detailItem.hospitalDrugCode || detailItem.barcode) && (
+              <div className="flex flex-wrap gap-2 text-[11px] font-mono">
+                {detailItem.tmtCode && <span className="px-2 py-1 rounded-lg bg-indigo-50 text-indigo-700 border border-indigo-200">TMT: {detailItem.tmtCode}</span>}
+                {detailItem.hospitalDrugCode && <span className="px-2 py-1 rounded-lg bg-cyan-50 text-cyan-700 border border-cyan-200">HIS: {detailItem.hospitalDrugCode}</span>}
+                {detailItem.barcode && <span className="px-2 py-1 rounded-lg bg-slate-100 text-slate-700 border border-slate-200">Barcode: {detailItem.barcode}</span>}
+              </div>
+            )}
+
             {detailItem.note && (
               <div className="p-3 rounded-2xl bg-amber-50 border border-amber-200 text-xs text-amber-900">
                 <b>หมายเหตุ:</b> {detailItem.note}
@@ -657,7 +730,7 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
       {/* Add / Edit Drug Modal */}
       {showAddModal && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 animate-in fade-in">
-          <div className="bg-white rounded-3xl max-w-md w-full p-5 sm:p-6 shadow-2xl border border-slate-200 space-y-4 max-h-[90vh] overflow-y-auto relative font-sans">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-5 sm:p-6 shadow-2xl border border-slate-200 space-y-4 max-h-[90vh] overflow-y-auto relative font-sans">
             <div className="flex justify-between items-center pb-2.5 border-b border-slate-100">
               <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
                 <Package className="w-5 h-5 text-blue-600" />
@@ -673,6 +746,11 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
             </div>
 
             <form onSubmit={handleSaveDrugForm} className="space-y-3 text-xs">
+              {formError && (
+                <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 font-bold text-xs">
+                  {formError}
+                </div>
+              )}
               <div>
                 <label className="block text-slate-700 font-bold mb-1">ชื่อยา / สารน้ำ <span className="text-rose-500">*</span></label>
                 <input
@@ -742,6 +820,104 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
                 </div>
               </div>
 
+              {/* Standard Drug Codes & Lot */}
+              <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <label className="block text-slate-700 font-bold mb-1">รหัส TMT</label>
+                  <input
+                    type="text"
+                    value={formTmtCode}
+                    onChange={(e) => setFormTmtCode(e.target.value)}
+                    placeholder="TMT-..."
+                    className="w-full px-2.5 py-1.5 rounded-xl border border-slate-300 text-slate-900 outline-none focus:border-blue-500 font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-700 font-bold mb-1">รหัส HIS</label>
+                  <input
+                    type="text"
+                    value={formHospitalDrugCode}
+                    onChange={(e) => setFormHospitalDrugCode(e.target.value)}
+                    placeholder="HOS-..."
+                    className="w-full px-2.5 py-1.5 rounded-xl border border-slate-300 text-slate-900 outline-none focus:border-blue-500 font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-700 font-bold mb-1">Lot ปัจจุบัน</label>
+                  <input
+                    type="text"
+                    value={formLotNumber}
+                    onChange={(e) => setFormLotNumber(e.target.value)}
+                    placeholder="LOT-..."
+                    className="w-full px-2.5 py-1.5 rounded-xl border border-slate-300 text-slate-900 outline-none focus:border-blue-500 font-mono"
+                  />
+                </div>
+              </div>
+
+              {/* Multi-Lot / Batch FEFO Section */}
+              <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-slate-700">จัดการหลาย Lot (FEFO หมดอายุก่อนตัดก่อน)</span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setFormLots((prev) => [
+                        ...prev,
+                        { lotNumber: '', expiryDate: formExpDate || '', quantity: 0, receivedDate: getBangkokTodayIso() },
+                      ])
+                    }
+                    className="px-2 py-1 rounded-lg bg-blue-600 text-white font-bold text-[11px] cursor-pointer"
+                  >
+                    + เพิ่ม Lot
+                  </button>
+                </div>
+                {formLots.length === 0 ? (
+                  <p className="text-[11px] text-slate-400">ยังไม่มี Lot ย่อย (ระบบจะใช้ยอดคงเหลือและ EXP หลักด้านบน)</p>
+                ) : (
+                  <div className="space-y-1.5">
+                    {formLots.map((lot, lIdx) => (
+                      <div key={lIdx} className="grid grid-cols-12 gap-1.5 items-center">
+                        <input
+                          type="text"
+                          value={lot.lotNumber}
+                          onChange={(e) =>
+                            setFormLots((prev) => prev.map((it, i) => (i === lIdx ? { ...it, lotNumber: e.target.value } : it)))
+                          }
+                          placeholder="Lot No."
+                          className="col-span-4 px-2 py-1 rounded-lg border border-slate-300 bg-white font-mono text-[11px]"
+                        />
+                        <input
+                          type="text"
+                          value={lot.expiryDate}
+                          onChange={(e) =>
+                            setFormLots((prev) => prev.map((it, i) => (i === lIdx ? { ...it, expiryDate: e.target.value } : it)))
+                          }
+                          placeholder="YYYY-MM-DD"
+                          className="col-span-4 px-2 py-1 rounded-lg border border-slate-300 bg-white text-[11px]"
+                        />
+                        <input
+                          type="number"
+                          min={0}
+                          value={lot.quantity}
+                          onChange={(e) =>
+                            setFormLots((prev) => prev.map((it, i) => (i === lIdx ? { ...it, quantity: Number(e.target.value) } : it)))
+                          }
+                          placeholder="จำนวน"
+                          className="col-span-3 px-2 py-1 rounded-lg border border-slate-300 bg-white text-[11px]"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setFormLots((prev) => prev.filter((_, i) => i !== lIdx))}
+                          className="col-span-1 text-rose-500 hover:text-rose-700 font-bold text-center cursor-pointer"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               <div>
                 <label className="block text-slate-700 font-bold mb-1">หมายเหตุเพิ่มเติม</label>
                 <input
@@ -800,6 +976,185 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
                 ลบรายการ
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk Clear Category Confirmation Modal */}
+      {showClearCategoryConfirm && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white rounded-3xl max-w-sm w-full p-5 space-y-3 border border-rose-200 shadow-2xl font-sans text-xs">
+            <h3 className="text-base font-bold text-rose-600 flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5" />
+              <span>ยืนยันการลบรายการยาทั้งหมดในหมวด</span>
+            </h3>
+            <p className="text-slate-700">
+              คุณต้องการลบรายการยาทั้งหมดในหมวด{' '}
+              <b>"{activeTab === 'monthly' ? 'ประจำเดือน' : activeTab === 'quarterly' ? '3 เดือน' : 'ครั้งคราว'}"</b>{' '}
+              ใช่หรือไม่? การกระทำนี้ไม่สามารถย้อนกลับได้
+            </p>
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setShowClearCategoryConfirm(false)}
+                className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold transition cursor-pointer"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                onClick={executeClearAllCategory}
+                className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold transition shadow-xs cursor-pointer"
+              >
+                ลบทั้งหมดในหมวด
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Restock Requisition Workflow Modal (Draft -> Pending -> Approved -> Received Transaction) */}
+      {showRequisitionsModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 animate-in fade-in">
+          <div className="bg-white rounded-3xl max-w-2xl w-full p-5 sm:p-6 shadow-2xl border border-slate-200 space-y-4 max-h-[90vh] overflow-y-auto font-sans text-xs">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <ClipboardList className="w-5 h-5 text-amber-600" />
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">ระบบใบเบิกยาและรับเข้าคลัง (Requisition Workflow)</h3>
+                  <p className="text-[11px] text-slate-500">
+                    สิทธิ์ปัจจุบัน: {_currentUser?.position || _currentUser?.role || 'เจ้าหน้าที่'} •{' '}
+                    {canApprove ? 'สามารถอนุมัติใบเบิกได้' : 'ผู้ขอเบิก/รับของ (การอนุมัติต้องเป็นหัวหน้า/ผู้บริหาร)'}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowRequisitionsModal(false)}
+                className="p-1.5 rounded-full text-slate-400 hover:text-slate-700 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                disabled={isReqBusy}
+                onClick={() => handleCreateLowStockRequisition(false)}
+                className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold cursor-pointer disabled:opacity-50"
+              >
+                + สร้างฉบับร่าง (จากยาสต็อกต่ำ)
+              </button>
+              <button
+                type="button"
+                disabled={isReqBusy}
+                onClick={() => handleCreateLowStockRequisition(true)}
+                className="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold cursor-pointer disabled:opacity-50"
+              >
+                + ส่งใบเบิกขออนุมัติทันที
+              </button>
+            </div>
+
+            {requisitions.length === 0 ? (
+              <div className="p-8 text-center rounded-2xl border border-dashed border-slate-200 text-slate-400">
+                ยังไม่มีใบเบิกยาในแชนเนลนี้
+              </div>
+            ) : (
+              <div className="space-y-2.5">
+                {requisitions.map((req) => {
+                  const statusTone =
+                    req.status === 'received'
+                      ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
+                      : req.status === 'approved'
+                      ? 'bg-blue-100 text-blue-800 border-blue-200'
+                      : req.status === 'rejected'
+                      ? 'bg-rose-100 text-rose-800 border-rose-200'
+                      : req.status === 'pending'
+                      ? 'bg-amber-100 text-amber-800 border-amber-200'
+                      : 'bg-slate-100 text-slate-700 border-slate-200';
+
+                  return (
+                    <div key={req.id} className="p-3.5 rounded-2xl border border-slate-200 bg-slate-50/70 space-y-2">
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <div>
+                          <span className="font-mono font-bold text-slate-900">{req.id}</span>
+                          <span className="ml-2 text-slate-500">ผู้ขอ: {req.requestedBy}</span>
+                        </div>
+                        <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border uppercase ${statusTone}`}>
+                          {req.status}
+                        </span>
+                      </div>
+
+                      {req.notes && <p className="text-[11px] text-slate-600">{req.notes}</p>}
+
+                      <div className="space-y-1">
+                        {req.items.slice(0, 6).map((it, i) => (
+                          <div key={i} className="flex items-center justify-between bg-white px-2.5 py-1 rounded-lg border border-slate-100 text-[11px]">
+                            <span className="truncate font-semibold text-slate-800">{it.name}</span>
+                            <span className="font-bold text-blue-700 shrink-0 ml-2">
+                              {it.neededQty} {it.unit || 'ชิ้น'}
+                            </span>
+                          </div>
+                        ))}
+                        {req.items.length > 6 && (
+                          <div className="text-[10px] text-slate-400">และอีก {req.items.length - 6} รายการ...</div>
+                        )}
+                      </div>
+
+                      <div className="flex items-center justify-end gap-2 pt-1 flex-wrap">
+                        {req.status === 'draft' && (
+                          <button
+                            type="button"
+                            disabled={isReqBusy}
+                            onClick={() => handleTransitionReq(req, 'pending')}
+                            className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold cursor-pointer disabled:opacity-50"
+                          >
+                            ส่งรออนุมัติ
+                          </button>
+                        )}
+
+                        {req.status === 'pending' && (
+                          <>
+                            <button
+                              type="button"
+                              disabled={isReqBusy || !canApprove}
+                              onClick={() => handleTransitionReq(req, 'approved')}
+                              title={canApprove ? 'อนุมัติใบเบิก' : 'สงวนสิทธิ์เฉพาะหัวหน้างาน / Admin / ผู้บริหาร'}
+                              className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold flex items-center gap-1 cursor-pointer disabled:opacity-40"
+                            >
+                              <ShieldCheck className="w-3.5 h-3.5" />
+                              <span>อนุมัติ</span>
+                            </button>
+                            <button
+                              type="button"
+                              disabled={isReqBusy || !canApprove}
+                              onClick={() => handleTransitionReq(req, 'rejected')}
+                              title={canApprove ? 'ไม่อนุมัติ' : 'สงวนสิทธิ์เฉพาะหัวหน้างาน / Admin / ผู้บริหาร'}
+                              className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold cursor-pointer disabled:opacity-40"
+                            >
+                              ไม่อนุมัติ
+                            </button>
+                          </>
+                        )}
+
+                        {req.status === 'approved' && (
+                          <button
+                            type="button"
+                            disabled={isReqBusy}
+                            onClick={() => handleAtomicReceiveReq(req)}
+                            className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                          >
+                            {isReqBusy ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+                            <span>รับเข้าคลัง (Atomic Stock + Audit)</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
       )}

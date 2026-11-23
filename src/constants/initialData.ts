@@ -145,7 +145,33 @@ export const EMERGENCY_CAR_MASTER_ITEMS = [
   { category: 'วัสดุและอุปกรณ์เตรียมพร้อมใช้', id: 308, name: '7. กล่องยาสมุนไพร High alert and urgency drug', amount: '1 กล่อง', defaultExp: '' }
 ];
 
-export const DEFAULT_LISTS: Record<'bag' | 'cart', ListConfig> = {
+export const DEFAULT_LISTS: Record<'bag' | 'cart' | string, ListConfig> = {
+  ambulance: {
+    title: 'เช็ครถพยาบาลฉุกเฉิน (Ambulance)',
+    sheet: 'รถพยาบาลฉุกเฉิน',
+    groups: {
+      'อุปกรณ์ช่วยหายใจและออกซิเจน (Airway & O2)': [
+        { name: 'Portable O2 Tank (ถังออกซิเจนพกพาพร้อมเกจ)', code: 'AMB-01', qty: '1 ถัง', spec: 'ถังออกซิเจนอลูมิเนียมพร้อมชุดปรับแรงดันและสาย', source: 'เงินบำรุง', date: '1 ม.ค. 68', no: '1', exp: '', img: '' },
+        { name: 'Suction Machine (เครื่องดูดเสมหะพกพา)', code: 'AMB-02', qty: '1 เครื่อง', spec: 'เครื่องดูดเสมหะไฟฟ้า/มือบีบฉุกเฉินพร้อมใช้งาน', source: 'เงินงบประมาณ', date: '1 ม.ค. 68', no: '2', exp: '', img: '' },
+        { name: 'Ambu Bag (Adult / Pediatric)', code: 'AMB-03', qty: 'อย่างละ 1 ชุด', spec: 'ถุงบีบกู้ชีพพร้อมหน้ากากและถุงสำรองออกซิเจน', source: 'คลังยา', date: '1 ม.ค. 68', no: '3', exp: '', img: '' },
+        { name: 'Endotracheal Tube No. 6.5, 7.0, 7.5, 8.0', code: 'AMB-04', qty: 'อย่างละ 1 เส้น', spec: 'ท่อช่วยหายใจปลอดเชื้อขนาดมาตรฐาน', source: 'คลังยา', date: '1 ม.ค. 68', no: '4', exp: getSampleExpDate(180), img: '' },
+        { name: 'Laryngoscope Set (Blade No. 3, 4)', code: 'AMB-05', qty: '1 ชุด', spec: 'ชุดส่องกล่องเสียงด้ามไฟเบอร์ออปติก', source: 'เงินบำรุง', date: '1 ม.ค. 68', no: '5', exp: '', img: '' },
+        { name: 'Oral Airway No. 2, 3, 4', code: 'AMB-06', qty: 'อย่างละ 1 อัน', spec: 'ท่อเปิดทางเดินหายใจทางปาก', source: 'คลังพัสดุ', date: '1 ม.ค. 68', no: '6', exp: getSampleExpDate(240), img: '' },
+      ],
+      'อุปกรณ์ช่วยชีวิตและบาดเจ็บ (Trauma & Resuscitation)': [
+        { name: 'AED / Defibrillator (เครื่องกระตุกหัวใจอัตโนมัติ)', code: 'AMB-07', qty: '1 เครื่อง', spec: 'เครื่องกระตุกหัวใจพร้อมแบตเตอรี่และแพด', source: 'เงินบำรุง', date: '1 ม.ค. 68', no: '7', exp: getSampleExpDate(365), img: '' },
+        { name: 'Cervical Collar (S, M, L)', code: 'AMB-08', qty: 'อย่างละ 1 อัน', spec: 'เฝือกดามคอฉุกเฉินปรับระดับได้', source: 'คลังพัสดุ', date: '1 ม.ค. 68', no: '8', exp: '', img: '' },
+        { name: 'Spine Board / Backboard with Straps', code: 'AMB-09', qty: '1 ชุด', spec: 'กระดานรองหลังยาวพร้อมสายรัดผู้ป่วย', source: 'เงินบำรุง', date: '1 ม.ค. 68', no: '9', exp: '', img: '' },
+        { name: 'Splint (แขน/ขา)', code: 'AMB-10', qty: '1 ชุด', spec: 'เฝือกดามกระดูกแขนและขาฉุกเฉิน', source: 'คลังพัสดุ', date: '1 ม.ค. 68', no: '10', exp: '', img: '' },
+      ],
+      'เวชภัณฑ์และสารน้ำฉุกเฉิน (IV & Drugs)': [
+        { name: '0.9% NSS 500 cc', code: 'AMB-11', qty: '2 ขวด', spec: 'สารละลายน้ำเกลือนอร์มัลซาไลน์', source: 'คลังยา', date: '1 ม.ค. 68', no: '11', exp: getSampleExpDate(150), img: '' },
+        { name: 'IV Set / Extension tube', code: 'AMB-12', qty: 'อย่างละ 2 ชุด', spec: 'ชุดให้สารน้ำและสายต่อเพิ่มความยาว', source: 'คลังยา', date: '1 ม.ค. 68', no: '12', exp: getSampleExpDate(120), img: '' },
+        { name: 'IV Catheter No. 18, 20, 22', code: 'AMB-13', qty: 'อย่างละ 2 เส้น', spec: 'เข็มเปิดเส้นหลอดเลือดดำ', source: 'คลังยา', date: '1 ม.ค. 68', no: '13', exp: getSampleExpDate(90), img: '' },
+        { name: 'Emergency Drug Box (กล่องยาฉุกเฉินแอมบูแลนซ์)', code: 'AMB-14', qty: '1 กล่อง', spec: 'ยาฉุกเฉินประกอบด้วย Adrenaline, Atropine, Cordarone', source: 'คลังยา', date: '1 ม.ค. 68', no: '14', exp: getSampleExpDate(60), img: '' },
+      ],
+    },
+  },
   bag: {
     title: 'เช็คกระเป๋าอีเมอร์เจนซี่',
     sheet: 'กระเป๋า Emergency',
@@ -370,6 +396,35 @@ function doPost(e) {
   }
 }
 
+function normalizeHeaderName_(label) {
+  return String(label || '')
+    .toLowerCase()
+    .replace(/\\s+/g, '')
+    .replace(/[\\n\\r().:/-]/g, '');
+}
+
+function buildHeaderColumnMap_(sheet, headerRowIdx) {
+  var lastCol = Math.max(sheet.getLastColumn(), 1);
+  var rawHeaders = sheet.getRange(headerRowIdx, 1, 1, lastCol).getValues()[0];
+  var colMap = {};
+  for (var c = 0; c < rawHeaders.length; c++) {
+    var norm = normalizeHeaderName_(rawHeaders[c]);
+    if (norm) colMap[norm] = c;
+  }
+  return { colMap: colMap, width: lastCol };
+}
+
+function writeValueByHeaderAliases_(rowArr, colMap, aliases, value) {
+  for (var i = 0; i < aliases.length; i++) {
+    var key = normalizeHeaderName_(aliases[i]);
+    if (Object.prototype.hasOwnProperty.call(colMap, key)) {
+      rowArr[colMap[key]] = value;
+      return true;
+    }
+  }
+  return false;
+}
+
 function doAuditLog_(ss, d) {
   var sh = ss.getSheetByName(SHEET_AUDIT);
   if (!sh) {
@@ -384,14 +439,30 @@ function doAuditLog_(ss, d) {
     sh.setColumnWidth(5, 260);
     sh.setColumnWidth(6, 140);
   }
-  sh.appendRow([
-    now_(),
-    String(d.user || '-'),
-    String(d.name || d.user || '-'),
-    String(d.action || '-'),
-    String(d.details || '-'),
-    String(d.location || '-')
-  ]);
+  var hdrInfo = buildHeaderColumnMap_(sh, 1);
+  var rowOut = new Array(Math.max(hdrInfo.width, AUDIT_HEAD.length));
+  for (var idx = 0; idx < rowOut.length; idx++) rowOut[idx] = '';
+
+  var mappedCount = 0;
+  if (writeValueByHeaderAliases_(rowOut, hdrInfo.colMap, ['เวลาบันทึก', 'Timestamp', 'เวลา'], now_())) mappedCount++;
+  if (writeValueByHeaderAliases_(rowOut, hdrInfo.colMap, ['บัญชีผู้ใช้', 'Username', 'user'], String(d.user || '-'))) mappedCount++;
+  if (writeValueByHeaderAliases_(rowOut, hdrInfo.colMap, ['ชื่อ-นามสกุล', 'ชื่อผู้ตรวจ', 'name'], String(d.name || d.user || '-'))) mappedCount++;
+  if (writeValueByHeaderAliases_(rowOut, hdrInfo.colMap, ['การกระทำ', 'Action', 'กิจกรรม'], String(d.action || '-'))) mappedCount++;
+  if (writeValueByHeaderAliases_(rowOut, hdrInfo.colMap, ['รายละเอียด', 'ไอเทมที่แก้ไข', 'details'], String(d.details || '-'))) mappedCount++;
+  if (writeValueByHeaderAliases_(rowOut, hdrInfo.colMap, ['สถานที่', 'ห้อง', 'location'], String(d.location || '-'))) mappedCount++;
+
+  if (mappedCount >= 2) {
+    sh.appendRow(rowOut);
+  } else {
+    sh.appendRow([
+      now_(),
+      String(d.user || '-'),
+      String(d.name || d.user || '-'),
+      String(d.action || '-'),
+      String(d.details || '-'),
+      String(d.location || '-')
+    ]);
+  }
   return ok_({ logged: true });
 }
 

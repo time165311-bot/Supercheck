@@ -24,7 +24,6 @@ import {
   Check,
   Download,
   Settings,
-  UserCheck,
 } from 'lucide-react';
 import { User as UserType } from '../types';
 import { formatRelativeActiveTime } from '../utils/timeFormat';
@@ -84,12 +83,11 @@ export const AppDrawer: React.FC<AppDrawerProps> = ({
   onPullFromGoogleSheets,
   onRestoreBackup,
   onChangePasswordSubmit,
-  onNavigateToUsers,
+  onNavigateToUsers: _onNavigateToUsers,
   firebaseProjectId,
   firebaseDatabaseId,
   onTestFirebaseConnection,
 }) => {
-  const isAdmin = currentUser?.role === 'admin';
   const [menuView, setMenuView] = useState<'main' | 'friends' | 'settings' | 'security' | 'firebase'>('main');
   const [friendsSearch, setFriendsSearch] = useState('');
   const [friendsTab, setFriendsTab] = useState<'all' | 'online' | 'admin'>('all');
@@ -241,34 +239,7 @@ export const AppDrawer: React.FC<AppDrawerProps> = ({
                 </div>
               </button>
 
-              {/* 3) จัดการผู้ใช้ (Admin Only) */}
-              {isAdmin && onNavigateToUsers && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    onNavigateToUsers();
-                    onClose();
-                  }}
-                  className="w-full px-3 py-3 rounded-2xl hover:bg-[#f0f2f5] dark:hover:bg-[#3a3b3c] flex items-center justify-between gap-3 text-left transition-all cursor-pointer group active:scale-[0.98]"
-                >
-                  <div className="flex items-center gap-3.5">
-                    <div className="w-9 h-9 rounded-full bg-[#E7F3FF] text-[#1877f2] flex items-center justify-center">
-                      <UserCheck className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <span className="font-bold text-sm text-[#050505] dark:text-[#e4e6eb] group-hover:text-[#1877f2] transition-colors block">
-                        จัดการผู้ใช้ & สิทธิ์
-                      </span>
-                      <span className="text-[11px] text-[#65676b] dark:text-[#b0b3b8]">
-                        เพิ่ม ลบ เปลี่ยนสิทธิ์ Staff / Admin
-                      </span>
-                    </div>
-                  </div>
-                  <ChevronRight className="w-4 h-4 text-[#65676b] dark:text-[#b0b3b8] group-hover:translate-x-1 transition-transform" />
-                </button>
-              )}
-
-              {/* 4) ตั้งค่าระบบ (Settings Trigger) */}
+              {/* 3) ตั้งค่าระบบ (Settings Trigger) */}
               <button
                 type="button"
                 onClick={() => setMenuView('settings')}

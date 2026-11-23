@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Plus, Trash2, Edit3, Check, Layers, Copy, FileText, ArrowRight, ShieldCheck } from 'lucide-react';
+import { X, Plus, Trash2, Edit3, Check, Layers, Copy, FileText, ArrowRight, ShieldCheck, AlertTriangle } from 'lucide-react';
 import { WardChannel } from '../types';
 
 export interface ChannelSelectorModalProps {
@@ -23,32 +23,39 @@ export const ChannelSelectorModal: React.FC<ChannelSelectorModalProps> = ({
   onRenameChannel,
   onDeleteChannel,
 }) => {
-  const [selectedChannelId, setSelectedChannelId] = useState<string>(activeChannelId);
   const [isAdding, setIsAdding] = useState(false);
   const [newChannelName, setNewChannelName] = useState('');
   const [duplicateOption, setDuplicateOption] = useState<boolean>(true);
+  const [formError, setFormError] = useState<string>('');
 
   const [editingChannelId, setEditingChannelId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
+  const [confirmDeleteChannel, setConfirmDeleteChannel] = useState<WardChannel | null>(null);
 
-  // Keep local selection in sync with activeChannelId prop
   useEffect(() => {
-    setSelectedChannelId(activeChannelId);
-  }, [activeChannelId, isOpen]);
+    if (isOpen) {
+      setFormError('');
+      setConfirmDeleteChannel(null);
+      setEditingChannelId(null);
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
-  const handleSelectChannel = (channelId: string) => {
+  // Single unambiguous point of selection: persists immediately upon selection
+  const handleSelectChannelImmediate = (channelId: string) => {
     if (editingChannelId === channelId) return;
-    setSelectedChannelId(channelId);
+    onSelectChannel(channelId);
+    onClose();
   };
 
   const handleCreateSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newChannelName.trim()) {
-      alert('กรุณาระบุชื่อ Channel หรือชื่อวอร์ด/หน่วยงาน');
+      setFormError('กรุณาระบุชื่อ Channel หรือชื่อวอร์ด/หน่วยงาน');
       return;
     }
+    setFormError('');
     onCreateChannel(newChannelName.trim(), duplicateOption);
     setNewChannelName('');
     setIsAdding(false);
@@ -56,21 +63,23 @@ export const ChannelSelectorModal: React.FC<ChannelSelectorModalProps> = ({
 
   const handleRenameSubmit = (channelId: string) => {
     if (!editingName.trim()) {
-      alert('กรุณาระบุชื่อวอร์ดใหม่');
+      setFormError('กรุณาระบุชื่อวอร์ดใหม่');
       return;
     }
+    setFormError('');
     onRenameChannel(channelId, editingName.trim());
     setEditingChannelId(null);
   };
 
-  const handleConfirmAndClose = () => {
-    onSelectChannel(selectedChannelId);
-    onClose();
-  };
-
   return (
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
-      <div className="bg-white dark:bg-[#181A20] rounded-3xl border border-slate-200 dark:border-white/10 shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[85vh] sm:max-h-[90vh]">
+    <div
+      className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs animate-in fade-in"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white dark:bg-[#181A20] rounded-3xl border border-slate-200 dark:border-white/10 shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[85vh] sm:max-h-[90vh]"
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* Header */}
         <div className="p-4 sm:p-5 border-b border-slate-200 dark:border-white/10 bg-gradient-to-r from-blue-500/10 via-indigo-500/10 to-purple-500/10 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
@@ -82,7 +91,7 @@ export const ChannelSelectorModal: React.FC<ChannelSelectorModalProps> = ({
                 เลือกและจัดการ Channel / วอร์ด
               </h2>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                สลับวอร์ดเพื่อตรวจเช็กหรือพิมพ์ฟอร์มแยกอิสระ 100%
+                แตะที่ชื่อวอร์ดเพื่อสลับใช้งานทันที แยกข้อมูลอิสระ 100%
               </p>
             </div>
           </div>
@@ -97,6 +106,51 @@ export const ChannelSelectorModal: React.FC<ChannelSelectorModalProps> = ({
 
         {/* Modal Body */}
         <div className="p-4 sm:p-5 overflow-y-auto space-y-4 flex-1">
+          {formError && (
+            <div className="p-3 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-500/30 text-rose-700 dark:text-rose-300 text-xs font-bold flex items-center justify-between gap-2">
+              <span>{formError}</span>
+              <button type="button" onClick={() => setFormError('')} className="p-1 cursor-pointer">
+                <X size={14} />
+              </button>
+            </div>
+          )}
+
+          {/* In-UI Delete Confirmation Banner */}
+          {confirmDeleteChannel && (
+            <div className="p-4 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-300 dark:border-rose-500/40 space-y-3 animate-in fade-in">
+              <div className="flex items-start gap-2.5">
+                <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-xs sm:text-sm font-bold text-rose-900 dark:text-rose-100">
+                    ยืนยันการลบวอร์ด &ldquo;{confirmDeleteChannel.name}&rdquo;?
+                  </p>
+                  <p className="text-[11px] text-rose-700 dark:text-rose-300 mt-0.5">
+                    ข้อมูลการตรวจเช็กของวอร์ดนี้จะถูกลบออกอย่างถาวร (ไม่สามารถกู้คืนได้)
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setConfirmDeleteChannel(null)}
+                  className="px-3.5 py-1.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-white/10 text-xs font-bold text-slate-700 dark:text-slate-200 cursor-pointer"
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onDeleteChannel(confirmDeleteChannel.id);
+                    setConfirmDeleteChannel(null);
+                  }}
+                  className="px-3.5 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold cursor-pointer shadow-xs"
+                >
+                  ยืนยันลบถาวร
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Channel List */}
           <div className="space-y-2.5">
             <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider block">
@@ -104,38 +158,29 @@ export const ChannelSelectorModal: React.FC<ChannelSelectorModalProps> = ({
             </label>
 
             {channels.map((channel) => {
-              const isActive = channel.id === selectedChannelId;
+              const isActive = channel.id === activeChannelId;
               const isEditing = editingChannelId === channel.id;
 
               return (
                 <div
                   key={channel.id}
-                  onClick={() => handleSelectChannel(channel.id)}
-                  onDoubleClick={() => {
-                    onSelectChannel(channel.id);
-                    onClose();
-                  }}
-                  className={`p-3.5 rounded-2xl border transition flex items-center justify-between gap-3 cursor-pointer active:scale-98 ${
+                  onClick={() => handleSelectChannelImmediate(channel.id)}
+                  className={`p-3.5 rounded-2xl border transition flex items-center justify-between gap-3 cursor-pointer active:scale-[0.99] ${
                     isActive
-                      ? 'bg-blue-50/90 dark:bg-blue-950/40 border-blue-500 dark:border-blue-500 text-blue-950 dark:text-blue-100 ring-2 ring-blue-500/20 shadow-xs'
+                      ? 'bg-blue-50/90 dark:bg-blue-950/40 border-blue-500 text-blue-950 dark:text-blue-100 ring-2 ring-blue-500/20 shadow-xs'
                       : 'bg-slate-50 dark:bg-black/20 border-slate-200 dark:border-white/10 hover:border-blue-400 text-slate-800 dark:text-slate-200'
                   }`}
                 >
                   <div className="flex items-center gap-3 flex-1 min-w-0">
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleSelectChannel(channel.id);
-                      }}
-                      className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 cursor-pointer ${
+                    <div
+                      className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 ${
                         isActive
                           ? 'border-blue-600 bg-blue-600 text-white'
                           : 'border-slate-300 dark:border-slate-600'
                       }`}
                     >
                       {isActive && <Check size={12} strokeWidth={3} />}
-                    </button>
+                    </div>
 
                     {isEditing ? (
                       <div
@@ -160,7 +205,10 @@ export const ChannelSelectorModal: React.FC<ChannelSelectorModalProps> = ({
                           </button>
                           <button
                             type="button"
-                            onClick={() => setEditingChannelId(null)}
+                            onClick={() => {
+                              setEditingChannelId(null);
+                              setFormError('');
+                            }}
                             className="flex-1 sm:flex-none px-4 py-2 bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 active:scale-95 text-slate-800 dark:text-slate-200 rounded-xl text-xs font-bold cursor-pointer transition-all shadow-sm whitespace-nowrap"
                           >
                             ยกเลิก
@@ -177,8 +225,8 @@ export const ChannelSelectorModal: React.FC<ChannelSelectorModalProps> = ({
                             </span>
                           )}
                           {isActive && (
-                            <span className="px-2 py-0.5 rounded-md bg-blue-600 text-white text-[10px] font-extrabold shrink-0 animate-in fade-in">
-                              ✓ กำลังเลือก
+                            <span className="px-2 py-0.5 rounded-md bg-blue-600 text-white text-[10px] font-extrabold shrink-0">
+                              กำลังใช้งาน
                             </span>
                           )}
                         </div>
@@ -186,50 +234,33 @@ export const ChannelSelectorModal: React.FC<ChannelSelectorModalProps> = ({
                     )}
                   </div>
 
-                  {/* Actions for Non-editing state */}
+                  {/* Manage Actions (Rename / Delete) */}
                   {!isEditing && (
                     <div
-                      className="flex items-center gap-1.5 shrink-0"
+                      className="flex items-center gap-1 shrink-0"
                       onClick={(e) => e.stopPropagation()}
                     >
-                      {isActive && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            onSelectChannel(channel.id);
-                            onClose();
-                          }}
-                          className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold cursor-pointer transition shadow-xs active:scale-95"
-                          title="ยืนยันเลือกใช้วอร์ดนี้ทันที"
-                        >
-                          เลือกใช้วอร์ดนี้
-                        </button>
-                      )}
-
                       <button
                         type="button"
                         onClick={() => {
                           setEditingChannelId(channel.id);
                           setEditingName(channel.name);
+                          setFormError('');
                         }}
-                        className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-slate-200 dark:hover:bg-white/10 transition cursor-pointer"
+                        className="p-2 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-slate-200 dark:hover:bg-white/10 transition cursor-pointer"
                         title="เปลี่ยนชื่อ Channel"
                       >
-                        <Edit3 size={14} />
+                        <Edit3 size={15} />
                       </button>
 
                       {!channel.isDefault && (
                         <button
                           type="button"
-                          onClick={() => {
-                            if (confirm(`คุณต้องการลบ Channel "${channel.name}" ใช่หรือไม่?`)) {
-                              onDeleteChannel(channel.id);
-                            }
-                          }}
-                          className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition cursor-pointer"
+                          onClick={() => setConfirmDeleteChannel(channel)}
+                          className="p-2 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition cursor-pointer"
                           title="ลบ Channel นี้"
                         >
-                          <Trash2 size={14} />
+                          <Trash2 size={15} />
                         </button>
                       )}
                     </div>
@@ -249,7 +280,10 @@ export const ChannelSelectorModal: React.FC<ChannelSelectorModalProps> = ({
                 </span>
                 <button
                   type="button"
-                  onClick={() => setIsAdding(false)}
+                  onClick={() => {
+                    setIsAdding(false);
+                    setFormError('');
+                  }}
                   className="text-xs text-slate-400 hover:text-slate-600 cursor-pointer"
                 >
                   ยกเลิก
@@ -296,7 +330,7 @@ export const ChannelSelectorModal: React.FC<ChannelSelectorModalProps> = ({
                   <button
                     type="button"
                     onClick={() => setDuplicateOption(false)}
-                    className={`!cursor-pointer p-2.5 rounded-xl border text-left cursor-pointer transition ${
+                    className={`p-2.5 rounded-xl border text-left cursor-pointer transition ${
                       !duplicateOption
                         ? 'bg-blue-600 text-white border-blue-600 font-bold'
                         : 'bg-white dark:bg-black/20 border-slate-200 dark:border-white/10 text-slate-700 dark:text-slate-300'
@@ -336,14 +370,14 @@ export const ChannelSelectorModal: React.FC<ChannelSelectorModalProps> = ({
         {/* Modal Footer */}
         <div className="p-4 border-t border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-black/20 flex items-center justify-between">
           <p className="text-[11px] text-slate-500 dark:text-slate-400">
-            * ข้อมูลของแต่ละ Channel จะถูกแยกเก็บเป็นอิสระ 100%
+            * ข้อมูลของแต่ละ Channel แยกเก็บเป็นอิสระ 100%
           </p>
           <button
             type="button"
-            onClick={handleConfirmAndClose}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl cursor-pointer shadow-md transition active:scale-95"
+            onClick={onClose}
+            className="px-4 py-2 bg-slate-200 hover:bg-slate-300 dark:bg-white/10 dark:hover:bg-white/20 text-slate-800 dark:text-white text-xs font-bold rounded-xl cursor-pointer transition active:scale-95"
           >
-            ตกลง / เลือกใช้วอร์ดนี้
+            ปิด
           </button>
         </div>
       </div>

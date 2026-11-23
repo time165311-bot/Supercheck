@@ -32,7 +32,7 @@ import { logAuditEvent } from '../services/auditLogger';
 interface PaperAuditModalProps {
   isOpen: boolean;
   onClose: () => void;
-  initialCategory?: 'bag' | 'cart' | 'drug';
+  initialCategory?: 'bag' | 'cart' | 'ambulance' | 'drug' | string;
   isDarkMode?: boolean;
 }
 
@@ -52,7 +52,7 @@ export const PaperAuditModal: React.FC<PaperAuditModalProps> = ({
     reRenderData,
   } = useDataContext();
 
-  const [category, setCategory] = useState<'bag' | 'cart' | 'drug'>(initialCategory);
+  const [category, setCategory] = useState<'bag' | 'cart' | 'ambulance' | 'drug' | string>(initialCategory);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string>('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -118,7 +118,7 @@ export const PaperAuditModal: React.FC<PaperAuditModalProps> = ({
 
   const currentWebItems = getCurrentWebItems();
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -126,12 +126,70 @@ export const PaperAuditModal: React.FC<PaperAuditModalProps> = ({
       URL.revokeObjectURL(imagePreview);
     }
 
+    // Process and rotate immediately for visual confirmation in preview
     setSelectedFile(file);
-    setImagePreview(URL.createObjectURL(file));
+    setIsAnalyzing(true);
+    setProgressText('📸 กำลังเตรียมรูปภาพ...');
+    
+    try {
+      const blob = await compressAndRotateImage(file);
+      const url = URL.createObjectURL(blob);
+      setImagePreview(url);
+    } catch (err) {
+      console.error('Initial rotate error:', err);
+      setImagePreview(URL.createObjectURL(file));
+    } finally {
+      setIsAnalyzing(false);
+      setProgressText('');
+    }
+    
     setAuditResult(null);
     setAddedMissingNames([]);
     setUpdatedDiscrepancyNames([]);
     setActionSuccessMsg(null);
+  };
+
+  const compressAndRotateImage = (file: File): Promise<Blob> => {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = (event) => {
+        const img = new Image();
+        img.src = event.target?.result as string;
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const MAX_WIDTH = 1600; // ปรับขนาดภาพให้พอดีกับการอ่านข้อความ
+          let width = img.width;
+          let height = img.height;
+
+          if (width > MAX_WIDTH) {
+            height = Math.round((height * MAX_WIDTH) / width);
+            width = MAX_WIDTH;
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+
+          if (ctx) {
+            // หมุนภาพ 180 องศาให้กลับมาตรง (เนื่องจากภาพที่ถ่ายมามักกลับหัว)
+            ctx.translate(canvas.width / 2, canvas.height / 2);
+            ctx.rotate((180 * Math.PI) / 180);
+            ctx.drawImage(img, -width / 2, -height / 2, width, height);
+          }
+
+          canvas.toBlob(
+            (blob) => {
+              resolve(blob || file);
+            },
+            'image/jpeg',
+            0.85
+          );
+        };
+        img.onerror = () => resolve(file);
+      };
+      reader.onerror = () => resolve(file);
+    });
   };
 
   const startAudit = async () => {
@@ -139,49 +197,61 @@ export const PaperAuditModal: React.FC<PaperAuditModalProps> = ({
 
     setIsAnalyzing(true);
     setAnalysisProgress(15);
-    setProgressText('น้องออร่ากำลังอ่านตัวหนังสือและตารางจากกระดาษ (OCR)... ✨');
+    setProgressText('📸 น้องออร่ากำลังบีบอัดและปรับหมุนภาพให้อ่านง่าย... (15%)');
 
-    const progressTimer1 = setTimeout(() => {
-      setAnalysisProgress(50);
-      setProgressText('กำลังเปรียบเทียบรายการในกระดาษกับฐานข้อมูลเว็บปัจจุบัน... 🔍');
-    }, 1200);
+    const progressTimer = setInterval(() => {
+      setAnalysisProgress((prev) => {
+        const next = Math.min(92, prev + Math.floor(Math.random() * 7) + 3);
+        if (next < 30) {
+          setProgressText(`📸 น้องออร่ากำลังบีบอัดและปรับหมุนภาพให้อ่านง่าย... (${next}%)`);
+        } else if (next < 60) {
+          setProgressText(`🔍 Step 1: Perception - กำลังแกะตารางรูปภาพและชื่ออุปกรณ์... (${next}%)`);
+        } else if (next < 85) {
+          setProgressText(`🧠 Step 2: Self-Correction - กรองคำเพี้ยน (หัวตาราง) และวันหมดอายุ (EXP)... (${next}%)`);
+        } else {
+          setProgressText(`✨ Step 3: Agentic Format - กำลังตรวจเทียบรายการกับระบบเว็บ... (${next}%)`);
+        }
+        return next;
+      });
+    }, 450);
 
-    const progressTimer2 = setTimeout(() => {
-      setAnalysisProgress(85);
-      setProgressText('กำลังสรุปผลการตรวจสอบและจำแนกรายการที่ขาด/ไม่ตรงกัน... 📊');
-    }, 2400);
+    // AbortController timeout set to 40 seconds
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 40000);
 
     try {
+      const compressedBlob = await compressAndRotateImage(selectedFile);
+
       const data = await comparePaperWithWeb(
-        selectedFile,
+        compressedBlob,
         currentWebItems,
         category,
-        selectedFile.name
+        selectedFile.name,
+        controller.signal
       );
 
-      clearTimeout(progressTimer1);
-      clearTimeout(progressTimer2);
+      clearTimeout(timeoutId);
+      clearInterval(progressTimer);
       setAnalysisProgress(100);
-      setProgressText('วิเคราะห์และเปรียบเทียบเสร็จเรียบร้อยแล้วค่ะ! ✨🌸');
+      setProgressText('✅ น้องออร่าประมวลผลและตรวจเทียบเสร็จเรียบร้อยแล้วค่ะ! (100%)');
+
+      // Add a small delay to ensure the 100% progress is rendered
+      await new Promise((resolve) => setTimeout(resolve, 300));
 
       if (data.result) {
         setAuditResult(data.result);
-        // Pre-select all missing items
         if (data.result.missingInWeb) {
           setSelectedMissingIndices(data.result.missingInWeb.map((_: any, idx: number) => idx));
         }
-        // Pre-select all discrepancies
         if (data.result.discrepancies) {
           setSelectedDiscrepancyIndices(data.result.discrepancies.map((_: any, idx: number) => idx));
         }
 
-        // Voice read summary with locked cute tone
         if (data.result.summaryText) {
           speakWithAura(data.result.summaryText, [], undefined, () => setIsSpeaking(false));
           setIsSpeaking(true);
         }
 
-        // Log audit event
         logAuditEvent({
           action: 'เช็คของ',
           targetCollection: category,
@@ -195,10 +265,14 @@ export const PaperAuditModal: React.FC<PaperAuditModalProps> = ({
         });
       }
     } catch (err: any) {
+      clearTimeout(timeoutId);
+      clearInterval(progressTimer);
       console.warn('Paper audit error:', err);
-      clearTimeout(progressTimer1);
-      clearTimeout(progressTimer2);
-      alert('เกิดข้อขัดข้องในการส่งรูปภาพไปให้ AI ตรวจสอบ กรุณาลองใหม่อีกครั้ง');
+      if (err.name === 'AbortError' || err.message?.includes('aborted')) {
+        alert('การเชื่อมต่อใช้เวลานานเกินไป (Timeout) กรุณาลองใหม่อีกครั้ง หรือถ่ายรูปให้ชัดเจนและมีขนาดเล็กลง');
+      } else {
+        alert('เกิดข้อขัดข้องในการส่งรูปภาพไปให้ AI ตรวจสอบ กรุณาลองใหม่อีกครั้ง');
+      }
     } finally {
       setIsAnalyzing(false);
     }
@@ -237,7 +311,7 @@ export const PaperAuditModal: React.FC<PaperAuditModalProps> = ({
       exp: item.expDate || '-',
     }));
 
-    if (category === 'bag' || category === 'cart') {
+    if (category === 'bag' || category === 'cart' || category === 'ambulance') {
       addBatchItemsToChannel(activeChannelId, formattedItems, category);
       reRenderData();
     } else {
@@ -289,7 +363,7 @@ export const PaperAuditModal: React.FC<PaperAuditModalProps> = ({
       newQty: item.paperQty || '1',
     }));
 
-    if (category === 'bag' || category === 'cart') {
+    if (category === 'bag' || category === 'cart' || category === 'ambulance') {
       batchUpdateItemQuantities(activeChannelId, updates, category);
       reRenderData();
     }
@@ -362,6 +436,7 @@ export const PaperAuditModal: React.FC<PaperAuditModalProps> = ({
               {[
                 { id: 'bag', label: 'กระเป๋าฉุกเฉิน', icon: BriefcaseMedical },
                 { id: 'cart', label: 'รถฉุกเฉิน (Crash Cart)', icon: Truck },
+                { id: 'ambulance', label: 'รถพยาบาล (Ambulance)', icon: Truck },
                 { id: 'drug', label: 'คลังยาวิสัญญี', icon: Pill },
               ].map((c) => {
                 const IconComponent = c.icon;
@@ -471,13 +546,13 @@ export const PaperAuditModal: React.FC<PaperAuditModalProps> = ({
                         isDarkMode ? 'bg-white/5 border-white/10' : 'bg-pink-50/60 border-pink-200'
                       }`}
                     >
-                      <div className="flex items-center justify-center gap-2 text-pink-600 dark:text-pink-400 font-bold text-sm">
+                      <div className="flex items-center justify-center gap-2 text-blue-600 dark:text-blue-400 font-bold text-sm">
                         <Sparkles size={18} className="animate-spin" />
                         <span>{progressText}</span>
                       </div>
                       <div className="w-full bg-slate-200 dark:bg-white/10 rounded-full h-2.5 overflow-hidden">
                         <div
-                          className="bg-gradient-to-r from-pink-500 to-indigo-600 h-2.5 rounded-full transition-all duration-300"
+                          className="bg-gradient-to-r from-blue-600 to-sky-500 h-2.5 rounded-full transition-all duration-300"
                           style={{ width: `${analysisProgress}%` }}
                         />
                       </div>
@@ -490,7 +565,7 @@ export const PaperAuditModal: React.FC<PaperAuditModalProps> = ({
                       <button
                         type="button"
                         onClick={startAudit}
-                        className="w-full sm:w-auto px-6 py-3 rounded-2xl bg-gradient-to-r from-pink-600 to-indigo-600 hover:from-pink-700 hover:to-indigo-700 text-white font-bold text-sm shadow-lg shadow-pink-500/20 transition flex items-center justify-center gap-2 cursor-pointer active:scale-95"
+                        className="w-full sm:w-auto px-6 py-3 rounded-2xl bg-gradient-to-r from-blue-600 to-sky-600 hover:from-blue-700 hover:to-sky-700 text-white font-bold text-sm shadow-lg shadow-blue-500/20 transition flex items-center justify-center gap-2 cursor-pointer active:scale-95"
                       >
                         <Sparkles size={16} />
                         <span>เริ่มสแกนตรวจเทียบกระดาษกับเว็บ ✨</span>
@@ -509,20 +584,20 @@ export const PaperAuditModal: React.FC<PaperAuditModalProps> = ({
               <div
                 className={`p-4 rounded-2xl border relative overflow-hidden transition-all ${
                   isDarkMode
-                    ? 'bg-gradient-to-r from-pink-950/40 via-purple-950/40 to-blue-950/40 border-pink-500/30'
-                    : 'bg-gradient-to-r from-pink-50 via-purple-50 to-blue-50 border-pink-200'
+                    ? 'bg-gradient-to-r from-blue-950/40 via-sky-950/40 to-indigo-950/40 border-blue-500/30'
+                    : 'bg-gradient-to-r from-blue-50 via-sky-50 to-indigo-50 border-blue-200'
                 }`}
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-start gap-3">
-                    <div className="w-9 h-9 rounded-xl bg-pink-500 text-white flex items-center justify-center shrink-0 shadow-md">
+                    <div className="w-9 h-9 rounded-xl bg-blue-500 text-white flex items-center justify-center shrink-0 shadow-md">
                       <Sparkles size={18} />
                     </div>
                     <div className="space-y-0.5">
                       <div className="flex items-center gap-2">
-                        <h4 className="text-xs font-bold text-pink-600 dark:text-pink-400 flex items-center gap-1">
+                        <h4 className="text-xs font-bold text-blue-600 dark:text-blue-400 flex items-center gap-1">
                           <span>สรุปผลการวิเคราะห์โดยน้องออร่า</span>
-                          <span className="text-[10px] px-2 py-0.2 rounded-full bg-pink-500/20 text-pink-500 font-semibold">
+                          <span className="text-[10px] px-2 py-0.2 rounded-full bg-blue-500/20 text-blue-400 font-semibold">
                             Aura AI
                           </span>
                         </h4>
@@ -538,10 +613,10 @@ export const PaperAuditModal: React.FC<PaperAuditModalProps> = ({
                     onClick={handleSpeakSummary}
                     className={`p-2 rounded-xl border text-xs font-bold transition flex items-center gap-1 cursor-pointer shrink-0 ${
                       isSpeaking
-                        ? 'bg-pink-500 text-white border-pink-400 shadow-md animate-pulse'
+                        ? 'bg-blue-500 text-white border-blue-400 shadow-md animate-pulse'
                         : isDarkMode
-                        ? 'bg-white/10 text-pink-300 border-white/10 hover:bg-white/20'
-                        : 'bg-white text-pink-600 border-pink-200 hover:bg-pink-50'
+                        ? 'bg-white/10 text-blue-300 border-white/10 hover:bg-white/20'
+                        : 'bg-white text-blue-600 border-blue-200 hover:bg-blue-50'
                     }`}
                     title="เปิด/ปิดเสียงอ่านสรุป"
                   >

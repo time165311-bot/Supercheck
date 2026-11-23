@@ -1,28 +1,33 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
+  Sparkles,
   BriefcaseMedical,
   Truck,
-  Check,
-  X,
-  AlertTriangle,
   CheckCheck,
-  Search,
-  Maximize2,
-  ArrowLeft,
-  MoreVertical,
-  Calendar,
-  Plus,
-  Upload,
-  Image as ImageIcon,
   CheckCircle2,
-  Home,
-  Sparkles,
+  AlertTriangle,
+  Search,
+  MoreVertical,
+  Maximize2,
+  X,
+  Plus,
+  Calendar,
+  Check,
+  Camera,
+  Loader2,
+  Trash2,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { PaperAuditModal } from './PaperAuditModal';
 import { CheckItemState, ListConfig, EquipmentItem } from '../types';
 import { formatAcquiredDate } from './OfficialReportModal';
 import { EditItemModal } from './EditItemModal';
-import { PaperAuditModal } from './PaperAuditModal';
 import { getWednesdaysInfoForMonth } from '../utils/wednesdayUtils';
+import { quickOcrCategory } from '../services/auraService';
+import { prepareImageForOCR } from '../utils/imageUtils';
+import { compressImageForFirestore } from '../utils/helpers';
+import { speakWithAura } from '../utils/textToSpeech';
 
 import {
   getItemSizes,
@@ -32,10 +37,11 @@ import {
   getItemQuantityClassification,
   getRealTargetCheckValue,
   sanitizeItemName,
-  sortItemsNaturally
+  sortItemsNaturally,
+  matchMedicalItemName,
 } from '../utils/itemUtils';
 export type { SubExpItemInfo as SubExpItem } from '../utils/itemUtils';
-export { getItemSizes, parseSubExps, getRealTargetCheckValue, sanitizeItemName, sortItemsNaturally };
+export { getItemSizes, parseSubExps, getRealTargetCheckValue, sanitizeItemName, sortItemsNaturally, matchMedicalItemName };
 
 export function getDeviceTodayDateStr(): string {
   const d = new Date();
@@ -75,7 +81,7 @@ export function parseSubItemStatuses(weekVal: string | undefined, subQuantities:
 }
 
 export interface EmergencyChecklistProps {
-  type: 'bag' | 'cart';
+  type: 'bag' | 'cart' | 'ambulance' | string;
   title: string;
   subtitle: string;
   listConfig: ListConfig;
@@ -97,11 +103,14 @@ export interface EmergencyChecklistProps {
     subExps?: Array<{ label?: string; exp?: string; qty?: number; hasNoExp?: boolean }>;
     subItemQuantities?: number[];
   }) => void;
-  onDeleteItem?: (type: 'bag' | 'cart', itemKey: string) => void;
+  onDeleteItem?: (type: 'bag' | 'cart' | 'ambulance' | string, itemKey: string) => void;
   onEditItem?: (item: EquipmentItem) => void;
   weekDates: Record<number, string>;
   onWeekDatesChange: (dates: Record<number, string>) => void;
-  onSaveByWeek?: (week: number, weekDates: Record<number, string>) => void;
+  onSaveByWeek?: (week: number, weekDates: Record<number, string>) => Promise<void> | void;
+  onClearWeekChecks?: (week: number) => void;
+  isSavingReport?: boolean;
+  onClearAll?: (type: 'bag' | 'cart' | 'ambulance' | string) => void;
   isVisible?: boolean;
 }
 
@@ -115,18 +124,25 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
   onUpdateNote,
   onOpenBarcodeScan,
   onZoomImage,
-  onBack,
+  onBack: _onBack,
   onAddItem,
   onDeleteItem,
   onEditItem,
   weekDates,
   onWeekDatesChange,
   onSaveByWeek,
+  onClearWeekChecks,
+  isSavingReport = false,
+  onClearAll,
   isVisible = true,
 }) => {
   const [selectedGroup, setSelectedGroup] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [isPaperAuditOpen, setIsPaperAuditOpen] = useState<boolean>(false);
+  const [expandedMultiItems, setExpandedMultiItems] = useState<Record<string, boolean>>({});
+  const [pendingBulkAction, setPendingBulkAction] = useState<null | 'clear_all' | 'clear_checks' | 'pass_5_weeks'>(null);
+  const [actionNotice, setActionNotice] = useState<string | null>(null);
+  const isSavingLocalRef = useRef<boolean>(false);
 
   // 1. Dynamic Wednesdays Per Current Month (4 or 5 Wednesdays)
   const wedInfo = useMemo(() => {
@@ -174,9 +190,15 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
     onWeekDatesChange({ ...weekDates, [wk]: dateVal });
   };
 
-  const handleSaveAndPreview = () => {
-    if (onSaveByWeek) {
-      onSaveByWeek(selectedWeek, weekDates);
+  const handleSaveAndPreview = async () => {
+    if (!onSaveByWeek || isSavingReport || isSavingLocalRef.current) return;
+    isSavingLocalRef.current = true;
+    try {
+      await onSaveByWeek(selectedWeek, weekDates);
+    } finally {
+      setTimeout(() => {
+        isSavingLocalRef.current = false;
+      }, 600);
     }
   };
 
@@ -332,11 +354,114 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
     });
   }, [allItems, selectedGroup, searchQuery]);
 
-  // Summary statistics
+  // Per-week status helper: uses weekVals[selectedWeek] so clearing W1 resets W1 stats/cards to 0 immediately
+  const getItemWeekStatus = (item: (typeof allItems)[number]): 'normal' | 'defective' | '' => {
+    const c = checks[item.itemKey];
+    const weekVal = c?.weekVals?.[selectedWeek];
+    const hasWeekVal = weekVal !== undefined && String(weekVal).trim() !== '';
+
+    if (!hasWeekVal) {
+      return '';
+    }
+
+    const classification = getItemQuantityClassification(item);
+    const valStr = String(weekVal).trim();
+
+    if (classification.isType2) {
+      const subStatuses = parseSubItemStatuses(valStr, classification.subQuantities);
+      const isSubAllOk = subStatuses.every((s, i) => s === String(classification.subQuantities[i] || 1));
+      const isSubAnyBad = subStatuses.some((s, i) => s === '0' || s === '✗' || (s !== '' && s !== String(classification.subQuantities[i] || 1)));
+      if (isSubAnyBad) return 'defective';
+      if (isSubAllOk) return 'normal';
+      return '';
+    }
+
+    if (classification.isType1) {
+      const parsed = valStr.includes(',')
+        ? valStr.split(',').map((p) => p.trim()).filter((p) => p === '1' || p === '✓' || parseInt(p, 10) > 0).length
+        : parseInt(valStr.replace(/\D/g, ''), 10);
+      if (valStr === '0' || valStr === '✗' || (!isNaN(parsed) && parsed < classification.totalQty)) {
+        return 'defective';
+      }
+      if (!isNaN(parsed) && parsed >= classification.totalQty) {
+        return 'normal';
+      }
+      return '';
+    }
+
+    // O2 Tank check (< 500 PSI on either tank is defective)
+    const lowerName = item.name.toLowerCase();
+    if ((lowerName.includes('o2') || lowerName.includes('oxygen') || item.name.includes('ออกซิเจน')) && (lowerName.includes('tank') || item.name.includes('ถัง'))) {
+      const nums = valStr.split(',').map((p) => parseInt(p.replace(/\D/g, ''), 10)).filter((n) => !isNaN(n));
+      if (nums.length > 0 && nums.some((n) => n < 500)) return 'defective';
+      if (nums.length > 0) return 'normal';
+    }
+
+    if (valStr === '0' || valStr === '✗') return 'defective';
+    return 'normal';
+  };
+
+  // Summary statistics for selectedWeek
   const totalCount = allItems.length;
-  const checkedCount = allItems.filter((i) => checks[i.itemKey]?.result).length;
-  const normalCount = allItems.filter((i) => checks[i.itemKey]?.result === 'ปกติ').length;
-  const defectiveCount = allItems.filter((i) => checks[i.itemKey]?.result === 'ผิดปกติ').length;
+  const normalCount = allItems.filter((i) => getItemWeekStatus(i) === 'normal').length;
+  const defectiveCount = allItems.filter((i) => getItemWeekStatus(i) === 'defective').length;
+  const checkedCount = normalCount + defectiveCount;
+
+  // 📷 Mode 3: Quick Section OCR
+  const quickOcrInputRef = useRef<HTMLInputElement>(null);
+  const [isQuickScanning, setIsQuickScanning] = useState(false);
+  const [quickScanToast, setQuickScanToast] = useState<string | null>(null);
+
+  const handleQuickOcrFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (quickOcrInputRef.current) quickOcrInputRef.current.value = '';
+
+    setIsQuickScanning(true);
+    setQuickScanToast('📸 น้องออร่ากำลังประมวลผลสแกนด่วนหมวดนี้...');
+
+    try {
+      const rotatedBase64 = await prepareImageForOCR(file);
+      const targetGrp = selectedGroup === 'all' ? (groups[0] || 'Airway') : selectedGroup;
+      const res = await quickOcrCategory(rotatedBase64, targetGrp);
+
+      if (res.parsedItems && res.parsedItems.length > 0) {
+        let matchCount = 0;
+        const targetItems = selectedGroup === 'all' ? allItems : allItems.filter((i) => i.groupName === selectedGroup);
+
+        res.parsedItems.forEach((parsed) => {
+          const pName = (parsed.name || '').trim().toLowerCase();
+          if (!pName) return;
+
+          const match = targetItems.find((it) => {
+            return matchMedicalItemName(pName, it.name, it.spec || '');
+          });
+
+          if (match) {
+            const isDefect = parsed.status === 'INCOMPLETE' || parsed.status === 'EXPIRED' || (parsed.issue && parsed.issue.trim() !== '');
+            const valToSet = isDefect ? String(parsed.actual || '0') : getRealTargetCheckValue(match as any);
+            onToggleCheck(match.itemKey, isDefect ? 'ผิดปกติ' : 'ปกติ', match.name, selectedWeek, false, valToSet);
+            if (parsed.exp && parsed.exp !== '-') {
+              onUpdateNote(match.itemKey, `EXP: ${parsed.exp}`);
+            }
+            matchCount++;
+          }
+        });
+
+        const toastMsg = `✅ สแกนด่วนสำเร็จ! อัปเดตรายการ ${matchCount} รายการ`;
+        setQuickScanToast(toastMsg);
+        speakWithAura(`สแกนด่วนหมวด ${targetGrp} สำเร็จแล้วค่ะพี่พยาบาล อัปเดต ${matchCount} รายการค่ะ`);
+      } else {
+        setQuickScanToast('⚠️ น้องออร่าไม่พบข้อมูลอุปกรณ์ในหมวดนี้ กรุณาลองถ่ายภาพใหม่ให้ชัดเจนนะคะ');
+      }
+    } catch (err) {
+      console.warn('Quick scan error:', err);
+      setQuickScanToast('❌ สแกนด่วนขัดข้อง กรุณาลองใหม่อีกครั้ง');
+    } finally {
+      setIsQuickScanning(false);
+      setTimeout(() => setQuickScanToast(null), 4500);
+    }
+  };
 
   // 2. Toggle Pass All 3-State Logic
   const areAllPassed = useMemo(() => {
@@ -377,14 +502,21 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
     }
   };
 
-  // Local File Upload Handler
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Local File Upload Handler (auto-compressed <= 440k chars for Firestore safety)
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      if (file.size > 5 * 1024 * 1024) {
-        alert('ขนาดไฟล์รูปภาพเกิน 5MB กรุณาเลือกไฟล์ขนาดเล็กกว่านี้');
-        return;
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) {
+      setActionNotice('ขนาดไฟล์รูปภาพเกิน 10MB กรุณาเลือกไฟล์ขนาดเล็กกว่านี้');
+      setTimeout(() => setActionNotice(null), 3500);
+      return;
+    }
+    try {
+      const compressedBase64 = await compressImageForFirestore(file, 1024, 0.72);
+      if (compressedBase64) {
+        setNewItemImgUrl(compressedBase64);
       }
+    } catch {
       const reader = new FileReader();
       reader.onload = (event) => {
         const base64Str = event.target?.result as string;
@@ -400,13 +532,15 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
   const handleCreateNewItem = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newItemName.trim()) {
-      alert('กรุณากรอกชื่อรายการอุปกรณ์');
+      setActionNotice('กรุณากรอกชื่อรายการอุปกรณ์');
+      setTimeout(() => setActionNotice(null), 3500);
       return;
     }
 
     const finalGroup = newItemGroup === '__custom__' ? customGroup.trim() : newItemGroup || (groups[0] || 'ทั่วไป');
     if (!finalGroup) {
-      alert('กรุณาเลือกหรือกรอกหมวดหมู่/ตำแหน่ง');
+      setActionNotice('กรุณาเลือกหรือกรอกหมวดหมู่/ตำแหน่ง');
+      setTimeout(() => setActionNotice(null), 3500);
       return;
     }
 
@@ -446,39 +580,39 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
   }, [newItemName, newItemSpec, newItemQty]);
 
   return (
-    <div className="space-y-3.5 font-['TH_Sarabun_New','Sarabun',sans-serif] pb-28 animate-in fade-in duration-300 text-slate-800">
+    <div className="space-y-3.5 font-['TH_Sarabun_New','Sarabun',sans-serif] pb-28 animate-in fade-in duration-300 text-slate-800 relative">
       
-      {/* 🌟 Auto-Hiding Header Banner (Slides up on scroll down only on mobile, stays visible 100% on desktop) */}
-      <div
-        style={{
-          transform: isVisible ? 'translateY(0)' : 'translateY(-100%)',
-          transition: 'transform 0.3s ease, opacity 0.3s ease, max-height 0.3s ease, margin 0.3s ease',
-          opacity: isVisible ? 1 : 0,
-          maxHeight: isVisible ? '240px' : '0px',
-          overflow: isVisible ? 'visible' : 'hidden',
-          marginBottom: isVisible ? '0.75rem' : '0px',
-        }}
-        className="w-full z-20 md:!transform-none md:!opacity-100 md:!max-h-none md:!overflow-visible md:!mb-3.5"
-      >
-        {/* 🌟 Clean One UI Royal Blue Header Banner */}
-        <div className="bg-gradient-to-r from-blue-600 via-blue-500 to-cyan-500 text-white p-3.5 sm:p-4 rounded-[1.8rem] border border-blue-400/30 shadow-md flex justify-between items-center flex-wrap gap-2.5">
+      {/* 🌟 Floating Quick Scan Toast Notification */}
+      {quickScanToast && (
+        <div className="fixed top-16 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-2xl bg-slate-900 text-white text-xs font-bold shadow-md flex items-center gap-2 border border-blue-400">
+          <CheckCircle2 size={16} className="text-emerald-400 shrink-0" />
+          <span>{quickScanToast}</span>
+        </div>
+      )}
+      {/* Inline Warning / Notice Banner */}
+      {actionNotice && (
+        <div className="fixed top-16 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-2xl bg-rose-600 text-white text-xs font-bold shadow-2xl flex items-center gap-2 animate-in fade-in">
+          <AlertTriangle size={15} className="shrink-0" />
+          <span>{actionNotice}</span>
+          <button type="button" onClick={() => setActionNotice(null)} className="ml-1 opacity-80 hover:opacity-100 cursor-pointer">
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
+      {/* 🌟 Stable Header Banner (Single Back Button handled by App header) */}
+      <div className="w-full z-20 mb-3.5">
+        {/* 🌟 Clean One UI Royal Blue Header Banner (Gemini Dark Surface in Dark Mode) */}
+        <div className="bg-gradient-to-r from-blue-600 via-blue-500 to-cyan-500 dark:from-[#1E1F20] dark:via-[#1A1B1C] dark:to-[#131314] text-white p-3.5 sm:p-4 rounded-[1.8rem] border border-blue-400/30 dark:border-white/10 shadow-md flex justify-between items-center flex-wrap gap-2.5">
           <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={onBack}
-              className="p-2 sm:px-3 sm:py-2 rounded-xl bg-white/20 hover:bg-white/30 text-white font-bold transition cursor-pointer active:scale-95 border border-white/25 shadow-xs flex items-center gap-1.5"
-              title="กลับหน้าหลัก (Dashboard)"
-              aria-label="กลับหน้าหลัก"
-            >
-              <Home size={17} className="text-white shrink-0" />
-              <span className="text-xs font-bold hidden sm:inline">หน้าหลัก</span>
-            </button>
             <div className="flex-1 min-w-0">
               <h2 className="text-base sm:text-lg font-bold text-white flex items-center gap-2 leading-tight">
                 {type === 'bag' ? (
-                  <BriefcaseMedical size={20} className="text-amber-200 shrink-0" />
+                  <BriefcaseMedical size={20} className="text-amber-200 dark:text-amber-300 shrink-0" />
+                ) : type === 'ambulance' ? (
+                  <Truck size={20} className="text-rose-200 dark:text-rose-400 shrink-0" />
                 ) : (
-                  <Truck size={20} className="text-cyan-200 shrink-0" />
+                  <Truck size={20} className="text-cyan-200 dark:text-[#A8C7FA] shrink-0" />
                 )}
                 <span>{title} (ประจำเดือน {new Date().toLocaleDateString('th-TH', { month: 'long', year: 'numeric' })})</span>
               </h2>
@@ -497,7 +631,18 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
               title="เพิ่มรายการอุปกรณ์ใหม่"
             >
               <Plus size={15} className="stroke-[2.5]" />
-              <span>+ เพิ่มรายการ</span>
+              <span>เพิ่มรายการ</span>
+            </button>
+
+            {/* Bulk Clear Inventory Items */}
+            <button
+              type="button"
+              onClick={() => setPendingBulkAction('clear_all')}
+              className="px-3 py-2 rounded-xl bg-red-600/20 text-red-100 hover:bg-red-600/30 font-bold text-xs shadow-xs transition flex items-center gap-1 cursor-pointer active:scale-95 border border-red-500/30"
+              title="ลบรายการอุปกรณ์ทั้งหมดในหน้านี้"
+            >
+              <Trash2 size={15} />
+              <span className="hidden sm:inline">ลบทั้งหมด</span>
             </button>
 
             {/* 3-State Toggle Pass All Button */}
@@ -509,20 +654,14 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
               }`}
               title={areAllPassed ? `ยกเลิกการตรวจทั้งหมด (สัปดาห์ที่ ${selectedWeek})` : `กดตรวจผ่านปกติทุกรายการประจำสัปดาห์ที่ ${selectedWeek}`}
             >
-              <CheckCheck size={15} />
+              <Check size={15} />
               <span>{areAllPassed ? `ยกเลิกตรวจ (W${selectedWeek})` : `ตรวจผ่านทั้งหมด (W${selectedWeek})`}</span>
             </button>
 
             {/* Clear All Checks Button */}
             <button
               type="button"
-              onClick={() => {
-                if (confirm(`คุณต้องการล้างค่าผลการตรวจเช็กทั้งหมดในสัปดาห์ที่ ${selectedWeek} ใช่หรือไม่?`)) {
-                  allItems.forEach((item) => {
-                    onToggleCheck(item.itemKey, 'ปกติ', item.name, selectedWeek, true, '');
-                  });
-                }
-              }}
+              onClick={() => setPendingBulkAction('clear_checks')}
               className="px-3 py-2 rounded-xl bg-slate-100 dark:bg-white/10 hover:bg-rose-50 hover:text-rose-600 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-white/10 font-bold text-xs transition flex items-center gap-1 cursor-pointer active:scale-95"
               title={`ล้างค่าการตรวจเช็กทั้งหมดสำหรับสัปดาห์ที่ ${selectedWeek}`}
             >
@@ -534,16 +673,7 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
             {totalWeeksInMonth === 5 && (
               <button
                 type="button"
-                onClick={() => {
-                  if (confirm('คุณต้องการทำเครื่องหมาย "ปกติ" ให้กับทุกรายการในทุกสัปดาห์ (1-5) ใช่หรือไม่?')) {
-                    [1, 2, 3, 4, 5].forEach((wk) => {
-                      allItems.forEach((item) => {
-                        const passVal = getRealTargetCheckValue(item);
-                        onToggleCheck(item.itemKey, 'ปกติ', item.name, wk, true, passVal);
-                      });
-                    });
-                  }
-                }}
+                onClick={() => setPendingBulkAction('pass_5_weeks')}
                 className="px-3 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-xs transition flex items-center gap-1 cursor-pointer active:scale-95"
                 title="กดตรวจผ่านปกติทุกรายการ ครบทั้ง 5 สัปดาห์ในครั้งเดียว"
               >
@@ -552,16 +682,6 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
               </button>
             )}
 
-            {/* 📋 Paper Checklist vs Web Audit Button */}
-            <button
-              type="button"
-              onClick={() => setIsPaperAuditOpen(true)}
-              className="px-3 py-2 rounded-xl bg-gradient-to-r from-amber-500 via-pink-500 to-indigo-600 hover:opacity-95 text-white font-bold text-xs shadow-xs transition flex items-center gap-1.5 cursor-pointer active:scale-95"
-              title="ถ่ายภาพกระดาษตรวจเช็คเพื่อให้น้องออร่าเปรียบเทียบรายการที่ขาดหรือจำนวนไม่ตรง"
-            >
-              <Sparkles size={14} className="animate-pulse" />
-              <span>ตรวจเทียบกระดาษ (Audit)</span>
-            </button>
           </div>
         </div>
       </div>
@@ -593,66 +713,52 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
           </div>
         </div>
 
-        <div className="flex items-center justify-between gap-3 border-t border-slate-100 dark:border-white/10 pt-3 flex-wrap">
-          <div className="flex items-center gap-2 flex-1 min-w-[200px]">
-            <span className="text-xs font-bold text-slate-500 dark:text-slate-400 whitespace-nowrap">วันที่ตรวจเช็ค (สัปดาห์ที่ {selectedWeek}):</span>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 border-t border-slate-100 dark:border-white/10 pt-3 min-w-0 max-w-full">
+          <div className="flex items-center gap-2 flex-1 min-w-0 w-full sm:w-auto flex-wrap sm:flex-nowrap">
+            <span className="text-xs font-bold text-slate-500 dark:text-slate-400 whitespace-nowrap shrink-0">วันที่ตรวจเช็ค (สัปดาห์ที่ {selectedWeek}):</span>
             <input
               type="date"
               value={weekDates?.[selectedWeek] || getDeviceTodayDateStr()}
               onChange={(e) => handleDateChange(selectedWeek, e.target.value)}
-              className="flex-1 min-w-[120px] px-3 py-1.5 rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-black/20 text-xs font-bold text-blue-700 dark:text-blue-400 focus:border-blue-500 focus:ring-1 focus:ring-blue-100 outline-none"
+              className="flex-1 min-w-0 w-full sm:w-auto px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/90 text-xs font-bold text-blue-700 dark:text-blue-400 focus:border-blue-500 focus:ring-1 focus:ring-blue-100 outline-none"
             />
-            <button
-              type="button"
-              onClick={() => {
-                const dateVal = weekDates[selectedWeek];
-                if (!dateVal) {
-                  alert('กรุณาเลือกวันที่ก่อนกดใช้กับทุกสัปดาห์');
-                  return;
-                }
-                const updated: Record<number, string> = {};
-                availableWeeks.forEach((wk) => {
-                  updated[wk] = dateVal;
-                });
-                onWeekDatesChange(updated);
-              }}
-              className="px-2 py-1.5 rounded-lg bg-slate-100 dark:bg-white/10 hover:bg-slate-200 dark:hover:bg-white/20 text-slate-600 dark:text-slate-300 text-[10px] font-bold border border-slate-200 dark:border-white/10 transition active:scale-95 whitespace-nowrap"
-              title="ใช้วันที่นี้กับทุกสัปดาห์"
-            >
-              ใช้กับทุกสัปดาห์
-            </button>
           </div>
 
           <button
             type="button"
+            disabled={isSavingReport}
             onClick={handleSaveAndPreview}
-            className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-md transition flex items-center gap-1.5 cursor-pointer active:scale-95 group"
+            className="w-full sm:w-auto justify-center shrink-0 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed text-white font-bold text-xs shadow-md transition flex items-center gap-1.5 cursor-pointer active:scale-95 group"
             title="บันทึกข้อมูลและเข้าสู่หน้าพรีวิวเพื่อพิมพ์ PDF"
           >
-            <CheckCircle2 size={15} className="group-hover:scale-110 transition-transform" />
-            <span>บันทึก & พรีวิว PDF</span>
+            {isSavingReport ? (
+              <Loader2 size={15} className="animate-spin" />
+            ) : (
+              <CheckCircle2 size={15} className="group-hover:scale-110 transition-transform" />
+            )}
+            <span>{isSavingReport ? 'กำลังบันทึก...' : 'บันทึก & พรีวิว PDF'}</span>
           </button>
         </div>
       </div>
 
       {/* Progress & Summary Badge Bar */}
-      <div className="p-3 rounded-2xl bg-white border border-slate-200/90 shadow-xs flex items-center justify-between flex-wrap gap-2 text-xs">
-        <div className="flex items-center gap-2 font-bold text-slate-800">
+      <div className="p-3 rounded-2xl bg-white dark:bg-slate-800/90 border border-slate-200/90 dark:border-slate-700 shadow-xs flex items-center justify-between flex-wrap gap-2 text-xs">
+        <div className="flex items-center gap-2 font-bold text-slate-800 dark:text-slate-100">
           <span>ความพร้อม (สัปดาห์ที่ {selectedWeek}):</span>
-          <span className="text-blue-600 font-extrabold">
+          <span className="text-blue-600 dark:text-blue-400 font-extrabold">
             {checkedCount} / {totalCount}
           </span>
-          <span className="text-slate-500 font-normal">
+          <span className="text-slate-500 dark:text-slate-400 font-normal">
             ({Math.round(totalCount > 0 ? (checkedCount / totalCount) * 100 : 0)}%)
           </span>
         </div>
 
         <div className="flex items-center gap-2">
-          <span className="px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-bold border border-emerald-200">
+          <span className="px-2.5 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 font-bold border border-emerald-200 dark:border-emerald-700/70">
             ✓ ปกติ {normalCount}
           </span>
           {defectiveCount > 0 && (
-            <span className="px-2.5 py-0.5 rounded-full bg-rose-50 text-rose-700 font-bold border border-rose-200 flex items-center gap-1">
+            <span className="px-2.5 py-0.5 rounded-full bg-rose-50 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300 font-bold border border-rose-200 dark:border-rose-700/70 flex items-center gap-1">
               <AlertTriangle size={12} />
               <span>มีปัญหา {defectiveCount}</span>
             </span>
@@ -663,13 +769,13 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
       {/* Group Selector Pills & Search Bar */}
       <div className="space-y-2">
         <div className="relative">
-          <Search size={15} className="absolute left-3 top-2.5 text-slate-400" />
+          <Search size={15} className="absolute left-3.5 top-2.5 text-slate-400 dark:text-slate-400" />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="ค้นหาชื่ออุปกรณ์, รหัส, ตำแหน่ง..."
-            className="w-full pl-9 pr-3 py-2 rounded-xl bg-white border border-slate-200 text-slate-800 text-xs outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-100 transition placeholder:text-slate-400 font-sans shadow-xs"
+            className="w-full pl-9 pr-3 py-2 rounded-xl bg-white dark:bg-slate-800/90 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 text-xs outline-none focus:border-blue-500 dark:focus:border-blue-400 focus:ring-1 focus:ring-blue-100 dark:focus:ring-blue-500/20 transition placeholder:text-slate-400 dark:placeholder:text-slate-500 font-sans shadow-xs"
           />
         </div>
 
@@ -681,16 +787,15 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
               className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition cursor-pointer active:scale-95 ${
                 selectedGroup === 'all'
                   ? 'bg-blue-600 text-white shadow-xs'
-                  : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50'
+                  : 'bg-white dark:bg-slate-800/90 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/80'
               }`}
             >
               ทั้งหมด ({allItems.length})
             </button>
             {groups.map((grp) => {
-              const grpCount = allItems.filter((i) => i.groupName === grp).length;
-              const grpChecked = allItems.filter(
-                (i) => i.groupName === grp && checks[i.itemKey]?.result
-              ).length;
+              const grpItems = allItems.filter((i) => i.groupName === grp);
+              const grpCount = grpItems.length;
+              const grpChecked = grpItems.filter((i) => getItemWeekStatus(i) !== '').length;
               const isGrpDone = grpCount > 0 && grpChecked >= grpCount;
 
               return (
@@ -702,12 +807,16 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
                     selectedGroup === grp
                       ? 'bg-blue-600 text-white shadow-xs'
                       : isGrpDone
-                      ? 'bg-emerald-50 text-emerald-800 border border-emerald-300 font-bold'
-                      : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50'
+                      ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700 font-bold'
+                      : 'bg-white dark:bg-slate-800/90 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/80'
                   }`}
                 >
                   <span>{grp}</span>
-                  <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-100 text-slate-600">
+                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${
+                    selectedGroup === grp
+                      ? 'bg-white/20 text-white'
+                      : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
+                  }`}>
                     {grpChecked}/{grpCount}
                   </span>
                 </button>
@@ -717,10 +826,52 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
         )}
       </div>
 
+      {/* 📷 Mode 3: Quick Section OCR Action Banner */}
+      <div className="flex flex-wrap items-center justify-between gap-2 p-3 bg-gradient-to-r from-blue-50/90 to-slate-50 dark:from-slate-800/90 dark:to-slate-800/90 dark:bg-slate-800/90 rounded-2xl border border-blue-200 dark:border-slate-700 shadow-xs mb-3">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="w-2.5 h-2.5 rounded-full bg-[#1B6EF3] shrink-0" />
+          <span className="font-bold text-xs text-slate-800 dark:text-slate-100 truncate">
+            {selectedGroup === 'all' ? `ตรวจเช็กทั้งหมด (${filteredItems.length} รายการ)` : `หมวด: ${selectedGroup}`}
+          </span>
+          <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 font-bold border border-blue-200 dark:border-blue-800 shrink-0">
+            สัปดาห์ที่ {selectedWeek}
+          </span>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <input
+            type="file"
+            ref={quickOcrInputRef}
+            className="hidden"
+            accept="image/*"
+            onChange={handleQuickOcrFileSelect}
+          />
+          <button
+            type="button"
+            disabled={isQuickScanning}
+            onClick={() => quickOcrInputRef.current?.click()}
+            className="px-3.5 py-1.5 rounded-xl bg-[#1B6EF3] hover:bg-[#0B5ED7] disabled:opacity-60 text-white text-xs font-bold shadow-xs flex items-center gap-1.5 cursor-pointer active:scale-95 transition"
+            title="สแกนใบตรวจเช็กเฉพาะหมวดนี้ เพื่อเติมผลตรวจอัตโนมัติ 1-2 วินาที"
+          >
+            {isQuickScanning ? (
+              <>
+                <Loader2 size={13} className="animate-spin" />
+                <span>กำลังสแกนด่วน...</span>
+              </>
+            ) : (
+              <>
+                <Camera size={13} />
+                <span>📷 สแกนด่วนหมวดนี้</span>
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+
       {/* 📋 Clean Checklist Cards (CSS Column Layout for Seamless Desktop Masonry Flow Without Gaps) */}
       <div className="columns-1 md:columns-2 gap-3.5 md:gap-4 [column-fill:_balance]">
         {filteredItems.length === 0 ? (
-          <div className="w-full p-6 text-center bg-white rounded-2xl border border-slate-200 text-slate-500 text-xs shadow-xs mb-4">
+          <div className="w-full p-6 text-center bg-white dark:bg-slate-800/90 rounded-2xl border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-300 text-xs shadow-xs mb-4">
             ไม่พบรายการอุปกรณ์ตรงตามคำค้นหา
           </div>
         ) : (
@@ -737,9 +888,9 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
             const hasMultipleSubItems = isType2;
             const subStatuses = parseSubItemStatuses(weekVal, classification.subQuantities);
 
-            // Calculate current counted quantity for Type 1 items
+            // Calculate current counted quantity for Type 1 items strictly from selectedWeek weekVal
             let currentCount: number | null = null;
-            if (weekVal !== undefined && weekVal !== '') {
+            if (weekVal !== undefined && String(weekVal).trim() !== '') {
               if (weekVal.includes(',')) {
                 const parts = weekVal.split(',').map((p) => p.trim());
                 currentCount = parts.filter((p) => p === '1' || p === '✓' || parseInt(p, 10) > 0).length;
@@ -747,26 +898,23 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
                 const parsed = parseInt(String(weekVal).replace(/\D/g, ''), 10);
                 currentCount = isNaN(parsed) ? (weekVal === '✗' ? 0 : null) : parsed;
               }
-            } else if (check?.result === 'ปกติ') {
-              currentCount = targetTotalQty;
-            } else if (check?.result === 'ผิดปกติ') {
-              currentCount = 0;
             }
 
             const isCountOk = currentCount !== null && currentCount >= targetTotalQty;
             const isCountPartial = currentCount !== null && currentCount > 0 && currentCount < targetTotalQty;
-            const isCountZero = currentCount === 0 || check?.result === 'ผิดปกติ';
+            const isCountZero = currentCount === 0;
+            const hasWeekVal = weekVal !== undefined && String(weekVal).trim() !== '';
 
             const isOk = isType2
-              ? (weekVal ? subStatuses.every((s, i) => s === String(classification.subQuantities[i] || 1)) : false)
+              ? (hasWeekVal ? subStatuses.every((s, i) => s === String(classification.subQuantities[i] || 1)) : false)
               : isType1
               ? isCountOk
-              : (weekVal === '1' || weekVal === String(classification.subQuantities[0]) || check?.result === 'ปกติ');
+              : (hasWeekVal && weekVal !== '0' && weekVal !== '✗');
             const isBad = isType2
-              ? (weekVal ? subStatuses.some((s, i) => s === '0' || s === '✗' || (s !== '' && s !== String(classification.subQuantities[i] || 1))) : false)
+              ? (hasWeekVal ? subStatuses.some((s, i) => s === '0' || s === '✗' || (s !== '' && s !== String(classification.subQuantities[i] || 1))) : false)
               : isType1
               ? isCountZero || isCountPartial
-              : (weekVal === '0' || check?.result === 'ผิดปกติ');
+              : (weekVal === '0' || weekVal === '✗');
 
             const currentExp = check?.exp || item.exp || '';
             const subExps = parseSubExps(currentExp);
@@ -820,12 +968,12 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
               <div
                 key={item.itemKey}
                 style={{ breakInside: 'avoid' }}
-                className={`break-inside-avoid mb-3.5 md:mb-4 inline-block w-full align-top p-2.5 sm:p-3 rounded-2xl border transition-all duration-150 space-y-2 transform-gpu contain-content ${
+                className={`break-inside-avoid mb-3.5 md:mb-4 inline-block w-full align-top p-2.5 sm:p-3 rounded-2xl border transition-colors duration-150 space-y-2 card-perf ${
                   isBad
-                    ? 'bg-rose-50/70 border-rose-300 shadow-xs text-slate-900'
+                    ? 'bg-rose-50/90 dark:bg-rose-950/35 border-rose-300 dark:border-rose-700/80 shadow-xs text-slate-900 dark:text-slate-100'
                     : isOk
-                    ? 'bg-emerald-50/60 border-emerald-300 shadow-xs text-slate-900'
-                    : 'bg-white border-slate-200 shadow-xs text-slate-900 hover:border-blue-200'
+                    ? 'bg-emerald-50/85 dark:bg-emerald-950/35 border-emerald-300 dark:border-emerald-700/80 shadow-xs text-slate-900 dark:text-slate-100'
+                    : 'bg-white dark:bg-slate-800/90 border-slate-200 dark:border-slate-700 shadow-xs text-slate-900 dark:text-slate-100 hover:border-blue-200 dark:hover:border-blue-500/60'
                 }`}
               >
                 {/* Minimal Header Row */}
@@ -833,7 +981,7 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
                   <div className="min-w-0 flex-1 space-y-0.5">
                     <div className="flex items-center justify-between gap-1.5">
                       <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className="text-[10px] px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 font-bold border border-blue-200">
+                        <span className="text-[10px] px-2 py-0.5 rounded-md bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 font-bold border border-blue-200 dark:border-blue-800/80">
                           {item.groupName}
                         </span>
                         {item.no && (
@@ -842,22 +990,22 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
                           </span>
                         )}
                         {item.code && (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-slate-100 text-slate-700 font-mono border border-slate-200">
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-mono border border-slate-200 dark:border-slate-600">
                             {item.code}
                           </span>
                         )}
                         {isType1 && (
-                          <span className="text-[10px] px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 font-bold border border-blue-200">
+                          <span className="text-[10px] px-2 py-0.5 rounded-md bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 font-bold border border-blue-200 dark:border-blue-800/80 tabular-nums shrink-0 whitespace-nowrap">
                             เป้าหมาย {targetTotalQty} {item.qty?.replace(/[0-9\s]/g, '') || 'ชิ้น'}
                             {currentCount !== null && (
-                              <span className={`ml-1 font-mono ${isCountOk ? 'text-emerald-700' : 'text-rose-700'}`}>
+                              <span className={`ml-1 font-mono ${isCountOk ? 'text-emerald-700 dark:text-emerald-400' : 'text-rose-700 dark:text-rose-400'}`}>
                                 ({currentCount}/{targetTotalQty})
                               </span>
                             )}
                           </span>
                         )}
                         {hasMultipleSubItems && (
-                          <span className="text-[10px] px-2 py-0.5 rounded-md bg-purple-50 text-purple-700 font-bold border border-purple-200">
+                          <span className="text-[10px] px-2 py-0.5 rounded-md bg-purple-50 dark:bg-purple-950/50 text-purple-700 dark:text-purple-300 font-bold border border-purple-200 dark:border-purple-800/70 tabular-nums shrink-0 whitespace-nowrap">
                             {subItems.length} ชิ้นย่อย ({subStatuses.filter((s, i) => s === String(classification.subQuantities[i] || 1)).length}/{subItems.length} ปกติ)
                           </span>
                         )}
@@ -867,69 +1015,88 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
                       <button
                         type="button"
                         onClick={() => handleOpenEditModal(item as any)}
-                        className="p-1 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-blue-600 transition cursor-pointer"
+                        className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition cursor-pointer"
                         title="แก้ไขรายการอุปกรณ์"
                       >
                         <MoreVertical size={15} />
                       </button>
                     </div>
 
-                    <h3 className="text-sm font-bold text-slate-900 leading-snug">
+                    <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 leading-snug">
                       {idx + 1}. {sanitizeItemName(item.name)}
                     </h3>
 
                     {item.spec && (
-                      <p className="text-xs text-slate-500 line-clamp-1 font-sans">{item.spec}</p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-1 font-sans">{item.spec}</p>
                     )}
 
-                    {/* Non-multi Single Item / Type 1 EXP Display with No EXP toggle */}
-                    {!hasMultipleSubItems && (
-                      <div className="mt-1 flex items-center gap-2 pl-2">
-                        {currentExp === '-' || !currentExp || currentExp.toLowerCase() === 'no exp' || !currentExp.match(/^\d{4}-\d{2}-\d{2}$/) ? (
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-[10px] text-slate-600 font-bold bg-slate-100 px-2.5 py-0.5 rounded border border-slate-200">
-                              EXP: {currentExp || '-'}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => onUpdateNote(item.itemKey, `EXP:${getDeviceTodayDateStr()}`)}
-                              className="text-[10px] text-blue-600 font-bold hover:underline cursor-pointer"
-                            >
-                              ใส่วันที่
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="flex items-center gap-1.5 border-l-2 border-rose-200 pl-2">
-                            <p className="text-xs text-rose-600 font-bold flex items-center gap-1 shrink-0">
-                              <span>⏳ EXP:</span>
-                            </p>
+                    {/* Non-multi Single Item / Type 1 EXP Display (Hide No EXP if item already has an EXP value) */}
+                    {!hasMultipleSubItems && (() => {
+                      const cleanExp = String(currentExp || '').trim();
+                      const hasValidExp = Boolean(cleanExp && cleanExp !== '-' && !/^no\s*exp$/i.test(cleanExp));
+                      const isIsoDateExp = /^\d{4}-\d{2}-\d{2}$/.test(cleanExp);
+
+                      return (
+                        <div className="mt-1 flex items-center gap-2 pl-2">
+                          {!hasValidExp ? (
                             <div className="flex items-center gap-1.5">
-                              <input
-                                type="date"
-                                value={currentExp}
-                                onChange={(e) => onUpdateNote(item.itemKey, `EXP:${e.target.value}`)}
-                                className="text-[10px] bg-white border border-rose-200 rounded px-1.5 py-0.5 text-rose-700 font-bold outline-none w-32 h-7"
-                                title="ใส่วันหมดอายุ"
-                              />
+                              <span className="text-[10px] text-slate-500 dark:text-slate-300 font-bold bg-slate-100 dark:bg-slate-700/80 px-2.5 py-0.5 rounded border border-slate-200 dark:border-slate-600">
+                                ไม่มีวันหมดอายุ (No EXP)
+                              </span>
                               <button
                                 type="button"
-                                onClick={() => onUpdateNote(item.itemKey, 'EXP:-')}
-                                className="px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 text-[10px] font-bold transition cursor-pointer"
-                                title="ไม่มีวันหมดอายุ"
+                                onClick={() => onUpdateNote(item.itemKey, `EXP:${getDeviceTodayDateStr()}`)}
+                                className="text-[10px] text-blue-600 dark:text-blue-400 font-bold hover:underline cursor-pointer"
                               >
-                                No EXP
+                                + ใส่วันที่
                               </button>
                             </div>
-                          </div>
-                        )}
-                      </div>
-                    )}
+                          ) : isIsoDateExp ? (
+                            <div className="flex items-center gap-1.5 border-l-2 border-rose-200 dark:border-rose-700 pl-2">
+                              <p className="text-xs text-rose-600 dark:text-rose-400 font-bold flex items-center gap-1 shrink-0">
+                                <span>⏳ EXP:</span>
+                              </p>
+                              <div className="flex items-center gap-1.5">
+                                <input
+                                  type="date"
+                                  value={cleanExp}
+                                  onChange={(e) => onUpdateNote(item.itemKey, `EXP:${e.target.value}`)}
+                                  className="text-[10px] bg-white dark:bg-slate-900 border border-rose-200 dark:border-rose-700 rounded px-1.5 py-0.5 text-rose-700 dark:text-rose-300 font-bold outline-none w-32 h-7"
+                                  title="แก้ไขวันหมดอายุ"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => onUpdateNote(item.itemKey, 'EXP:-')}
+                                  className="p-1 rounded-md bg-slate-100 dark:bg-slate-700 hover:bg-rose-100 dark:hover:bg-rose-900/50 text-slate-500 dark:text-slate-300 hover:text-rose-600 dark:hover:text-rose-300 transition cursor-pointer"
+                                  title="ล้างวันหมดอายุ"
+                                >
+                                  <X size={11} />
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-1.5 border-l-2 border-rose-200 dark:border-rose-700 pl-2">
+                              <span className="text-[11px] text-rose-700 dark:text-rose-300 font-bold bg-rose-50 dark:bg-rose-950/60 px-2.5 py-0.5 rounded border border-rose-200 dark:border-rose-700/80">
+                                ⏳ EXP: {cleanExp}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => onUpdateNote(item.itemKey, `EXP:${getDeviceTodayDateStr()}`)}
+                                className="text-[10px] text-blue-600 dark:text-blue-400 font-bold hover:underline cursor-pointer"
+                              >
+                                ปรับวันที่
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </div>
 
                   {item.img && (
                     <div
                       onClick={() => onZoomImage && onZoomImage(item.img!)}
-                      className="w-12 h-12 rounded-xl overflow-hidden border border-slate-200 shrink-0 cursor-pointer hover:opacity-80 transition relative shadow-xs"
+                      className="w-12 h-12 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 shrink-0 cursor-pointer hover:opacity-80 transition relative shadow-xs"
                     >
                       <img src={item.img} alt={item.name} className="w-full h-full object-cover" />
                       <Maximize2
@@ -940,137 +1107,171 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
                   )}
                 </div>
 
-                {/* Sub-Items Dynamic Check Section (when item has multiple sub-items / sizes) */}
-                {hasMultipleSubItems ? (
-                  <div className="space-y-2 pt-2 border-t border-slate-100 transition-all duration-200 ease-in-out overflow-hidden transform-gpu">
-                    <div className="flex items-center justify-between text-[11px] text-slate-600 font-bold">
-                      <span>ตรวจเช็กแยกตามชิ้นย่อย / แต่ละเบอร์:</span>
-                      <span className="text-[10px] font-normal text-slate-500">
-                        สัปดาห์ที่ {selectedWeek}
-                      </span>
-                    </div>
+                {/* Sub-Items Dynamic Check Section (Collapsible Accordion) */}
+                {hasMultipleSubItems ? (() => {
+                  const isExpanded = !!expandedMultiItems[item.itemKey];
+                  const passedSubCount = subStatuses.filter((s, i) => s === String(classification.subQuantities[i] || 1)).length;
+                  return (
+                    <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-700/80 transition-all duration-200 ease-in-out overflow-hidden transform-gpu">
+                      {/* Accordion Header Trigger + Master Quick Actions */}
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setExpandedMultiItems((prev) => ({
+                              ...prev,
+                              [item.itemKey]: !prev[item.itemKey],
+                            }))
+                          }
+                          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-700/80 hover:bg-blue-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-100 hover:text-blue-700 dark:hover:text-blue-300 text-[11px] font-bold transition cursor-pointer border border-slate-200/80 dark:border-slate-600"
+                        >
+                          {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                          <span>
+                            {isExpanded ? 'ซ่อน' : 'แสดง'}รายการย่อย ({passedSubCount}/{subItems.length} ชิ้น)
+                          </span>
+                        </button>
+                        <span className="text-[10px] font-medium text-slate-500 dark:text-slate-400">
+                          สัปดาห์ที่ {selectedWeek}
+                        </span>
+                      </div>
 
-                    {/* Sub-item Grid */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      {subItems.map((subLabel, idx) => {
-                        const subInfo = getItemSubItemsInfo(item);
-                        const subTarget = String(subInfo.quantities[idx] || 1);
-                        const status = subStatuses[idx];
-                        const isSubOk = status === subTarget;
-                        const isSubBad = status === '0' || status === '✗' || (status !== '' && status !== subTarget);
-                        const matchedSubExp = subExps[idx]?.date || (subExps.find((s) => s.label?.includes(subLabel))?.date) || '';
-                        const isSubNoExp = !matchedSubExp || matchedSubExp === '-' || matchedSubExp.toLowerCase() === 'no exp' || !matchedSubExp.match(/^\d{4}-\d{2}-\d{2}$/);
+                      {/* Master Actions always accessible without needing to expand */}
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={handleMasterAllOk}
+                          className={`flex-1 py-1.5 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer active:scale-95 ${
+                            isOk
+                              ? 'bg-emerald-600 text-white shadow-xs'
+                              : 'bg-slate-100 dark:bg-slate-700/80 text-slate-700 dark:text-slate-100 hover:bg-emerald-50 dark:hover:bg-emerald-950/60 hover:text-emerald-700 dark:hover:text-emerald-300 border border-slate-200/80 dark:border-slate-600'
+                          }`}
+                        >
+                          <Check size={14} strokeWidth={2.5} />
+                          <span>ปกติทั้งหมด ({subItems.length} ชิ้น)</span>
+                        </button>
 
-                        return (
-                          <div
-                            key={idx}
-                            className={`px-2 py-1.5 rounded-xl border flex items-center justify-between gap-2 transition ${
-                              isSubBad
-                                ? 'bg-rose-50 border-rose-200'
-                                : isSubOk
-                                ? 'bg-emerald-50 border-emerald-200'
-                                : 'bg-slate-50 dark:bg-black/20 border-slate-200'
-                            }`}
-                          >
-                            {/* Left: Sub-item name/label bold & clear */}
-                            <div className="flex items-center gap-2 min-w-0 flex-1">
-                              <span className="font-bold text-xs text-slate-800 truncate" title={subLabel}>
-                                {subLabel}
-                              </span>
-                              {/* Center: EXP short label */}
-                              <span className="text-[10px] text-slate-500 hidden sm:inline truncate">
-                                {isSubNoExp ? 'No EXP' : matchedSubExp}
-                              </span>
-                            </div>
+                        <button
+                          type="button"
+                          onClick={handleMasterAllBad}
+                          className={`flex-1 py-1.5 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer active:scale-95 ${
+                            isBad
+                              ? 'bg-rose-600 text-white shadow-xs'
+                              : 'bg-slate-100 dark:bg-slate-700/80 text-slate-700 dark:text-slate-100 hover:bg-rose-50 dark:hover:bg-rose-950/60 hover:text-rose-700 dark:hover:text-rose-300 border border-slate-200/80 dark:border-slate-600'
+                          }`}
+                        >
+                          <X size={14} strokeWidth={2.5} />
+                          <span>มีปัญหาทั้งหมด</span>
+                        </button>
+                      </div>
 
-                              <div className="flex items-center gap-1.5 shrink-0">
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    const subInfo = getItemSubItemsInfo(item);
-                                    handleToggleSubItem(idx, String(subInfo.quantities[idx] || 1));
-                                  }}
-                                  className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-0.5 cursor-pointer transition active:scale-95 ${
-                                    isSubOk
-                                      ? 'bg-emerald-600 text-white shadow-2xs'
-                                      : 'bg-white border border-slate-300 text-slate-700 hover:bg-emerald-100'
-                                  }`}
-                                  title={`ตรวจแล้ว ปกติ (${subTarget})`}
-                                >
-                                  <Check size={13} strokeWidth={3} />
-                                  <span>ผ่าน ({subTarget})</span>
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleToggleSubItem(idx, '0')}
-                                  className={`px-2 py-1 rounded-lg text-xs font-bold flex items-center gap-0.5 cursor-pointer transition active:scale-95 ${
-                                    isSubBad
-                                      ? 'bg-rose-600 text-white shadow-2xs'
-                                      : 'bg-white border border-slate-300 text-slate-700 hover:bg-rose-100'
-                                  }`}
-                                  title="ตรวจแล้ว มีปัญหา/ขาด (0)"
-                                >
-                                  <X size={13} strokeWidth={3} />
-                                  <span>ไม่ผ่าน</span>
-                                </button>
+                      {/* Expandable Sub-item Grid */}
+                      {isExpanded && (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 animate-in fade-in slide-in-from-top-1 duration-150">
+                          {subItems.map((subLabel, idx) => {
+                            const subInfo = getItemSubItemsInfo(item);
+                            const subTarget = String(subInfo.quantities[idx] || 1);
+                            const status = subStatuses[idx];
+                            const isSubOk = status === subTarget;
+                            const isSubBad = status === '0' || status === '✗' || (status !== '' && status !== subTarget);
+                            const matchedSubExp = (
+                              subExps[idx]?.date ||
+                              subExps.find((s) => s.label?.includes(subLabel))?.date ||
+                              ''
+                            ).trim();
+                            const hasSubExp = Boolean(
+                              matchedSubExp &&
+                              matchedSubExp !== '-' &&
+                              !/^no\s*exp$/i.test(matchedSubExp)
+                            );
+
+                            return (
+                              <div
+                                key={idx}
+                                className={`px-2 py-1.5 rounded-xl border flex items-center justify-between gap-2 transition ${
+                                  isSubBad
+                                    ? 'bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-700/80'
+                                    : isSubOk
+                                    ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-700/80'
+                                    : 'bg-slate-50 dark:bg-slate-900/60 border-slate-200 dark:border-slate-700'
+                                }`}
+                              >
+                                {/* Left: Sub-item name/label & EXP only when missing or valid date */}
+                                <div className="flex items-center gap-2 min-w-0 flex-1">
+                                  <span className="font-bold text-xs text-slate-800 dark:text-slate-100 truncate" title={subLabel}>
+                                    {subLabel}
+                                  </span>
+                                  {hasSubExp ? (
+                                    <span className="text-[10px] text-rose-600 dark:text-rose-400 font-bold hidden sm:inline truncate">
+                                      EXP: {matchedSubExp}
+                                    </span>
+                                  ) : (
+                                    <span className="text-[10px] text-slate-400 dark:text-slate-500 hidden sm:inline truncate">
+                                      ไม่มี EXP
+                                    </span>
+                                  )}
+                                </div>
+
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const subInfo = getItemSubItemsInfo(item);
+                                      handleToggleSubItem(idx, String(subInfo.quantities[idx] || 1));
+                                    }}
+                                    className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-0.5 cursor-pointer transition active:scale-95 ${
+                                      isSubOk
+                                        ? 'bg-emerald-600 text-white shadow-2xs'
+                                        : 'bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-100 hover:bg-emerald-100 dark:hover:bg-emerald-950/60'
+                                    }`}
+                                    title={`ตรวจแล้ว ปกติ (${subTarget})`}
+                                  >
+                                    <Check size={13} strokeWidth={3} />
+                                    <span>ผ่าน ({subTarget})</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleToggleSubItem(idx, '0')}
+                                    className={`px-2 py-1 rounded-lg text-xs font-bold flex items-center gap-0.5 cursor-pointer transition active:scale-95 ${
+                                      isSubBad
+                                        ? 'bg-rose-600 text-white shadow-2xs'
+                                        : 'bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-100 hover:bg-rose-100 dark:hover:bg-rose-950/60'
+                                    }`}
+                                    title="ตรวจแล้ว มีปัญหา/ขาด (0)"
+                                  >
+                                    <X size={13} strokeWidth={3} />
+                                    <span>ไม่ผ่าน</span>
+                                  </button>
+                                </div>
                               </div>
-                          </div>
-                        );
-                      })}
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
-
-                    {/* Master Actions for Multi-Item */}
-                    <div className="flex items-center gap-2 pt-1">
-                      <button
-                        type="button"
-                        onClick={handleMasterAllOk}
-                        className={`flex-1 py-1.5 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer active:scale-95 ${
-                          isOk
-                            ? 'bg-emerald-600 text-white shadow-xs'
-                            : 'bg-slate-100 text-slate-700 hover:bg-emerald-50 hover:text-emerald-700 border border-slate-200/80'
-                        }`}
-                      >
-                        <Check size={14} strokeWidth={2.5} />
-                        <span>ปกติทั้งหมด ({subItems.length} ชิ้น)</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={handleMasterAllBad}
-                        className={`flex-1 py-1.5 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer active:scale-95 ${
-                          isBad
-                            ? 'bg-rose-600 text-white shadow-xs'
-                            : 'bg-slate-100 text-slate-700 hover:bg-rose-50 hover:text-rose-700 border border-slate-200/80'
-                        }`}
-                      >
-                        <X size={14} strokeWidth={2.5} />
-                        <span>มีปัญหาทั้งหมด</span>
-                      </button>
-                    </div>
-                  </div>
-                ) : isType1 ? (
+                  );
+                })() : isType1 ? (
                   /* Type 1 Quantity Check Section (Tape 4 เส้น, Syringe blow cuff 2 อัน, Sterile water 3 ขวด) */
-                  <div className="space-y-2 pt-2 border-t border-slate-100">
-                    <div className="flex items-center justify-between text-[11px] text-slate-600 font-bold">
+                  <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-700/80">
+                    <div className="flex items-center justify-between text-[11px] text-slate-600 dark:text-slate-300 font-bold">
                       <span>จำนวนที่ตรวจนับได้:</span>
-                      <span className="text-[10px] text-slate-500 font-normal">
+                      <span className="text-[10px] text-slate-500 dark:text-slate-400 font-normal">
                         เป้าหมาย {targetTotalQty} {item.qty?.replace(/[0-9\s]/g, '') || 'ชิ้น'}
                       </span>
                     </div>
 
                     <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
                       {/* Stepper Count Selector */}
-                      <div className="flex items-center bg-slate-100 dark:bg-black/20 rounded-xl p-1 border border-slate-200 shrink-0">
+                      <div className="flex items-center bg-slate-100 dark:bg-slate-900/70 rounded-xl p-1 border border-slate-200 dark:border-slate-700 shrink-0">
                         <button
                           type="button"
                           onClick={() => handleSetCount((currentCount ?? targetTotalQty) - 1)}
-                          className="w-8 h-8 rounded-lg bg-white dark:bg-black/40 shadow-2xs hover:bg-slate-50 flex items-center justify-center font-bold text-slate-700 dark:text-slate-200 active:scale-90 transition cursor-pointer text-base"
+                          className="w-8 h-8 rounded-lg bg-white dark:bg-slate-800 shadow-2xs hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center justify-center font-bold text-slate-700 dark:text-slate-100 active:scale-90 transition cursor-pointer text-base"
                           title="ลดจำนวน (-1)"
                         >
                           -
                         </button>
                         <div className="px-3 text-center min-w-[50px]">
-                          <span className={`text-base font-bold ${isCountOk ? 'text-emerald-600' : isCountZero ? 'text-rose-600' : 'text-slate-900'}`}>
+                          <span className={`text-base font-bold ${isCountOk ? 'text-emerald-600 dark:text-emerald-400' : isCountZero ? 'text-rose-600 dark:text-rose-400' : 'text-slate-900 dark:text-slate-100'}`}>
                             {currentCount !== null ? currentCount : '-'}
                           </span>
                           <span className="text-[10px] text-slate-400 font-bold">/{targetTotalQty}</span>
@@ -1078,7 +1279,7 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
                         <button
                           type="button"
                           onClick={() => handleSetCount((currentCount ?? 0) + 1)}
-                          className="w-8 h-8 rounded-lg bg-white dark:bg-black/40 shadow-2xs hover:bg-slate-50 flex items-center justify-center font-bold text-slate-700 dark:text-slate-200 active:scale-90 transition cursor-pointer text-base"
+                          className="w-8 h-8 rounded-lg bg-white dark:bg-slate-800 shadow-2xs hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center justify-center font-bold text-slate-700 dark:text-slate-100 active:scale-90 transition cursor-pointer text-base"
                           title="เพิ่มจำนวน (+1)"
                         >
                           +
@@ -1092,7 +1293,7 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
                         className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer active:scale-95 ${
                           isCountOk
                             ? 'bg-emerald-600 text-white shadow-xs'
-                            : 'bg-slate-100 text-slate-700 hover:bg-emerald-50 hover:text-emerald-700 border border-slate-200'
+                            : 'bg-slate-100 dark:bg-slate-700/80 text-slate-700 dark:text-slate-100 hover:bg-emerald-50 dark:hover:bg-emerald-950/60 hover:text-emerald-700 dark:hover:text-emerald-300 border border-slate-200 dark:border-slate-600'
                         }`}
                       >
                         <Check size={14} strokeWidth={2.5} />
@@ -1106,7 +1307,7 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
                         className={`py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1 transition cursor-pointer active:scale-95 shrink-0 ${
                           isCountZero
                             ? 'bg-rose-600 text-white shadow-xs'
-                            : 'bg-slate-100 text-slate-700 hover:bg-rose-50 hover:text-rose-700 border border-slate-200'
+                            : 'bg-slate-100 dark:bg-slate-700/80 text-slate-700 dark:text-slate-100 hover:bg-rose-50 dark:hover:bg-rose-950/60 hover:text-rose-700 dark:hover:text-rose-300 border border-slate-200 dark:border-slate-600'
                         }`}
                       >
                         <X size={14} strokeWidth={2.5} />
@@ -1116,7 +1317,7 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
                   </div>
                 ) : (
                   /* Standard Touch Check Buttons for Single Items */
-                  <div className="space-y-1.5 pt-1.5 border-t border-slate-100">
+                  <div className="space-y-1.5 pt-1.5 border-t border-slate-100 dark:border-slate-700/80">
                     <div className="flex items-center gap-2">
                       <button
                         type="button"
@@ -1124,7 +1325,7 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
                         className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer active:scale-95 ${
                           isOk
                             ? 'bg-emerald-500 text-white shadow-xs'
-                            : 'bg-slate-100 text-slate-700 hover:bg-emerald-50 hover:text-emerald-700 border border-slate-200/80'
+                            : 'bg-slate-100 dark:bg-slate-700/80 text-slate-700 dark:text-slate-100 hover:bg-emerald-50 dark:hover:bg-emerald-950/60 hover:text-emerald-700 dark:hover:text-emerald-300 border border-slate-200/80 dark:border-slate-600'
                         }`}
                       >
                         <Check size={16} strokeWidth={2.5} />
@@ -1137,7 +1338,7 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
                         className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer active:scale-95 ${
                           isBad
                             ? 'bg-rose-500 text-white shadow-xs'
-                            : 'bg-slate-100 text-slate-700 hover:bg-rose-50 hover:text-rose-700 border border-slate-200/80'
+                            : 'bg-slate-100 dark:bg-slate-700/80 text-slate-700 dark:text-slate-100 hover:bg-rose-50 dark:hover:bg-rose-950/60 hover:text-rose-700 dark:hover:text-rose-300 border border-slate-200/80 dark:border-slate-600'
                         }`}
                       >
                         <X size={16} strokeWidth={2.5} />
@@ -1235,7 +1436,7 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
                       value={check?.note && check.note.startsWith('PSI:') ? '' : (check?.note || '')}
                       onChange={(e) => onUpdateNote(item.itemKey, e.target.value)}
                       placeholder="ระบุอาการเสีย หรือปัญหาที่พบ..."
-                      className="w-full px-3 py-1.5 text-xs rounded-xl bg-rose-50 border border-rose-300 outline-none text-rose-900 placeholder:text-rose-400 focus:ring-1 focus:ring-rose-300 font-sans"
+                      className="w-full px-3 py-1.5 text-xs rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-300 dark:border-rose-700/80 outline-none text-rose-900 dark:text-rose-100 placeholder:text-rose-400 dark:placeholder:text-rose-400/70 focus:ring-1 focus:ring-rose-300 font-sans"
                     />
                   )}
                 </div>
@@ -1276,6 +1477,84 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
         onClose={() => setIsPaperAuditOpen(false)}
         initialCategory={type}
       />
+
+      {/* 🛡️ In-UI Bulk Action Confirmation Modal (Replaces native window.confirm) */}
+      {pendingBulkAction && (
+        <div
+          className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in"
+          onClick={() => setPendingBulkAction(null)}
+        >
+          <div
+            className="bg-white dark:bg-[#1E2028] rounded-3xl p-5 sm:p-6 max-w-sm w-full shadow-2xl border border-slate-200 dark:border-white/10 space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-3">
+              <div className={`w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 ${
+                pendingBulkAction === 'pass_5_weeks' ? 'bg-indigo-100 text-indigo-600' : 'bg-rose-100 text-rose-600'
+              }`}>
+                {pendingBulkAction === 'pass_5_weeks' ? <CheckCheck size={22} /> : <AlertTriangle size={22} />}
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                  {pendingBulkAction === 'clear_all'
+                    ? `ลบรายการทั้งหมดใน${type === 'bag' ? 'กระเป๋า' : 'รถฉุกเฉิน'}?`
+                    : pendingBulkAction === 'clear_checks'
+                    ? `ล้างผลตรวจสัปดาห์ที่ ${selectedWeek}?`
+                    : 'ตรวจผ่านปกติครบ 5 สัปดาห์?'}
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  {pendingBulkAction === 'clear_all'
+                    ? 'รายการอุปกรณ์ทั้งหมดในหมวดนี้จะถูกลบถาวร ไม่สามารถย้อนกลับได้'
+                    : pendingBulkAction === 'clear_checks'
+                    ? `ค่าผลการตรวจทั้งหมดในสัปดาห์ที่ ${selectedWeek} จะถูกรีเซ็ตเป็นยังไม่ตรวจ`
+                    : 'ทุกรายการในสัปดาห์ที่ 1-5 จะถูกทำเครื่องหมายว่า "ปกติ"'}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex gap-2.5 pt-1">
+              <button
+                type="button"
+                onClick={() => setPendingBulkAction(null)}
+                className="flex-1 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs cursor-pointer transition"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (pendingBulkAction === 'clear_all') {
+                    onClearAll?.(type);
+                  } else if (pendingBulkAction === 'clear_checks') {
+                    if (onClearWeekChecks) {
+                      onClearWeekChecks(selectedWeek);
+                    } else {
+                      allItems.forEach((item) => {
+                        onToggleCheck(item.itemKey, 'ปกติ', item.name, selectedWeek, true, '');
+                      });
+                    }
+                  } else if (pendingBulkAction === 'pass_5_weeks') {
+                    [1, 2, 3, 4, 5].forEach((wk) => {
+                      allItems.forEach((item) => {
+                        const passVal = getRealTargetCheckValue(item);
+                        onToggleCheck(item.itemKey, 'ปกติ', item.name, wk, true, passVal);
+                      });
+                    });
+                  }
+                  setPendingBulkAction(null);
+                }}
+                className={`flex-1 py-2.5 rounded-xl text-white font-bold text-xs cursor-pointer transition active:scale-95 ${
+                  pendingBulkAction === 'pass_5_weeks'
+                    ? 'bg-indigo-600 hover:bg-indigo-700'
+                    : 'bg-rose-600 hover:bg-rose-700'
+                }`}
+              >
+                ยืนยันดำเนินการ
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { X, Save, Trash2, Upload, Image as ImageIcon, Plus, Minus, Layers, Hash, Calendar } from 'lucide-react';
+import { X, Save, Trash2, Upload, Image as ImageIcon, Plus, Minus, Layers, Hash, Calendar, RotateCcw, RotateCw } from 'lucide-react';
 import { EquipmentItem } from '../types';
 import { getItemSubItemsInfo, getItemSizes, resolveItemUnitText } from '../utils/itemUtils';
+import { compressImageForFirestore } from '../utils/helpers';
 
 export interface SubExpField {
   id: string;
@@ -17,10 +18,42 @@ export interface EditItemModalProps {
   item?: EquipmentItem | null;
   groups: string[];
   mode?: 'add' | 'edit';
-  type?: 'bag' | 'cart';
+  type?: 'bag' | 'cart' | 'ambulance' | string;
   onSave: (updatedItem: EquipmentItem) => void;
   onDelete?: (itemId: string) => void;
 }
+
+const rotateImageBy90 = (dataUrl: string, clockwise: boolean): Promise<string> => {
+  return new Promise((resolve) => {
+    const img = new window.Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        resolve(dataUrl);
+        return;
+      }
+      const width = img.naturalWidth || img.width;
+      const height = img.naturalHeight || img.height;
+
+      canvas.width = height;
+      canvas.height = width;
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.save();
+      ctx.translate(canvas.width / 2, canvas.height / 2);
+      ctx.rotate((clockwise ? 90 : -90) * (Math.PI / 180));
+      ctx.drawImage(img, -width / 2, -height / 2);
+      ctx.restore();
+
+      const rotatedDataUrl = canvas.toDataURL('image/jpeg', 0.88);
+      resolve(rotatedDataUrl);
+    };
+    img.onerror = () => resolve(dataUrl);
+    img.src = dataUrl;
+  });
+};
 
 function toIsoDate(str?: string): string {
   if (!str) return '';
@@ -169,6 +202,8 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
   });
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<boolean>(false);
 
   // Notify system when modal opens/closes to hide bottom bar and floating buttons on mobile
   useEffect(() => {
@@ -215,9 +250,10 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
 
   const handleRemoveSubExp = (id: string) => {
     if (subExps.length <= 1) {
-      alert('ต้องมีรายการย่อยอย่างน้อย 1 รายการ');
+      setFormError('ต้องมีรายการย่อยอย่างน้อย 1 รายการ');
       return;
     }
+    setFormError(null);
     setSubExps((prev) => prev.filter((s) => s.id !== id));
   };
 
@@ -241,14 +277,19 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
     );
   };
 
-  // Image Upload Handler
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Image Upload Handler (auto-compressed <= 440k chars for Firestore safety)
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      if (file.size > 5 * 1024 * 1024) {
-        alert('ขนาดไฟล์รูปภาพเกิน 5MB กรุณาเลือกไฟล์ขนาดเล็กกว่านี้');
-        return;
-      }
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) {
+      setFormError('ขนาดไฟล์รูปภาพเกิน 10MB กรุณาเลือกไฟล์ขนาดเล็กกว่านี้');
+      return;
+    }
+    setFormError(null);
+    try {
+      const compressedBase64 = await compressImageForFirestore(file, 1024, 0.72);
+      if (compressedBase64) setImg(compressedBase64);
+    } catch {
       const reader = new FileReader();
       reader.onload = (event) => {
         const base64Str = event.target?.result as string;
@@ -269,15 +310,16 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) {
-      alert('กรุณากรอกชื่อรายการอุปกรณ์');
+      setFormError('กรุณากรอกชื่อรายการอุปกรณ์');
       return;
     }
 
     const finalCategory = category === '__custom__' ? customCategory.trim() : category;
     if (!finalCategory) {
-      alert('กรุณาเลือกหรือระบุหมวดหมู่/ชั้นวาง');
+      setFormError('กรุณาเลือกหรือระบุหมวดหมู่/ชั้นวาง');
       return;
     }
+    setFormError(null);
 
     if (checkType === 'single') {
       // แบบที่ 1: ตรวจเช็กรวมตามจำนวนตั้งต้นปกติ (Single Count) - บันทึกสตริงข้อความเต็มตามที่ผู้ใช้พิมพ์โดยตรง
@@ -379,7 +421,7 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
             <div>
               <h3 className="text-base font-bold text-slate-900 dark:text-white leading-tight">
                 {isAddMode
-                  ? `เพิ่มรายการอุปกรณ์ (${type === 'bag' ? 'กระเป๋าฉุกเฉิน' : 'รถฉุกเฉิน'})`
+                  ? `เพิ่มรายการอุปกรณ์ (${type === 'bag' ? 'กระเป๋าฉุกเฉิน' : type === 'ambulance' ? 'รถพยาบาลฉุกเฉิน' : 'รถฉุกเฉิน'})`
                   : 'แก้ไขรายการอุปกรณ์'}
               </h3>
               <p className="text-[11px] text-slate-500 dark:text-slate-400">
@@ -805,34 +847,93 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
               </div>
 
               {img && (
-                <div className="mt-2 flex items-center gap-2.5 p-2 bg-slate-50 dark:bg-white/5 rounded-xl border border-slate-200 dark:border-white/10">
-                  <img src={img} alt="Preview" className="w-10 h-10 rounded-lg object-cover border border-slate-300 dark:border-white/20" />
-                  <span className="text-[10px] text-emerald-600 font-bold">✓ พรีวิวรูปภาพสำเร็จ</span>
+                <div className="mt-2 flex items-center justify-between p-2.5 bg-slate-50 dark:bg-white/5 rounded-xl border border-slate-200 dark:border-white/10">
+                  <div className="flex items-center gap-2.5">
+                    <img src={img} alt="Preview" className="w-10 h-10 rounded-lg object-cover border border-slate-300 dark:border-white/20 shadow-xs" />
+                    <div>
+                      <span className="text-[11px] text-emerald-600 dark:text-emerald-400 font-bold block">✓ รูปภาพพร้อมบันทึก</span>
+                      <span className="text-[9.5px] text-slate-400">หมุน 90° เพื่อปรับทิศทางภาพ</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const rotated = await rotateImageBy90(img, false);
+                        setImg(rotated);
+                      }}
+                      className="px-2.5 py-1.5 rounded-lg bg-slate-200 dark:bg-white/10 hover:bg-slate-300 dark:hover:bg-white/20 text-slate-700 dark:text-white font-bold text-[10px] flex items-center gap-1 transition cursor-pointer"
+                      title="หมุนซ้าย 90°"
+                    >
+                      <RotateCcw size={12} />
+                      <span>ซ้าย</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const rotated = await rotateImageBy90(img, true);
+                        setImg(rotated);
+                      }}
+                      className="px-2.5 py-1.5 rounded-lg bg-slate-200 dark:bg-white/10 hover:bg-slate-300 dark:hover:bg-white/20 text-slate-700 dark:text-white font-bold text-[10px] flex items-center gap-1 transition cursor-pointer"
+                      title="หมุนขวา 90°"
+                    >
+                      <RotateCw size={12} />
+                      <span>ขวา</span>
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
           </div>
 
-          {/* Sticky Action Footer (Mobile Keyboard Friendly) */}
-          <div className="sticky bottom-0 bg-white dark:bg-[#181A20] z-[100] border-t border-slate-100 dark:border-white/5 px-5 py-3 shadow-md flex items-center justify-between shrink-0">
-            {!isAddMode && onDelete && item?.id ? (
-              <button
-                type="button"
-                onClick={() => {
-                  if (confirm(`คุณต้องการลบรายการ "${name}" ออกจากระบบใช่หรือไม่?`)) {
-                    onDelete(item.id!);
-                  }
-                }}
-                className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-500/20 font-bold transition cursor-pointer"
-              >
-                <Trash2 size={15} />
-                <span>ลบรายการ</span>
+          {/* Inline Error Alert Banner */}
+          {formError && (
+            <div className="mx-5 mb-2 px-3 py-2 rounded-xl bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs font-bold flex items-center justify-between gap-2">
+              <span>⚠️ {formError}</span>
+              <button type="button" onClick={() => setFormError(null)} className="text-rose-500 hover:text-rose-700 cursor-pointer">
+                <X size={14} />
               </button>
+            </div>
+          )}
+
+          {/* Sticky Action Footer (Mobile Keyboard Friendly) */}
+          <div className="sticky bottom-0 bg-white dark:bg-[#181A20] z-[100] border-t border-slate-100 dark:border-white/5 px-5 py-3 shadow-md flex items-center justify-between gap-2 flex-wrap shrink-0">
+            {!isAddMode && onDelete && item?.id ? (
+              confirmDelete ? (
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setConfirmDelete(false);
+                      onDelete(item.id!);
+                    }}
+                    className="px-3 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs cursor-pointer transition"
+                  >
+                    ยืนยันลบถาวร
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmDelete(false)}
+                    className="px-2.5 py-2 rounded-xl bg-slate-100 dark:bg-white/10 text-slate-600 dark:text-slate-300 font-bold text-xs cursor-pointer transition"
+                  >
+                    ยกเลิกลบ
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setConfirmDelete(true)}
+                  className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-500/20 font-bold transition cursor-pointer"
+                >
+                  <Trash2 size={15} />
+                  <span>ลบรายการ</span>
+                </button>
+              )
             ) : (
               <div />
             )}
 
-            <div className="flex gap-2">
+            <div className="flex gap-2 ml-auto">
               <button
                 type="button"
                 onClick={onClose}

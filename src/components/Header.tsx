@@ -189,9 +189,9 @@ export const Header: React.FC<HeaderProps> = ({
           isVisible ? 'translate-y-0' : '-translate-y-full'
         }`}
       >
-        <div className="max-w-7xl mx-auto px-3 sm:px-6 py-2 flex items-center justify-between gap-2 sm:gap-4">
-          {/* Left Side: Brand Emblem & Title */}
-          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 py-2 grid grid-cols-[1fr_auto_1fr] items-center gap-2 sm:gap-4">
+          {/* Left Side: Brand Emblem */}
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0 justify-self-start">
             <div
               onClick={() => {
                 onGoHome();
@@ -200,8 +200,7 @@ export const Header: React.FC<HeaderProps> = ({
               className="cursor-pointer select-none group flex items-center gap-2.5 active:scale-95 transition-transform min-w-0"
               title="กลับสู่หน้าหลัก"
             >
-              {/* Facebook Blue Medical Emblem */}
-              <div 
+              <div
                 style={{ backgroundColor: '#1877F2' }}
                 className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl flex items-center justify-center text-white shadow-md shadow-blue-500/20 hover:opacity-90 transition-opacity relative overflow-hidden shrink-0"
               >
@@ -221,117 +220,111 @@ export const Header: React.FC<HeaderProps> = ({
                   />
                 </svg>
               </div>
-
-              {/* Title & Subtitle */}
-              <div className="min-w-0">
-                <span className="font-extrabold text-sm sm:text-base text-[#050505] dark:text-[#e4e6eb] tracking-tight block leading-tight truncate">
-                  ANESTHESIA CARE
-                </span>
-                <span className="text-[10px] text-[#65676b] dark:text-[#b0b3b8] hidden sm:block leading-none">
-                  ระบบเช็กอุปกรณ์และคลังยาวอร์ด
-                </span>
-              </div>
             </div>
           </div>
 
-          {/* Center Desktop Navigation Menu Bar (Visible only on md:flex) */}
-          <nav className="hidden md:flex items-center gap-1.5 bg-[#f0f2f5] dark:bg-[#242526] p-1.5 rounded-2xl border border-[#e4e6eb] dark:border-[#3a3b3c] shadow-inner">
+          {/* Center: Title + Desktop Navigation */}
+          <div className="flex items-center justify-center gap-4 min-w-0">
             <button
               type="button"
               onClick={() => {
-                if (onNavigate) onNavigate('home');
-                else onGoHome();
+                onGoHome();
+                setIsMenuOpen(false);
               }}
-              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                currentView === 'home' || !currentView
-                  ? 'bg-white dark:bg-[#3a3b3c] text-[#1877F2] dark:text-cyan-400 shadow-sm font-black'
-                  : 'text-[#65676b] dark:text-[#b0b3b8] hover:text-[#050505] dark:hover:text-white hover:bg-white/60 dark:hover:bg-black/30'
-              }`}
+              className="font-extrabold text-sm sm:text-base text-[#050505] dark:text-[#e4e6eb] tracking-tight text-center whitespace-nowrap cursor-pointer"
+              title="กลับสู่หน้าหลัก"
             >
-              <Home className="w-4 h-4" />
-              <span>หน้าแรก</span>
+              ANESTHESIA CARE
             </button>
 
-            <button
-              type="button"
-              onClick={() => {
-                if (onNavigate) onNavigate('room_check');
-              }}
-              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                currentView === 'room_check' || currentView === 'bag_check' || currentView === 'cart_check' || currentView === 'eq_overview'
-                  ? 'bg-white dark:bg-[#3a3b3c] text-[#1877F2] dark:text-cyan-400 shadow-sm font-black'
-                  : 'text-[#65676b] dark:text-[#b0b3b8] hover:text-[#050505] dark:hover:text-white hover:bg-white/60 dark:hover:bg-black/30'
-              }`}
-            >
-              <ClipboardList className="w-4 h-4" />
-              <span>รายการตรวจเช็ก</span>
-            </button>
-
-            {onOpenReport && (
+            <nav className="hidden md:flex items-center gap-1.5 bg-[#f0f2f5] dark:bg-[#242526] p-1.5 rounded-2xl border border-[#e4e6eb] dark:border-[#3a3b3c] shadow-inner">
               <button
                 type="button"
-                onClick={onOpenReport}
-                className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer text-[#65676b] dark:text-[#b0b3b8] hover:text-[#050505] dark:hover:text-white hover:bg-white/60 dark:hover:bg-black/30"
-                title="เปิดพิมพ์รายงาน & การตรวจเช็ก"
+                onClick={() => {
+                  if (onNavigate) onNavigate('home');
+                  else onGoHome();
+                }}
+                className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  currentView === 'home' || !currentView
+                    ? 'bg-white dark:bg-[#3a3b3c] text-[#1877F2] dark:text-cyan-400 shadow-sm font-black'
+                    : 'text-[#65676b] dark:text-[#b0b3b8] hover:text-[#050505] dark:hover:text-white hover:bg-white/60 dark:hover:bg-black/30'
+                }`}
               >
-                <FileText className="w-4 h-4 text-blue-500" />
-                <span>รายงาน & ชีต</span>
+                <Home className="w-4 h-4" />
+                <span>หน้าแรก</span>
               </button>
-            )}
 
-            <button
-              type="button"
-              onClick={() => {
-                if (onNavigate) onNavigate('drug_check');
-              }}
-              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                currentView === 'drug_check'
-                  ? 'bg-white dark:bg-[#3a3b3c] text-[#1877F2] dark:text-cyan-400 shadow-sm font-black'
-                  : 'text-[#65676b] dark:text-[#b0b3b8] hover:text-[#050505] dark:hover:text-white hover:bg-white/60 dark:hover:bg-black/30'
-              }`}
-            >
-              <Package className="w-4 h-4" />
-              <span>คลังยา & อุปกรณ์</span>
-            </button>
-
-            {onOpenBarcodeScan && (
               <button
                 type="button"
-                onClick={onOpenBarcodeScan}
-                className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer text-[#65676b] dark:text-[#b0b3b8] hover:text-[#050505] dark:hover:text-white hover:bg-white/60 dark:hover:bg-black/30"
-                title="สแกนบาร์โค้ดด่วน"
+                onClick={() => {
+                  if (onNavigate) onNavigate('room_check');
+                }}
+                className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  currentView === 'room_check' || currentView === 'bag_check' || currentView === 'cart_check' || currentView === 'eq_overview'
+                    ? 'bg-white dark:bg-[#3a3b3c] text-[#1877F2] dark:text-cyan-400 shadow-sm font-black'
+                    : 'text-[#65676b] dark:text-[#b0b3b8] hover:text-[#050505] dark:hover:text-white hover:bg-white/60 dark:hover:bg-black/30'
+                }`}
               >
-                <Barcode className="w-4 h-4 text-emerald-500" />
-                <span>สแกน</span>
+                <ClipboardList className="w-4 h-4" />
+                <span>รายการตรวจเช็ก</span>
               </button>
-            )}
-          </nav>
 
-          {/* Right Side Cluster: [ Admin/Staff Badge | 🌙 Theme | 🔔 Notifications | ☰ Hamburger Menu ] */}
-          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 relative">
+              {onOpenReport && (
+                <button
+                  type="button"
+                  onClick={onOpenReport}
+                  className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer text-[#65676b] dark:text-[#b0b3b8] hover:text-[#050505] dark:hover:text-white hover:bg-white/60 dark:hover:bg-black/30"
+                  title="เปิดพิมพ์รายงาน & การตรวจเช็ก"
+                >
+                  <FileText className="w-4 h-4 text-blue-500" />
+                  <span>รายงาน & ชีต</span>
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() => {
+                  if (onNavigate) onNavigate('drug_check');
+                }}
+                className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  currentView === 'drug_check'
+                    ? 'bg-white dark:bg-[#3a3b3c] text-[#1877F2] dark:text-cyan-400 shadow-sm font-black'
+                    : 'text-[#65676b] dark:text-[#b0b3b8] hover:text-[#050505] dark:hover:text-white hover:bg-white/60 dark:hover:bg-black/30'
+                }`}
+              >
+                <Package className="w-4 h-4" />
+                <span>คลังยา & อุปกรณ์</span>
+              </button>
+
+              {onOpenBarcodeScan && (
+                <button
+                  type="button"
+                  onClick={onOpenBarcodeScan}
+                  className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer text-[#65676b] dark:text-[#b0b3b8] hover:text-[#050505] dark:hover:text-white hover:bg-white/60 dark:hover:bg-black/30"
+                  title="สแกนบาร์โค้ดด่วน"
+                >
+                  <Barcode className="w-4 h-4 text-emerald-500" />
+                  <span>สแกน</span>
+                </button>
+              )}
+            </nav>
+          </div>
+
+          {/* Right Side Cluster: [ User/Role Badge | 🔔 Notifications | ☰ Menu ] */}
+          <div className="flex items-center gap-3 shrink-0 relative justify-self-end">
             {currentUser && (
-              <div
+              <button
+                type="button"
+                onClick={onOpenProfile}
                 title={isAdmin ? 'ระดับสิทธิ์: ผู้ดูแลระบบ (Admin)' : 'ระดับสิทธิ์: เจ้าหน้าที่ (Staff)'}
-                className={`px-2.5 sm:px-3 py-1 rounded-full text-[11px] sm:text-xs font-bold select-none flex items-center gap-1.5 shrink-0 ${
+                className={`px-2.5 sm:px-3 py-1 rounded-full text-[11px] sm:text-xs font-bold select-none flex items-center gap-1.5 shrink-0 cursor-pointer ${
                   isAdmin
                     ? 'bg-purple-600 dark:bg-purple-700 text-white shadow-xs'
                     : 'bg-blue-50 dark:bg-blue-500/20 text-blue-600 dark:text-blue-300'
                 }`}
               >
                 <ShieldCheck className="w-3.5 h-3.5" />
-                <span>{isAdmin ? 'Admin' : 'Staff'}</span>
-              </div>
-            )}
-
-            {/* Theme Toggle Button */}
-            {onToggleTheme && (
-              <button
-                onClick={onToggleTheme}
-                type="button"
-                title={theme === 'dark' ? 'เปลี่ยนเป็นโหมดสว่าง' : 'เปลี่ยนเป็นโหมดมืด'}
-                className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-[#e4e6eb] hover:bg-[#d8dadf] dark:bg-[#3a3b3c] dark:hover:bg-[#4e4f50] text-[#050505] dark:text-[#e4e6eb] flex items-center justify-center transition cursor-pointer active:scale-95 shrink-0"
-              >
-                {theme === 'dark' ? <Sun className="w-4.5 h-4.5 text-amber-400" /> : <Moon className="w-4.5 h-4.5 text-indigo-600" />}
+                <span>{currentUser.name || (isAdmin ? 'Admin' : 'Staff')}</span>
               </button>
             )}
 
@@ -353,7 +346,7 @@ export const Header: React.FC<HeaderProps> = ({
               )}
             </button>
 
-            {/* Facebook Hamburger Menu ☰ Button */}
+            {/* Menu ☰ Button */}
             <button
               onClick={() => setIsMenuOpen(!isMenuOpen)}
               type="button"

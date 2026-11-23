@@ -2,16 +2,20 @@ import React, { useState } from 'react';
 import {
   ArrowRight,
   Bell,
-  Calendar,
   CheckCircle2,
-  Clock,
-  History,
   RefreshCw,
   Search,
   Trash2,
   X,
 } from 'lucide-react';
 import { AuditLogEntry, ExpiryAlertItem, User } from '../types';
+import {
+  DISMISSED_ALERTS_STORAGE_KEY,
+  dismissExpiryAlertKey,
+  getDismissedAlertKeys,
+  getExpiryAlertKey,
+  getVisibleExpiryAlerts,
+} from '../utils/alertUtils';
 
 interface NotificationModalProps {
   isOpen: boolean;
@@ -47,25 +51,25 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [logToDelete, setLogToDelete] = useState<AuditLogEntry | null>(null);
   const [alertToDelete, setAlertToDelete] = useState<ExpiryAlertItem | null>(null);
-  const [dismissedAlertKeys, setDismissedAlertKeys] = useState<string[]>(() => {
-    try {
-      const saved = localStorage.getItem('anesthesia_dismissed_alerts');
-      return saved ? JSON.parse(saved) : [];
-    } catch (e) {
-      return [];
-    }
-  });
+  const [dismissedAlertKeys, setDismissedAlertKeys] = useState<string[]>(() =>
+    getDismissedAlertKeys()
+  );
   const [dismissingIds, setDismissingIds] = useState<string[]>([]);
   const [swipingId, setSwipingId] = useState<string | null>(null);
   const [swipeOffset, setSwipeOffset] = useState<number>(0);
   const touchStartXRef = React.useRef<number>(0);
 
-  const getAlertKey = (alert: ExpiryAlertItem) =>
-    `${alert.category}_${alert.groupName || ''}_${alert.item.name}_${alert.item.exp || ''}`;
+  React.useEffect(() => {
+    const syncDismissed = () => setDismissedAlertKeys(getDismissedAlertKeys());
+    const handleStorage = (e: StorageEvent) => {
+      if (!e.key || e.key === DISMISSED_ALERTS_STORAGE_KEY) syncDismissed();
+    };
+    window.addEventListener('storage', handleStorage);
+    if (isOpen) syncDismissed();
+    return () => window.removeEventListener('storage', handleStorage);
+  }, [isOpen]);
 
-  const visibleAlerts = effectiveExpiryAlerts.filter(
-    (a) => !dismissedAlertKeys.includes(getAlertKey(a))
-  );
+  const visibleAlerts = getVisibleExpiryAlerts(effectiveExpiryAlerts, dismissedAlertKeys);
 
   const expiredCount = visibleAlerts.filter((a) => a.status === 'expired').length;
   const warningCount = visibleAlerts.filter((a) => a.status === 'warning').length;
@@ -107,12 +111,9 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
 
   const handleConfirmDeleteAlert = () => {
     if (!alertToDelete) return;
-    const key = getAlertKey(alertToDelete);
-    const updated = [...dismissedAlertKeys, key];
+    const key = getExpiryAlertKey(alertToDelete);
+    const updated = dismissExpiryAlertKey(key);
     setDismissedAlertKeys(updated);
-    try {
-      localStorage.setItem('anesthesia_dismissed_alerts', JSON.stringify(updated));
-    } catch (e) {}
     setAlertToDelete(null);
   };
 
@@ -145,21 +146,21 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs select-none leading-normal">
       <div className="bg-white dark:bg-[#242526] rounded-2xl md:rounded-3xl w-full max-w-xl max-h-[88vh] flex flex-col shadow-2xl border border-[#e4e6eb] dark:border-[#3a3b3c] overflow-hidden animate-in fade-in zoom-in-95 duration-150 relative">
         {/* Header */}
-        <div className="px-5 py-3.5 border-b border-[#e4e6eb] dark:border-[#3a3b3c] flex items-center justify-between gap-3 shrink-0">
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-full bg-[#e7f3ff] dark:bg-[#1877f2]/20 text-[#1877f2] flex items-center justify-center">
-              <Bell className="w-5 h-5" />
+        <div className="px-4 py-3 border-b border-[#e4e6eb] dark:border-[#3a3b3c] flex items-center justify-between gap-2.5 shrink-0">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-8 h-8 rounded-full bg-[#e7f3ff] dark:bg-[#1877f2]/20 text-[#1877f2] flex items-center justify-center shrink-0">
+              <Bell className="w-4 h-4" />
             </div>
-            <h2 className="text-base font-bold text-[#050505] dark:text-[#e4e6eb]">
+            <h2 className="text-[13px] sm:text-sm font-bold text-[#050505] dark:text-[#e4e6eb] truncate">
               {isAdmin ? 'การแจ้งเตือนและประวัติ (Admin)' : 'รายการยา/เวชภัณฑ์หมดอายุและใกล้หมด'}
             </h2>
           </div>
           <button
             onClick={onClose}
-            className="w-9 h-9 rounded-full bg-[#e4e6eb] hover:bg-[#d8dadf] dark:bg-[#3a3b3c] dark:hover:bg-[#4e4f50] text-[#050505] dark:text-[#e4e6eb] flex items-center justify-center transition cursor-pointer"
+            className="w-8 h-8 rounded-full bg-[#e4e6eb] hover:bg-[#d8dadf] dark:bg-[#3a3b3c] dark:hover:bg-[#4e4f50] text-[#050505] dark:text-[#e4e6eb] flex items-center justify-center transition cursor-pointer shrink-0"
             title="ปิดหน้าต่าง"
           >
-            <X className="w-5 h-5" />
+            <X className="w-4 h-4" />
           </button>
         </div>
 
@@ -168,23 +169,23 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
           <div className="flex border-b border-[#e4e6eb] dark:border-[#3a3b3c] px-4 gap-2 shrink-0 bg-[#f0f2f5] dark:bg-[#18191a] text-xs">
             <button
               onClick={() => setActiveTab('alerts')}
-              className={`py-2.5 px-3 font-bold border-b-2 flex items-center gap-1.5 transition-all cursor-pointer ${
+              className={`py-2 px-3 font-bold border-b-2 flex items-center gap-1.5 transition-all cursor-pointer ${
                 activeTab === 'alerts'
                   ? 'border-[#1877f2] text-[#1877f2] dark:text-[#2d88ff]'
                   : 'border-transparent text-[#65676b] hover:text-[#050505] dark:text-[#b0b3b8] dark:hover:text-white'
               }`}
             >
               <span>ของหมดอายุ</span>
-              {expiryAlerts.length > 0 && (
+              {visibleAlerts.length > 0 && (
                 <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-[#e4e6eb] dark:bg-[#3a3b3c] text-[#050505] dark:text-[#e4e6eb] font-bold">
-                  {expiryAlerts.length}
+                  {visibleAlerts.length}
                 </span>
               )}
             </button>
 
             <button
               onClick={() => setActiveTab('history')}
-              className={`py-2.5 px-3 font-bold border-b-2 flex items-center gap-1.5 transition-all cursor-pointer ${
+              className={`py-2 px-3 font-bold border-b-2 flex items-center gap-1.5 transition-all cursor-pointer ${
                 activeTab === 'history'
                   ? 'border-[#1877f2] text-[#1877f2] dark:text-[#2d88ff]'
                   : 'border-transparent text-[#65676b] hover:text-[#050505] dark:text-[#b0b3b8] dark:hover:text-white'
@@ -194,16 +195,16 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
             </button>
           </div>
         ) : (
-          <div className="flex border-b border-[#e4e6eb] dark:border-[#3a3b3c] px-5 py-2 shrink-0 bg-[#f0f2f5] dark:bg-[#18191a] text-xs text-[#65676b] dark:text-[#b0b3b8] font-semibold">
-            <span>รายการเตือนยา/เวชภัณฑ์ในรถและกระเป๋า Emer ({expiryAlerts.length} รายการ)</span>
+          <div className="flex border-b border-[#e4e6eb] dark:border-[#3a3b3c] px-4 py-2 shrink-0 bg-[#f0f2f5] dark:bg-[#18191a] text-xs text-[#65676b] dark:text-[#b0b3b8] font-semibold">
+            <span>รายการเตือนยา/เวชภัณฑ์ในรถและกระเป๋า Emer ({visibleAlerts.length} รายการ)</span>
           </div>
         )}
 
         {/* Body Content */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-3">
+        <div className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-2.5">
           {activeTab === 'alerts' ? (
             <div>
-              <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 pb-2 mb-2 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400 pb-2 mb-2 border-b border-slate-100 dark:border-slate-800">
                 <span>
                   หมดอายุแล้ว: <b className="text-red-600 dark:text-red-400">{expiredCount}</b> | ใกล้หมดอายุ: <b className="text-amber-600 dark:text-amber-400">{warningCount}</b>
                 </span>
@@ -227,7 +228,7 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
                     return (
                       <div
                         key={idx}
-                        className="p-3 hover:bg-slate-50 dark:hover:bg-slate-800/40 transition flex items-center justify-between gap-3 text-xs"
+                        className="p-2.5 sm:p-3 hover:bg-slate-50 dark:hover:bg-slate-800/40 transition flex items-center justify-between gap-2.5 text-xs"
                       >
                         <div className="min-w-0 flex-1">
                           <div className="font-semibold text-slate-900 dark:text-slate-100">

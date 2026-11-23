@@ -1,4 +1,5 @@
-import { EquipmentItem } from '../types';
+import { DrugItem, DrugLotBatch, EquipmentItem } from '../types';
+import { getBangkokTodayIso, normalizeExpDateToIso, parseBangkokDate } from './dateUtils';
 
 export interface SubExpItemInfo {
   label: string;
@@ -487,9 +488,17 @@ export function normalizeExpDate(expStr?: string): { expDate: string; hasNoExp: 
  */
 export function sanitizeItemName(name: string): string {
   if (!name) return '';
-  // Remove leading numbers ONLY if followed by a clear separator (e.g., "1. ", "1: ", "1- ")
-  // This prevents stripping numbers from names like "5% D/N/2" or "0.9% NSS"
-  return name.replace(/^\d+\s*[\.\:\-]\s*/, '').trim();
+  let cleaned = name
+    .replace(/สัปดาห์\s*\d+\s*(?:ต่อ\s*\d+)?/gi, '')
+    .replace(/สัปดาห์ที่\s*\d+/gi, '')
+    .replace(/จำนวนมาตรฐาน\s*\d*\s*(?:ชุด|อัน|ชิ้น|ขวด|เส้น|amp)?/gi, '')
+    .replace(/จำนวนตั้งต้น/gi, '')
+    .replace(/par\s*level/gi, '')
+    .replace(/ยอดยกมา/gi, '')
+    .replace(/รวมสัปดาห์[^\n]*/gi, '')
+    .replace(/^\d+\s*[\.\:\-]\s*/, '')
+    .trim();
+  return cleaned || name.trim();
 }
 
 /**
@@ -515,49 +524,433 @@ export function sortItemsNaturally<T extends { name: string }>(items: T[]): T[] 
  * so it never returns Invalid Date (NaN).
  */
 export function parseExpDateObj(dateStr?: string): Date | null {
-  if (!dateStr || dateStr.trim() === '' || dateStr === '-' || /no\s*exp/i.test(dateStr) || /ไม่มี/i.test(dateStr)) {
-    return null;
-  }
-  const str = dateStr.trim();
-
-  // 1. Try ISO or YYYY-MM-DD / YYYY/MM/DD
-  const ymdMatch = str.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
-  if (ymdMatch) {
-    let year = parseInt(ymdMatch[1], 10);
-    if (year > 2400) year -= 543;
-    const month = parseInt(ymdMatch[2], 10) - 1;
-    const day = parseInt(ymdMatch[3], 10);
-    const d = new Date(year, month, day);
-    return isNaN(d.getTime()) ? null : d;
-  }
-
-  // 2. Try DD/MM/YYYY or DD-MM-YYYY
-  const dmyMatch = str.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})/);
-  if (dmyMatch) {
-    let year = parseInt(dmyMatch[3], 10);
-    if (year > 2400) year -= 543;
-    const month = parseInt(dmyMatch[2], 10) - 1;
-    const day = parseInt(dmyMatch[1], 10);
-    const d = new Date(year, month, day);
-    return isNaN(d.getTime()) ? null : d;
-  }
-
-  // 3. Try MM/YY or MM/YYYY
-  const myMatch = str.match(/^(\d{1,2})[-/.](\d{2,4})$/);
-  if (myMatch) {
-    let year = parseInt(myMatch[2], 10);
-    if (year < 100) {
-      if (year >= 50) year = 2500 + year - 543;
-      else year = 2000 + year;
-    } else if (year > 2400) {
-      year -= 543;
-    }
-    const month = parseInt(myMatch[1], 10) - 1;
-    const d = new Date(year, month, 1);
-    return isNaN(d.getTime()) ? null : d;
-  }
-
-  // Fallback to standard Date parser
-  const fallback = new Date(str);
-  return isNaN(fallback.getTime()) ? null : fallback;
+  return parseBangkokDate(dateStr);
 }
+
+/**
+ * Extract numbers/sizes from a medical item name
+ * e.g., "Endotracheal tube No. 7.5" -> ["7.5"]
+ * e.g., "Syringe 3 ml" -> ["3"]
+ * e.g., "IV Catheter 18G" -> ["18"]
+ * e.g., "NSS 1000 cc" -> ["1000"]
+ */
+export function extractSignificantNumbers(str: string): string[] {
+  if (!str) return [];
+  const matches = str.match(/\d+(?:\.\d+)?/g);
+  if (!matches) return [];
+  const results: string[] = [];
+  matches.forEach((m) => {
+    results.push(m);
+    const num = parseFloat(m);
+    if (!isNaN(num)) {
+      results.push(String(num));
+    }
+  });
+  return Array.from(new Set(results));
+}
+
+/**
+ * Anesthesia Ward Medical Aliases & Equivalents Dictionary
+ * Maps generic names, commercial/brand names, Thai phonetics, and common clinical abbreviations.
+ */
+export const ANESTHESIA_ALIASES: string[][] = [
+  ['adrenaline', 'epinephrine', 'อะดรีนาลีน', 'แอดดรีนาลีน', 'เอพิเนฟริน', 'adren'],
+  ['noradrenaline', 'norepinephrine', 'levophed', 'นอร์เอพิเนฟริน', 'นอร์อะดรีนาลีน', 'เลโวเฟด'],
+  ['atropine', 'อะโทรปีน', 'เอโทรปีน'],
+  ['ephedrine', 'เอฟิดรีน', 'อีฟิดรีน'],
+  ['dopamine', 'โดปามีน'],
+  ['dobutamine', 'โดบูทามีน'],
+  ['amiodarone', 'cordarone', 'อะมิโอดาโรน', 'คอร์ดาโรน'],
+  ['adenosine', 'adenocor', 'อะดีโนซีน'],
+  ['nicardipine', 'perdipine', 'นิคาร์ดิปีน', 'เพอร์ดิปีน'],
+  ['labetalol', 'trandate', 'ลาบีทาลอล'],
+  ['propofol', 'diprivan', 'โพรโพฟอล', 'ดิปริแวน'],
+  ['midazolam', 'dormicum', 'ไมดาโซแลม', 'ดอร์มิคุม', 'ดอร์มิคุ่ม'],
+  ['diazepam', 'valium', 'ไดอะซีแพม', 'แวเลียม'],
+  ['fentanyl', 'sublimaze', 'เฟนทานิล', 'เฟนตานิล'],
+  ['morphine', 'มอร์ฟีน'],
+  ['pethidine', 'meperidine', 'เพทิดีน', 'เดเมอรอล'],
+  ['ketamine', 'calypsol', 'เคตามีน'],
+  ['succinylcholine', 'scoline', 'anectine', 'suxamethonium', 'ซัคซีนิลโคลีน', 'สโคลีน'],
+  ['cisatracurium', 'nimbex', 'ซิสอะทราคูเรียม', 'นิมเบกซ์'],
+  ['atracurium', 'tracrium', 'อะทราคูเรียม', 'แทรคเรียม'],
+  ['vecuronium', 'norcuron', 'เวคูโรเนียม'],
+  ['rocuronium', 'esmeron', 'โรโคโรเนียม', 'โรคูโรเนียม', 'เอสเมอรอน'],
+  ['sugammadex', 'bridion', 'ซูกัมมาเด็กซ์', 'ไบรดิออน'],
+  ['lidocaine', 'xylocaine', 'ลิโดเคน', 'ไซโลเคน'],
+  ['bupivacaine', 'marcaine', 'บูพิวาเคน', 'มาร์เคน'],
+  ['neostigmine', 'prostigmin', 'นีโอสติกมีน', 'โพรสติกมิน'],
+  ['naloxone', 'narcan', 'นาล็อกโซน', 'นาร์แคน'],
+  ['flumazenil', 'anexate', 'ฟลูมาเซนิล', 'แอนเน็กเซต'],
+  ['tranexamic acid', 'transamin', 'ทรานซามิน', 'ทราเนซามิก'],
+  ['dexamethasone', 'เดกซาเมทาโซน', 'เดกซ่า'],
+  ['hydrocortisone', 'ไฮโดรคอร์ติโซน'],
+  ['ondansetron', 'zofran', 'ออนแดนซีตรอน', 'โซฟราน'],
+  ['metoclopramide', 'plasil', 'เมโทโคลพราไมด์', 'พลาซิล'],
+  ['calcium gluconate', 'แคลเซียมกลูโคเนต', 'calcium'],
+  ['sodium bicarbonate', 'nahco3', 'โซเดียมไบคาร์บอเนต', '7.5% nahco3'],
+  ['magnesium sulfate', 'mgso4', 'แมกนีเซียมซัลเฟต'],
+  ['sevoflurane', 'sevorane', 'เซโวฟลูเรน'],
+  ['desflurane', 'suprane', 'เดสฟลูเรน'],
+  ['isoflurane', 'forane', 'ไอโซฟลูเรน'],
+  ['endotracheal tube', 'et tube', 'ett', 'ท่อช่วยหายใจ'],
+  ['laryngeal mask airway', 'laryngeal mask', 'lma', 'หน้ากากกล่องเสียง'],
+  ['oropharyngeal airway', 'oral airway', 'guedel', 'airway'],
+  ['nasopharyngeal airway', 'nasal airway', 'npa'],
+  ['laryngoscope', 'ลาริงโกสโคป', 'macintosh', 'miller blade'],
+  ['stylet', 'สไตเลท', 'ไกด์วาย', 'ไกด์ลวด'],
+  ['ambu bag', 'bvm', 'แอมบูแบค', 'แอมบูแบ็ก', 'ลูกบีบช่วยหายใจ'],
+  ['nasal cannula', 'o2 cannula', 'cannula', 'สายแคนนูลา', 'สายออกซิเจน'],
+  ['iv catheter', 'angiocath', 'jelco', 'venflon', 'เข็มเปิดเส้น', 'เข็ม iv', 'ไอวีแคท'],
+  ['extension tube', 't-way', 'three way', 'ทรีเวย์', 'สายต่อ'],
+  ['0.9% nss', 'nss', 'normal saline', 'น้ำเกลือ'],
+  ['sterile water', 'water for injection', 'น้ำกลั่น'],
+  ['lactated ringer', 'ringer lactate', 'lrs', 'rls', 'ริงเกอร์'],
+];
+
+/**
+ * Computes a clinical match confidence score (0 = incompatible/no match).
+ * Enforces strict size/number verification (e.g. 7.0 vs 7.5, 18G vs 20G).
+ */
+export function scoreMedicalItemMatch(queryName: string, candidateName: string, candidateSpec: string = ''): number {
+  if (!queryName || !candidateName) return 0;
+  const qClean = queryName.trim().toLowerCase();
+  const cClean = candidateName.trim().toLowerCase();
+  const specClean = candidateSpec.trim().toLowerCase();
+  const fullCandidate = `${cClean} ${specClean}`.trim();
+
+  if (qClean === cClean || qClean === fullCandidate) return 100;
+
+  // 1. Adult vs Pediatric check
+  const qChild = qClean.includes('เด็ก') || qClean.includes('pediatric') || qClean.includes('pedia');
+  const cChild = fullCandidate.includes('เด็ก') || fullCandidate.includes('pediatric') || fullCandidate.includes('pedia');
+  const qAdult = qClean.includes('ผู้ใหญ่') || qClean.includes('adult');
+  const cAdult = fullCandidate.includes('ผู้ใหญ่') || fullCandidate.includes('adult');
+
+  if (qChild && !cChild && cAdult) return 0;
+  if (qAdult && !cAdult && cChild) return 0;
+
+  // 2. Strict size/number matching (e.g. No. 7.0 vs 7.5, 18G vs 20G, 3 ml vs 10 ml)
+  const qNums = extractSignificantNumbers(qClean);
+  const cNums = extractSignificantNumbers(fullCandidate);
+  let hasExactNumberMatch = false;
+
+  if (qNums.length > 0 && cNums.length > 0) {
+    const hasSharedNumber = qNums.some((qn) => cNums.includes(qn));
+    if (!hasSharedNumber) {
+      return 0; // Reject cross-size match strictly
+    }
+    hasExactNumberMatch = true;
+  }
+
+  let score = 0;
+
+  // 3. Anesthesia Medical Alias Group Matching
+  for (const group of ANESTHESIA_ALIASES) {
+    const qMatches = group.some((alias) => qClean.includes(alias));
+    const cMatches = group.some((alias) => fullCandidate.includes(alias));
+    if (qMatches && cMatches) {
+      score = Math.max(score, hasExactNumberMatch ? 90 : qNums.length > 0 && cNums.length === 0 ? 55 : 80);
+    }
+  }
+
+  // 4. Direct substring match
+  if (fullCandidate.includes(qClean) || cClean.includes(qClean)) {
+    score = Math.max(score, hasExactNumberMatch ? 95 : 85);
+  } else if (qClean.includes(cClean) && cClean.length >= 3) {
+    score = Math.max(score, hasExactNumberMatch ? 85 : 70);
+  }
+
+  if (score > 0) {
+    // Penalize slightly if query had a size number but candidate did not specify one
+    if (qNums.length > 0 && cNums.length === 0) {
+      score -= 15;
+    }
+    return score;
+  }
+
+  // 5. Word overlap & Tokenization
+  const getKeywords = (s: string) =>
+    s
+      .replace(/[^a-z0-9ก-๙.]/g, ' ')
+      .split(/\s+/)
+      .filter((w) => w.length >= 2 && !['เบอร์', 'ขนาด', 'no', 'อย่าง', 'ละ', 'ชุด', 'ชิ้น', 'อัน', 'กระเป๋า', 'รถ', 'ตู้', 'และ', 'กับ', 'หรือ', 'ของ'].includes(w));
+
+  const qWords = getKeywords(qClean);
+  const cWords = getKeywords(fullCandidate);
+
+  if (qWords.length === 0 || cWords.length === 0) return 0;
+
+  let matchCount = 0;
+  for (const qw of qWords) {
+    if (cWords.some((cw) => cw === qw || (qw.length >= 4 && cw.includes(qw)) || (cw.length >= 4 && qw.includes(cw)))) {
+      matchCount++;
+    }
+  }
+
+  const matchRatio = matchCount / qWords.length;
+  if (matchCount >= 2 || (matchCount >= 1 && matchRatio >= 0.5)) {
+    return Math.round(40 + matchRatio * 30 + (hasExactNumberMatch ? 20 : 0));
+  }
+
+  return 0;
+}
+
+/**
+ * Intelligent matching between OCR / Voice item names and Catalog equipment/drug names.
+ */
+export function matchMedicalItemName(queryName: string, candidateName: string, candidateSpec: string = ''): boolean {
+  return scoreMedicalItemMatch(queryName, candidateName, candidateSpec) > 0;
+}
+
+/**
+ * Returns matched items sorted by highest clinical + size confidence score.
+ */
+export function findBestMedicalMatches<T>(
+  queryName: string,
+  items: T[],
+  getName: (it: T) => string,
+  getSpec?: (it: T) => string
+): T[] {
+  return items
+    .map((it) => ({
+      item: it,
+      score: scoreMedicalItemMatch(queryName, getName(it), getSpec ? getSpec(it) : ''),
+    }))
+    .filter((entry) => entry.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .map((entry) => entry.item);
+}
+
+/**
+ * Normalizes a DrugItem's lot batches and recomputes aggregate remaining/totalQty
+ * plus earliest active lot expiryDate (FEFO baseline).
+ */
+export function recomputeDrugFromLots(drug: DrugItem): DrugItem {
+  const rawLots = Array.isArray(drug.lots) && drug.lots.length > 0
+    ? drug.lots
+    : Array.isArray(drug.batches) && drug.batches.length > 0
+    ? drug.batches
+    : [];
+
+  if (rawLots.length === 0) {
+    const normalizedExp = normalizeExpDateToIso(drug.expDate || drug.exp) || (drug.expDate || drug.exp || '');
+    const qty = Math.max(0, Number(drug.remaining ?? drug.totalQty ?? 0) || 0);
+    return {
+      ...drug,
+      remaining: qty,
+      totalQty: qty,
+      expDate: normalizedExp,
+      exp: normalizedExp,
+    };
+  }
+
+  const normalizedLots: DrugLotBatch[] = rawLots
+    .map((lot) => ({
+      lotNumber: String(lot.lotNumber || 'LOT-DEFAULT').trim() || 'LOT-DEFAULT',
+      expiryDate: normalizeExpDateToIso(lot.expiryDate) || String(lot.expiryDate || '').trim(),
+      quantity: Math.max(0, Number(lot.quantity) || 0),
+      receivedDate: lot.receivedDate ? (normalizeExpDateToIso(lot.receivedDate) || lot.receivedDate) : undefined,
+    }))
+    .sort((a, b) => {
+      const da = a.expiryDate || '9999-12-31';
+      const db = b.expiryDate || '9999-12-31';
+      return da.localeCompare(db);
+    });
+
+  const activeLots = normalizedLots.filter((l) => l.quantity > 0);
+  const totalRemaining = normalizedLots.reduce((sum, l) => sum + l.quantity, 0);
+  const earliestLot = activeLots.find((l) => Boolean(l.expiryDate)) || activeLots[0] || normalizedLots[0];
+  const earliestExp = earliestLot?.expiryDate || normalizeExpDateToIso(drug.expDate || drug.exp) || '';
+
+  return {
+    ...drug,
+    lots: normalizedLots,
+    batches: normalizedLots,
+    remaining: totalRemaining,
+    totalQty: totalRemaining,
+    expDate: earliestExp,
+    exp: earliestExp,
+    lotNumber: earliestLot?.lotNumber || drug.lotNumber,
+  };
+}
+
+/**
+ * Performs FEFO (First Expired, First Out) deduction across a drug's lot batches,
+ * clamping remaining quantities safely at >= 0.
+ */
+export function deductDrugLotsFEFO(
+  drug: DrugItem,
+  qtyToDeduct: number
+): {
+  updatedDrug: DrugItem;
+  deductedFromLots: Array<{ lotNumber: string; deductedQty: number; expiryDate: string }>;
+  remainingToDeduct: number;
+} {
+  const safeQty = Math.max(0, Number(qtyToDeduct) || 0);
+  const normalized = recomputeDrugFromLots(drug);
+  const deductedFromLots: Array<{ lotNumber: string; deductedQty: number; expiryDate: string }> = [];
+
+  if (!normalized.lots || normalized.lots.length === 0) {
+    const before = Math.max(0, Number(normalized.remaining ?? normalized.totalQty ?? 0) || 0);
+    const actualDeduct = Math.min(before, safeQty);
+    const nextQty = Math.max(0, before - safeQty);
+    if (actualDeduct > 0) {
+      deductedFromLots.push({
+        lotNumber: normalized.lotNumber || 'DEFAULT',
+        deductedQty: actualDeduct,
+        expiryDate: normalized.expDate || '',
+      });
+    }
+    return {
+      updatedDrug: {
+        ...normalized,
+        remaining: nextQty,
+        totalQty: nextQty,
+        updatedAt: new Date().toISOString(),
+      },
+      deductedFromLots,
+      remainingToDeduct: Math.max(0, safeQty - actualDeduct),
+    };
+  }
+
+  let left = safeQty;
+  const nextLots = normalized.lots.map((lot) => {
+    if (left <= 0 || lot.quantity <= 0) return lot;
+    const take = Math.min(lot.quantity, left);
+    left -= take;
+    if (take > 0) {
+      deductedFromLots.push({
+        lotNumber: lot.lotNumber,
+        deductedQty: take,
+        expiryDate: lot.expiryDate,
+      });
+    }
+    return {
+      ...lot,
+      quantity: Math.max(0, lot.quantity - take),
+    };
+  });
+
+  const recomputed = recomputeDrugFromLots({
+    ...normalized,
+    lots: nextLots,
+    batches: nextLots,
+    updatedAt: getBangkokTodayIso(),
+  });
+
+  return {
+    updatedDrug: {
+      ...recomputed,
+      updatedAt: new Date().toISOString(),
+    },
+    deductedFromLots,
+    remainingToDeduct: left,
+  };
+}
+
+function computeLevenshtein(a: string, b: string): number {
+  const m = a.length;
+  const n = b.length;
+  if (m === 0) return n;
+  if (n === 0) return m;
+  const dp: number[][] = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0));
+  for (let i = 0; i <= m; i++) dp[i][0] = i;
+  for (let j = 0; j <= n; j++) dp[0][j] = j;
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      dp[i][j] = Math.min(
+        dp[i - 1][j] + 1,
+        dp[i][j - 1] + 1,
+        dp[i - 1][j - 1] + cost
+      );
+    }
+  }
+  return dp[m][n];
+}
+
+export interface FuzzyMedicalMatchResult<T> {
+  item: T;
+  score: number;      // 0 - 100 normalized confidence
+  matchedBy: 'code' | 'exact' | 'alias' | 'fuzzy';
+}
+
+/**
+ * Enhanced medical matching combining Standard Codes (TMT / HIS / Barcode),
+ * Clinical Alias Dictionary, Token Overlap, and Levenshtein similarity with strict size guard.
+ */
+export function findFuzzyDrugOrItemMatches<T>(
+  queryName: string,
+  items: T[],
+  options: {
+    getName: (it: T) => string;
+    getSpec?: (it: T) => string;
+    getCodes?: (it: T) => Array<string | undefined>;
+    queryCode?: string;
+    minScore?: number;
+  }
+): FuzzyMedicalMatchResult<T>[] {
+  const qRaw = (queryName || '').trim().toLowerCase();
+  const qCode = (options.queryCode || '').trim().toLowerCase();
+  const minScore = options.minScore ?? 45;
+
+  const qAlpha = qRaw.replace(/[^a-z0-9ก-๙]/g, '');
+  const qNums = extractSignificantNumbers(qRaw);
+
+  const results: FuzzyMedicalMatchResult<T>[] = [];
+
+  for (const item of items) {
+    const cName = (options.getName(item) || '').trim();
+    const cSpec = (options.getSpec ? options.getSpec(item) : '') || '';
+    const codes = (options.getCodes ? options.getCodes(item) : [])
+      .map((c) => (c || '').trim().toLowerCase())
+      .filter(Boolean);
+
+    // 1. Standard code exact match (TMT / HIS / Barcode)
+    if (qCode && codes.some((c) => c === qCode)) {
+      results.push({ item, score: 100, matchedBy: 'code' });
+      continue;
+    }
+
+    if (!qRaw && !qCode) continue;
+
+    // 2. Clinical & Size-guarded score
+    const cLower = cName.toLowerCase();
+    const fullLower = `${cLower} ${cSpec.toLowerCase()}`.trim();
+    if (qRaw && (qRaw === cLower || qRaw === fullLower)) {
+      results.push({ item, score: 100, matchedBy: 'exact' });
+      continue;
+    }
+
+    // Strict size check before Levenshtein fuzzy matching
+    const cNums = extractSignificantNumbers(fullLower);
+    if (qNums.length > 0 && cNums.length > 0 && !qNums.some((qn) => cNums.includes(qn))) {
+      continue;
+    }
+
+    const baseScore = scoreMedicalItemMatch(qRaw, cName, cSpec);
+    if (baseScore > 0) {
+      const matchedBy: FuzzyMedicalMatchResult<T>['matchedBy'] =
+        baseScore >= 95 ? 'exact' : baseScore >= 75 ? 'alias' : 'fuzzy';
+      if (baseScore >= minScore) {
+        results.push({ item, score: Math.min(100, baseScore), matchedBy });
+      }
+      continue;
+    }
+
+    // 3. Levenshtein similarity fallback (handles OCR typos e.g. "Adrenalin" vs "Adrenaline", "Propfol")
+    const cAlpha = cLower.replace(/[^a-z0-9ก-๙]/g, '');
+    if (qAlpha.length >= 4 && cAlpha.length >= 4) {
+      const dist = computeLevenshtein(qAlpha, cAlpha);
+      const maxLen = Math.max(qAlpha.length, cAlpha.length);
+      const simScore = Math.round((1 - dist / maxLen) * 100);
+      if (simScore >= Math.max(minScore, 62)) {
+        results.push({ item, score: Math.min(92, simScore), matchedBy: 'fuzzy' });
+      }
+    }
+  }
+
+  return results.sort((a, b) => b.score - a.score);
+}
+

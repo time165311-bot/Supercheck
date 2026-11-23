@@ -15,9 +15,16 @@ import {
   FileSpreadsheet,
   RefreshCw,
   ArrowLeft,
+  Pencil,
+  Trash2,
+  Save,
+  Eye,
+  FileText,
+  Plus,
 } from 'lucide-react';
 import { EquipmentItem, RoomDef, CheckItemState } from '../types';
 import { CORRIDOR_LABELS, CORRIDORS } from '../constants/initialData';
+import { EquipmentDetailModal } from './EquipmentDetailModal';
 
 interface FloorMapProps {
   rooms: RoomDef[];
@@ -29,26 +36,42 @@ interface FloorMapProps {
   onToggleCheck?: (
     categoryOrRoomId: string,
     itemKey: string,
-    result: 'ปกติ' | 'ผิดปกติ',
-    itemName: string
+    result: 'ปกติ' | 'ผิดปกติ' | '',
+    itemName: string,
+    week?: number,
+    isMassAction?: boolean,
+    customValue?: string
   ) => void;
   onUpdateNote?: (categoryOrRoomId: string, itemKey: string, note: string) => void;
   onZoomImage?: (url: string) => void;
   onOpenReport?: () => Promise<void> | void;
+  onPreviewAndReset?: () => Promise<void> | void;
+  isDrawerOpen?: boolean;
+  onDrawerOpenChange?: (open: boolean) => void;
+  onEditEquipment?: (roomId: string, updatedItem: EquipmentItem) => void;
+  onDeleteEquipment?: (roomId: string, itemId: string) => void;
+  onClearAllEquipment?: () => void;
 }
 
 export const FloorMap: React.FC<FloorMapProps> = ({
   rooms,
   equipment,
   globalChecks,
-  selectedRoomId = 'or1',
+  selectedRoomId = null,
   onSelectRoom,
-  theme: _theme,
+  theme = 'light',
   onToggleCheck,
   onUpdateNote,
   onZoomImage,
   onOpenReport,
+  onPreviewAndReset,
+  isDrawerOpen: controlledDrawerOpen,
+  onDrawerOpenChange,
+  onEditEquipment,
+  onDeleteEquipment,
+  onClearAllEquipment: _onClearAllEquipment,
 }) => {
+  const isDark = theme === 'dark';
   const [searchTerm, setSearchTerm] = useState('');
   const [zoomScale, setZoomScale] = useState<number>(1.0);
   const [pan, setPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -71,24 +94,198 @@ export const FloorMap: React.FC<FloorMapProps> = ({
   const isDraggingRef = useRef(isDragging);
   isDraggingRef.current = isDragging;
 
-  const activeRoomId = selectedRoomId || 'or1';
+  const activeRoomId = selectedRoomId || '';
 
-  // Right Slide-Over Inspection Drawer State
-  const [isInspectionDrawerOpen, setIsInspectionDrawerOpen] = useState<boolean>(() => !!selectedRoomId);
+  // Right Slide-Over Inspection Drawer State (supports controlled state for history Back navigation)
+  const [internalDrawerOpen, setInternalDrawerOpen] = useState<boolean>(false);
+  const isInspectionDrawerOpen =
+    controlledDrawerOpen !== undefined ? controlledDrawerOpen : internalDrawerOpen;
 
-  useEffect(() => {
-    if (selectedRoomId) {
-      setIsInspectionDrawerOpen(true);
+  const setDrawerOpen = (open: boolean) => {
+    if (onDrawerOpenChange) {
+      onDrawerOpenChange(open);
+    } else {
+      setInternalDrawerOpen(open);
     }
-  }, [selectedRoomId]);
+  };
+
+  // Room Equipment Edit & Delete Modals (all 12 fields supported)
+  const [editingEq, setEditingEq] = useState<EquipmentItem | null>(null);
+  const [editEqName, setEditEqName] = useState('');
+  const [editEqNo, setEditEqNo] = useState('');
+  const [editEqCode, setEditEqCode] = useState('');
+  const [editEqSap, setEditEqSap] = useState('');
+  const [editEqSpec, setEditEqSpec] = useState('');
+  const [editEqSource, setEditEqSource] = useState('');
+  const [editEqDate, setEditEqDate] = useState('');
+  const [editEqQty, setEditEqQty] = useState('1');
+  const [editEqTax, setEditEqTax] = useState('');
+  const [editEqPrice, setEditEqPrice] = useState('');
+  const [editEqRoomId, setEditEqRoomId] = useState('');
+  const [editEqStatus, setEditEqStatus] = useState('ปกติ');
+  const [editEqError, setEditEqError] = useState('');
+  const [eqToDelete, setEqToDelete] = useState<{ item: EquipmentItem; key: string } | null>(null);
+
+  // Equipment Detail Modal state
+  const [viewingDetailItem, setViewingDetailItem] = useState<{
+    item: EquipmentItem;
+    result?: string;
+    note?: string;
+  } | null>(null);
+
+  // Drawer Search Term
+  const [drawerSearchTerm, setDrawerSearchTerm] = useState('');
+
+  // Add Missing Sequence Mode
+  const [isAddingMissing, setIsAddingMissing] = useState(false);
+
+  // 100% Completion alert modal state
+  const [showCompletionModal, setShowCompletionModal] = useState(false);
+  const [isConfirmingPreview, setIsConfirmingPreview] = useState(false);
+
+  // Notify App.tsx when any FloorMap modal is active so floating bars hide cleanly
+  useEffect(() => {
+    const anyModal = Boolean(editingEq || eqToDelete || viewingDetailItem || showCompletionModal);
+    window.dispatchEvent(new CustomEvent('modal_state_change', { detail: { open: anyModal } }));
+  }, [editingEq, eqToDelete, viewingDetailItem, showCompletionModal]);
+
+  // Clear lingering sub-modals and drawer search whenever the inspection drawer closes
+  useEffect(() => {
+    if (!isInspectionDrawerOpen) {
+      setViewingDetailItem(null);
+      setEditingEq(null);
+      setEqToDelete(null);
+      setIsAddingMissing(false);
+      setDrawerSearchTerm('');
+    }
+  }, [isInspectionDrawerOpen]);
+
+  const openEditEqModal = (item: EquipmentItem) => {
+    setIsAddingMissing(false);
+    setEditingEq(item);
+    setEditEqName(item.name || '');
+    setEditEqNo(item.no || item.orderNumber || '');
+    setEditEqCode(item.code || item.assetCode || '');
+    setEditEqSap(item.sap || item.sapCode || '');
+    setEditEqSpec(item.spec || '');
+    setEditEqSource(item.source || '');
+    setEditEqDate(item.date || '');
+    setEditEqQty(String(item.qty || '1'));
+    setEditEqTax(String(item.tax || ''));
+    setEditEqPrice(String(item.price || ''));
+    setEditEqRoomId(item.roomId || activeRoomId);
+
+    const itemKey = item.id || `${activeRoomId}_${item.no || ''}`;
+    const altKey = `${currentRoomDef?.n || activeRoomId}|${item.name}|${item.code || ''}`;
+    const check = currentRoomChecks[itemKey] || currentRoomChecks[altKey];
+    setEditEqStatus(check?.result || item.status || 'ปกติ');
+    setEditEqError('');
+  };
+
+  const openAddMissingModal = (prefillOrderNum?: number) => {
+    const orderStr = prefillOrderNum ? String(prefillOrderNum) : '';
+    const defaultRoom = rooms.find((r) => r.m && r.id === activeRoomId)?.id || rooms.find((r) => r.m)?.id || 'anes';
+    setIsAddingMissing(true);
+    setEditingEq({
+      id: orderStr ? `eq_reg_${orderStr.padStart(4, '0')}` : `eq_manual_${Date.now()}`,
+      name: '',
+      no: orderStr,
+      orderNumber: orderStr,
+      code: '',
+      sap: '',
+      spec: '',
+      source: 'เงินบำรุง',
+      date: '',
+      qty: '1',
+      tax: '7',
+      price: '',
+      roomId: defaultRoom,
+      type: 'room',
+      status: 'ปกติ',
+    });
+    setEditEqName('');
+    setEditEqNo(orderStr);
+    setEditEqCode('');
+    setEditEqSap('');
+    setEditEqSpec('');
+    setEditEqSource('เงินบำรุง');
+    setEditEqDate('');
+    setEditEqQty('1');
+    setEditEqTax('7');
+    setEditEqPrice('');
+    setEditEqRoomId(defaultRoom);
+    setEditEqStatus('ปกติ');
+    setEditEqError('');
+  };
+
+  const handleSaveEqEdit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingEq) return;
+    if (!editEqName.trim()) {
+      setEditEqError('กรุณากรอกชื่อครุภัณฑ์');
+      return;
+    }
+    const targetRoomId = editEqRoomId || activeRoomId;
+    const targetRoomDef = rooms.find((r) => r.id === targetRoomId) || currentRoomDef;
+    const numericOrder = parseInt(editEqNo.trim().replace(/\D/g, ''), 10);
+    const resolvedId = isAddingMissing
+      ? !isNaN(numericOrder)
+        ? `eq_reg_${String(numericOrder).padStart(4, '0')}`
+        : `eq_manual_${Date.now()}`
+      : editingEq.id || `${targetRoomId}_${editEqNo.trim() || Date.now()}`;
+
+    const updated: EquipmentItem = {
+      ...editingEq,
+      id: resolvedId,
+      name: editEqName.trim(),
+      no: editEqNo.trim(),
+      orderNumber: editEqNo.trim(),
+      code: editEqCode.trim(),
+      assetCode: editEqCode.trim(),
+      sap: editEqSap.trim(),
+      sapCode: editEqSap.trim(),
+      spec: editEqSpec.trim(),
+      source: editEqSource.trim(),
+      date: editEqDate.trim(),
+      qty: editEqQty.trim() || '1',
+      tax: editEqTax.trim(),
+      price: editEqPrice.trim(),
+      roomId: targetRoomId,
+      location: targetRoomDef?.n || targetRoomId,
+      status: editEqStatus,
+      type: 'room',
+    };
+    onEditEquipment?.(isAddingMissing ? targetRoomId : activeRoomId, updated);
+
+    // Sync inspection check state if applicable
+    if (onToggleCheck && editEqStatus && (editEqStatus === 'ปกติ' || editEqStatus === 'ผิดปกติ')) {
+      onToggleCheck(
+        targetRoomId,
+        resolvedId,
+        editEqStatus as 'ปกติ' | 'ผิดปกติ',
+        updated.name,
+        undefined,
+        true
+      );
+    }
+
+    setEditingEq(null);
+    setIsAddingMissing(false);
+  };
+
+  const handleConfirmDeleteEq = () => {
+    if (!eqToDelete) return;
+    onDeleteEquipment?.(activeRoomId, eqToDelete.key);
+    setEqToDelete(null);
+  };
 
   const handleOpenRoomDrawer = (roomId: string) => {
     onSelectRoom(roomId);
-    setIsInspectionDrawerOpen(true);
+    setDrawerOpen(true);
   };
 
   const handleCloseRoomDrawer = () => {
-    setIsInspectionDrawerOpen(false);
+    setDrawerOpen(false);
   };
 
   const handleZoomIn = () => {
@@ -191,27 +388,112 @@ export const FloorMap: React.FC<FloorMapProps> = ({
 
   // Selected Room Data & Items
   const currentRoomDef = useMemo(() => {
-    return rooms.find((r) => r.id === activeRoomId) || rooms[0];
+    if (!activeRoomId) return null;
+    return rooms.find((r) => r.id === activeRoomId) || null;
   }, [rooms, activeRoomId]);
 
   const currentRoomItems = useMemo(() => {
+    if (!activeRoomId) return [];
     return equipment[activeRoomId] || [];
   }, [equipment, activeRoomId]);
 
   const currentRoomChecks = useMemo(() => {
+    if (!activeRoomId) return {};
     return globalChecks[activeRoomId] || {};
   }, [globalChecks, activeRoomId]);
 
-  const currentRoomStat = roomStatsMap[activeRoomId];
+  const currentRoomStat = activeRoomId ? roomStatsMap[activeRoomId] : undefined;
 
-  // Quick action: Mark all items in active room as Normal
-  const handleMarkAllRoomNormal = () => {
-    if (!onToggleCheck) return;
-    currentRoomItems.forEach((eq, idx) => {
-      const itemKey = eq.id || `${activeRoomId}_${idx}`;
-      onToggleCheck(activeRoomId, itemKey, 'ปกติ', eq.name);
+  // Quick action: 3-State Toggle Mark All Items in Active Room (Toggle between All Normal and Reset)
+  const isRoomAllPassed = useMemo(() => {
+    if (currentRoomItems.length === 0) return false;
+    return currentRoomItems.every((item, idx) => {
+      const itemKey = item.id || `${activeRoomId}_${idx}`;
+      const altKey = `${currentRoomDef?.n || activeRoomId}|${item.name}|${item.code || ''}`;
+      const check = currentRoomChecks[itemKey] || currentRoomChecks[altKey];
+      return check?.result === 'ปกติ';
     });
+  }, [currentRoomItems, currentRoomChecks, activeRoomId, currentRoomDef]);
+
+  const handleToggleMarkAllRoom = () => {
+    if (!onToggleCheck) return;
+    if (isRoomAllPassed) {
+      currentRoomItems.forEach((eq, idx) => {
+        const itemKey = eq.id || `${activeRoomId}_${idx}`;
+        onToggleCheck(activeRoomId, itemKey, '', eq.name, undefined, true, '');
+      });
+    } else {
+      currentRoomItems.forEach((eq, idx) => {
+        const itemKey = eq.id || `${activeRoomId}_${idx}`;
+        onToggleCheck(activeRoomId, itemKey, 'ปกติ', eq.name, undefined, true);
+      });
+    }
   };
+
+  // Detect 100% completion across all interactive rooms and prompt for Preview
+  const overallEquipmentStats = useMemo(() => {
+    let total = 0;
+    let checked = 0;
+    interactiveRooms.forEach((r) => {
+      const st = roomStatsMap[r.id];
+      if (st) {
+        total += st.total;
+        checked += st.checked;
+      }
+    });
+    return { total, checked };
+  }, [interactiveRooms, roomStatsMap]);
+
+  const prevAllCheckedRef = useRef<boolean>(false);
+  useEffect(() => {
+    const isNowAllChecked =
+      overallEquipmentStats.total > 0 &&
+      overallEquipmentStats.checked === overallEquipmentStats.total;
+    if (!prevAllCheckedRef.current && isNowAllChecked) {
+      setShowCompletionModal(true);
+    }
+    prevAllCheckedRef.current = isNowAllChecked;
+  }, [overallEquipmentStats.total, overallEquipmentStats.checked]);
+
+  // Missing Sequence Detector across all equipment items
+  const missingSequenceInfo = useMemo(() => {
+    const nums: number[] = [];
+    Object.values(equipment).forEach((roomList) => {
+      if (!Array.isArray(roomList)) return;
+      roomList.forEach((it) => {
+        const raw = String(it.orderNumber || it.no || '').trim();
+        const parsed = parseInt(raw.replace(/\D/g, ''), 10);
+        if (!isNaN(parsed) && parsed > 0 && parsed < 5000) {
+          nums.push(parsed);
+        }
+      });
+    });
+    if (nums.length === 0) {
+      return { maxOrder: 0, totalItems: 0, missingNumbers: [] as number[] };
+    }
+    const maxOrder = Math.max(...nums);
+    const existingSet = new Set(nums);
+    const missingNumbers: number[] = [];
+    for (let i = 1; i <= maxOrder; i++) {
+      if (!existingSet.has(i)) {
+        missingNumbers.push(i);
+      }
+    }
+    return { maxOrder, totalItems: nums.length, missingNumbers };
+  }, [equipment]);
+
+  const displayedDrawerItems = useMemo(() => {
+    if (!drawerSearchTerm.trim()) return currentRoomItems;
+    const q = drawerSearchTerm.trim().toLowerCase();
+    return currentRoomItems.filter((it) => {
+      const name = (it.name || '').toLowerCase();
+      const no = String(it.no || it.orderNumber || '').toLowerCase();
+      const code = (it.code || it.assetCode || '').toLowerCase();
+      const sap = (it.sap || it.sapCode || '').toLowerCase();
+      const spec = (it.spec || '').toLowerCase();
+      return name.includes(q) || no.includes(q) || code.includes(q) || sap.includes(q) || spec.includes(q);
+    });
+  }, [currentRoomItems, drawerSearchTerm]);
 
   // Keyboard shortcut support
   useEffect(() => {
@@ -361,10 +643,17 @@ export const FloorMap: React.FC<FloorMapProps> = ({
       if (!r.m) return;
       const rEq = equipment[r.id] || [];
       rEq.forEach((it) => {
+        const name = (it.name || '').toLowerCase();
+        const no = String(it.no || it.orderNumber || '').toLowerCase();
+        const code = (it.code || it.assetCode || '').toLowerCase();
+        const sap = (it.sap || it.sapCode || '').toLowerCase();
+        const spec = (it.spec || '').toLowerCase();
         if (
-          it.name.toLowerCase().includes(q) ||
-          (it.code && it.code.toLowerCase().includes(q)) ||
-          (it.sap && it.sap.toLowerCase().includes(q))
+          name.includes(q) ||
+          no.includes(q) ||
+          code.includes(q) ||
+          sap.includes(q) ||
+          spec.includes(q)
         ) {
           matches.push({ room: r, item: it });
           hitRooms[r.id] = true;
@@ -375,23 +664,23 @@ export const FloorMap: React.FC<FloorMapProps> = ({
 
   const handleRoomClick = (roomId: string) => {
     if (dragMovedRef.current) return;
-    onSelectRoom(roomId);
+    handleOpenRoomDrawer(roomId);
   };
 
   return (
-    <div className="space-y-4 font-['TH_Sarabun_New'] pb-32 text-slate-800" style={{ paddingBottom: '100px' }}>
-      {/* 🚨 1. UNCHECKED ROOMS ALERT BANNER & NAVIGATOR (Samsung One UI Light Style) */}
-      <div className="p-4 sm:p-5 rounded-3xl border border-slate-200/80 bg-white shadow-sm space-y-3 transition-colors duration-300">
-        <div className="flex items-center justify-between gap-2 flex-wrap pb-2 border-b border-slate-100">
+    <div className="relative z-0 space-y-4 font-['TH_Sarabun_New'] pb-28 text-slate-800 dark:text-slate-100">
+      {/* 🚨 1. UNCHECKED ROOMS ALERT BANNER & NAVIGATOR */}
+      <div className="p-4 sm:p-5 rounded-3xl border border-slate-200/80 dark:border-slate-700 bg-white dark:bg-slate-800/90 shadow-sm space-y-3 transition-colors duration-300">
+        <div className="flex items-center justify-between gap-2 flex-wrap pb-2 border-b border-slate-100 dark:border-slate-700">
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center">
+            <div className="w-8 h-8 rounded-full bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 flex items-center justify-center">
               <MapPin className="w-4 h-4" />
             </div>
             <div>
-              <h3 className="font-bold text-base text-slate-900 leading-none">
+              <h3 className="font-bold text-base text-slate-900 dark:text-slate-100 leading-none">
                 สถานะการตรวจเช็กห้องผ่าตัด
               </h3>
-              <p className="text-xs text-slate-500 mt-1">
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
                 {pendingRooms.length === 0
                   ? '🎉 ตรวจเช็กครบถ้วนแล้วทุกห้องผ่าตัด!'
                   : `⚠️ มีห้องที่ยังไม่ได้ตรวจเช็กอีก ${pendingRooms.length} ห้อง`}
@@ -400,54 +689,56 @@ export const FloorMap: React.FC<FloorMapProps> = ({
           </div>
 
           {/* Filter Pills: Pending / Defective / All */}
-          <div className="flex items-center gap-1 p-1 rounded-2xl text-xs shrink-0 bg-slate-100 border border-slate-200/60">
-            <button
-              type="button"
-              onClick={() => setRoomFilterMode('pending')}
-              className={`px-3 py-1.5 rounded-xl transition font-bold cursor-pointer active:scale-95 ${
-                roomFilterMode === 'pending'
-                  ? 'bg-blue-600 text-white shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              ค้างตรวจ ({pendingRooms.length})
-            </button>
-            <button
-              type="button"
-              onClick={() => setRoomFilterMode('defective')}
-              className={`px-3 py-1.5 rounded-xl transition font-bold cursor-pointer active:scale-95 ${
-                roomFilterMode === 'defective'
-                  ? 'bg-rose-600 text-white shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              พบชำรุด ({defectiveRooms.length})
-            </button>
-            <button
-              type="button"
-              onClick={() => setRoomFilterMode('all')}
-              className={`px-3 py-1.5 rounded-xl transition font-bold cursor-pointer active:scale-95 ${
-                roomFilterMode === 'all'
-                  ? 'bg-white text-slate-900 shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              ทั้งหมด ({interactiveRooms.length})
-            </button>
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex items-center gap-1 p-1 rounded-2xl text-xs shrink-0 bg-slate-100 dark:bg-slate-900/70 border border-slate-200/60 dark:border-slate-700">
+              <button
+                type="button"
+                onClick={() => setRoomFilterMode('pending')}
+                className={`px-3 py-1.5 rounded-xl transition font-bold cursor-pointer active:scale-95 ${
+                  roomFilterMode === 'pending'
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                ค้างตรวจ ({pendingRooms.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setRoomFilterMode('defective')}
+                className={`px-3 py-1.5 rounded-xl transition font-bold cursor-pointer active:scale-95 ${
+                  roomFilterMode === 'defective'
+                    ? 'bg-rose-600 text-white shadow-xs'
+                    : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                พบชำรุด ({defectiveRooms.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setRoomFilterMode('all')}
+                className={`px-3 py-1.5 rounded-xl transition font-bold cursor-pointer active:scale-95 ${
+                  roomFilterMode === 'all'
+                    ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs'
+                    : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                ทั้งหมด ({interactiveRooms.length})
+              </button>
+            </div>
           </div>
         </div>
 
         {/* Room Chips Scroll / Grid */}
         {filteredNavigatorRooms.length === 0 ? (
-          <div className="py-3 px-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800 flex items-center justify-center gap-2 text-xs font-bold">
-            <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+          <div className="py-3 px-4 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300 flex items-center justify-center gap-2 text-xs font-bold">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
             <span>ไม่มีห้องค้างตรวจเช็กในหมวดนี้</span>
           </div>
         ) : (
           <div className="flex flex-wrap gap-2 max-h-40 overflow-y-auto no-scrollbar py-1">
             {filteredNavigatorRooms.map((r) => {
               const st = roomStatsMap[r.id];
-              const isActive = activeRoomId === r.id;
+              const isActive = isInspectionDrawerOpen && activeRoomId === r.id;
               const isComp = st?.isCompleted;
               const hasDef = st?.hasDefect;
 
@@ -460,10 +751,10 @@ export const FloorMap: React.FC<FloorMapProps> = ({
                     isActive
                       ? 'bg-blue-600 text-white border-blue-600 font-bold shadow-md shadow-blue-500/20 ring-2 ring-blue-300'
                       : hasDef
-                      ? 'bg-rose-50 text-rose-800 border-rose-200 hover:bg-rose-100'
+                      ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-800 dark:text-rose-200 border-rose-200 dark:border-rose-700/80 hover:bg-rose-100 dark:hover:bg-rose-900/50'
                       : isComp
-                      ? 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
-                      : 'bg-slate-50 text-slate-800 border-slate-200 hover:bg-slate-100'
+                      ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-200 border-emerald-200 dark:border-emerald-700/80 hover:bg-emerald-100 dark:hover:bg-emerald-900/50'
+                      : 'bg-slate-50 dark:bg-slate-900/70 text-slate-800 dark:text-slate-100 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700/70'
                   }`}
                 >
                   <span className="font-bold">{r.n}</span>
@@ -473,11 +764,11 @@ export const FloorMap: React.FC<FloorMapProps> = ({
                       <span>ชำรุด {st?.defective}</span>
                     </span>
                   ) : isComp ? (
-                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-bold flex items-center gap-0.5">
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/70 text-emerald-800 dark:text-emerald-200 font-bold flex items-center gap-0.5">
                       <span>✓ ครบ</span>
                     </span>
                   ) : (
-                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 font-bold">
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-200 font-bold">
                       ค้าง {st?.remaining || 0}
                     </span>
                   )}
@@ -487,6 +778,55 @@ export const FloorMap: React.FC<FloorMapProps> = ({
           </div>
         )}
       </div>
+
+      {/* 🔍 MISSING SEQUENCE DETECTOR BANNER */}
+      {missingSequenceInfo.missingNumbers.length > 0 && (
+        <div className="p-4 rounded-3xl border border-amber-200 dark:border-amber-800/60 bg-amber-50/90 dark:bg-amber-950/30 shadow-xs space-y-2.5">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="w-8 h-8 rounded-full bg-amber-100 dark:bg-amber-900/60 text-amber-700 dark:text-amber-300 flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-4 h-4" />
+              </div>
+              <div className="min-w-0">
+                <h4 className="font-bold text-sm text-amber-900 dark:text-amber-200 leading-snug">
+                  พบเลขลำดับที่ขาดหาย: ลำดับที่{' '}
+                  {missingSequenceInfo.missingNumbers.slice(0, 12).join(', ')}
+                  {missingSequenceInfo.missingNumbers.length > 12 &&
+                    ` และอีก ${missingSequenceInfo.missingNumbers.length - 12} ลำดับ`}
+                </h4>
+                <p className="text-[11px] text-amber-700 dark:text-amber-300/90">
+                  มีทั้งหมด {missingSequenceInfo.totalItems} รายการจากลำดับ 1–{missingSequenceInfo.maxOrder} (ขาด {missingSequenceInfo.missingNumbers.length} ลำดับ)
+                </p>
+              </div>
+            </div>
+
+            {onEditEquipment && (
+              <button
+                type="button"
+                onClick={() => openAddMissingModal(missingSequenceInfo.missingNumbers[0])}
+                className="px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold shadow-xs flex items-center gap-1.5 transition cursor-pointer active:scale-95 shrink-0"
+              >
+                <Plus size={14} />
+                <span>เพิ่มรายการแทรกตามลำดับ</span>
+              </button>
+            )}
+          </div>
+
+          <div className="flex flex-wrap gap-1.5 pt-1">
+            {missingSequenceInfo.missingNumbers.slice(0, 20).map((num) => (
+              <button
+                key={num}
+                type="button"
+                onClick={() => onEditEquipment && openAddMissingModal(num)}
+                className="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-800 border border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-200 text-[11px] font-mono font-bold hover:bg-amber-100 transition cursor-pointer active:scale-95"
+                title={`คลิกเพื่อเพิ่มครุภัณฑ์ลำดับที่ ${num}`}
+              >
+                + #{num}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* 🗺️ 2. INTERACTIVE SVG FLOOR MAP (Samsung One UI Light Style) */}
       <div className="space-y-3">
@@ -499,21 +839,21 @@ export const FloorMap: React.FC<FloorMapProps> = ({
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               placeholder="ค้นหาเลขครุภัณฑ์, SAP, หรือชื่อเครื่องมือ..."
-              className="w-full pl-9 pr-3 py-2 bg-white text-slate-900 rounded-xl border border-slate-200 focus:border-blue-600 text-xs outline-none focus:ring-1 focus:ring-blue-600 transition font-sans shadow-xs"
+              className="w-full pl-9 pr-3 py-2 bg-white dark:bg-slate-800/90 text-slate-900 dark:text-slate-100 rounded-xl border border-slate-200 dark:border-slate-700 focus:border-blue-600 text-xs outline-none focus:ring-1 focus:ring-blue-600 transition font-sans shadow-xs"
             />
           </div>
 
-          <div className="flex items-center gap-1 bg-white p-1 rounded-xl border border-slate-200 text-xs shrink-0 shadow-xs">
+          <div className="flex items-center gap-1 bg-white dark:bg-slate-800/90 p-1 rounded-xl border border-slate-200 dark:border-slate-700 text-xs shrink-0 shadow-xs">
             <button
               type="button"
               onClick={handleZoomOut}
               title="ย่อแผนผัง"
-              className="p-1.5 rounded-lg text-slate-600 hover:bg-slate-100 transition cursor-pointer"
+              className="p-1.5 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition cursor-pointer"
             >
               <ZoomOut className="w-3.5 h-3.5" />
             </button>
 
-            <span className="text-[11px] font-mono font-bold text-slate-800 w-12 text-center select-none">
+            <span className="text-[11px] font-mono font-bold text-slate-800 dark:text-slate-200 w-12 text-center select-none">
               {Math.round(zoomScale * 100)}%
             </span>
 
@@ -521,7 +861,7 @@ export const FloorMap: React.FC<FloorMapProps> = ({
               type="button"
               onClick={handleZoomIn}
               title="ขยายแผนผัง (ซูมเข้า)"
-              className="p-1.5 rounded-lg text-slate-600 hover:bg-slate-100 transition cursor-pointer"
+              className="p-1.5 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition cursor-pointer"
             >
               <ZoomIn className="w-3.5 h-3.5" />
             </button>
@@ -531,7 +871,7 @@ export const FloorMap: React.FC<FloorMapProps> = ({
                 type="button"
                 onClick={handleResetZoom}
                 title="รีเซ็ตผัง"
-                className="p-1.5 rounded-lg text-blue-600 hover:bg-blue-50 transition cursor-pointer flex items-center gap-1 text-[11px] font-bold active:scale-95"
+                className="p-1.5 rounded-lg text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-slate-700 transition cursor-pointer flex items-center gap-1 text-[11px] font-bold active:scale-95"
               >
                 <RotateCcw className="w-3 h-3" />
                 <span className="hidden sm:inline">รีเซ็ต</span>
@@ -542,7 +882,7 @@ export const FloorMap: React.FC<FloorMapProps> = ({
 
         {/* Search Results Dropdown */}
         {searchTerm.trim() && (
-          <div className="bg-white rounded-2xl border border-slate-200 p-2 max-h-48 overflow-y-auto space-y-1 text-xs shadow-lg">
+          <div className="bg-white dark:bg-slate-800/95 rounded-2xl border border-slate-200 dark:border-slate-700 p-2 max-h-48 overflow-y-auto space-y-1 text-xs shadow-lg">
             {matches.length === 0 ? (
               <div className="p-3 text-center text-slate-400 text-xs">
                 ไม่พบครุภัณฑ์ที่ค้นหา
@@ -552,19 +892,19 @@ export const FloorMap: React.FC<FloorMapProps> = ({
                 <button
                   key={idx}
                   onClick={() => handleOpenRoomDrawer(m.room.id)}
-                  className="w-full text-left p-2 rounded-xl hover:bg-slate-50 flex items-center justify-between gap-2 transition cursor-pointer border border-transparent hover:border-slate-200"
+                  className="w-full text-left p-2 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700/70 flex items-center justify-between gap-2 transition cursor-pointer border border-transparent hover:border-slate-200 dark:hover:border-slate-600"
                 >
                   <div>
-                    <div className="font-bold text-slate-900">
+                    <div className="font-bold text-slate-900 dark:text-slate-100">
                       {m.item.no && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 mr-1.5 font-mono border border-blue-100">
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-300 mr-1.5 font-mono border border-blue-100 dark:border-blue-800">
                           #{m.item.no}
                         </span>
                       )}
                       {m.item.name}
                     </div>
                   </div>
-                  <span className="text-xs font-bold text-blue-600 shrink-0">
+                  <span className="text-xs font-bold text-blue-600 dark:text-blue-400 shrink-0">
                     📍 {m.room.n}
                   </span>
                 </button>
@@ -573,7 +913,7 @@ export const FloorMap: React.FC<FloorMapProps> = ({
           </div>
         )}
 
-        {/* Map Viewport Container (Samsung One UI Light Style) */}
+        {/* Map Viewport Container */}
         <div
           ref={containerRef}
           onMouseDown={handleMouseDown}
@@ -585,7 +925,7 @@ export const FloorMap: React.FC<FloorMapProps> = ({
             overscrollBehavior: 'contain',
             cursor: isDragging ? 'grabbing' : 'grab',
           }}
-          className="bg-slate-50 rounded-3xl p-3 sm:p-4 border border-slate-200 overflow-hidden max-h-[65vh] min-h-[360px] sm:min-h-[440px] relative select-none flex items-center justify-center shadow-inner"
+          className="bg-slate-50 dark:bg-slate-900/90 rounded-3xl p-3 sm:p-4 border border-slate-200 dark:border-slate-700 overflow-hidden max-h-[65vh] min-h-[360px] sm:min-h-[440px] relative select-none flex items-center justify-center shadow-inner"
         >
           <div
             className="transition-transform duration-75 origin-center"
@@ -597,8 +937,8 @@ export const FloorMap: React.FC<FloorMapProps> = ({
             }}
           >
             <svg viewBox="80 480 1130 1330" className="w-full h-auto block select-none">
-              {/* Corridors (Light clean slate) */}
-              <g className="fill-[#e2e8f0] stroke-[#cbd5e1] stroke-1">
+              {/* Corridors */}
+              <g className={isDark ? 'fill-slate-800/80 stroke-slate-700 stroke-1' : 'fill-[#e2e8f0] stroke-[#cbd5e1] stroke-1'}>
                 {CORRIDORS.map((c, i) => (
                   <rect key={i} x={c[0]} y={c[1]} width={c[2]} height={c[3]} rx={6} />
                 ))}
@@ -610,21 +950,21 @@ export const FloorMap: React.FC<FloorMapProps> = ({
                   key={i}
                   x={c[1]}
                   y={c[2]}
-                  className="fill-slate-600 text-[11px] font-mono tracking-wider uppercase font-bold"
+                  className={`${isDark ? 'fill-slate-400' : 'fill-slate-600'} text-[11px] font-mono tracking-wider uppercase font-bold`}
                   textAnchor="middle"
                 >
                   {c[0]}
                 </text>
               ))}
 
-              {/* Rooms SVG Elements (Clean One UI Light) */}
+              {/* Rooms SVG Elements */}
               {rooms.map((r) => {
                 const lines = r.l.split('|');
                 const cx = r.x + r.w / 2;
                 const fs = 19;
                 const st = roomStatsMap[r.id];
                 const rCount = st?.total || 0;
-                const isSelected = activeRoomId === r.id;
+                const isSelected = isInspectionDrawerOpen && activeRoomId === r.id;
 
                 const ty =
                   r.y +
@@ -637,28 +977,27 @@ export const FloorMap: React.FC<FloorMapProps> = ({
                 const isFullyChecked = st?.isCompleted;
                 const hasDefect = st?.hasDefect;
 
-                // Color stroke and fill based on status
-                let strokeColor = '#94a3b8';
-                let strokeWidth = 1.5;
-                let fillColor = '#ffffff';
-                let fillOpacity = 1;
+                let strokeColor = isDark ? '#475569' : '#94a3b8';
+                let strokeWidth = 1.25;
+                let fillColor = isDark ? '#1e293b' : '#ffffff';
+                const fillOpacity = 1;
 
                 if (isSelected) {
-                  strokeColor = '#2563eb';
-                  strokeWidth = 4;
-                  fillColor = '#eff6ff';
-                } else if (hasDefect) {
-                  strokeColor = '#ef4444';
-                  strokeWidth = 3;
-                  fillColor = '#fef2f2';
-                } else if (isFullyChecked) {
-                  strokeColor = '#10b981';
+                  strokeColor = isDark ? '#60a5fa' : '#2563eb';
                   strokeWidth = 2.5;
-                  fillColor = '#f0fdf4';
+                  fillColor = isDark ? '#1e3a8a' : '#eff6ff';
+                } else if (hasDefect) {
+                  strokeColor = isDark ? '#f87171' : '#ef4444';
+                  strokeWidth = 2;
+                  fillColor = isDark ? '#450a0a' : '#fef2f2';
+                } else if (isFullyChecked) {
+                  strokeColor = isDark ? '#34d399' : '#10b981';
+                  strokeWidth = 1.75;
+                  fillColor = isDark ? '#064e3b' : '#f0fdf4';
                 } else if (isHit) {
-                  strokeColor = '#3b82f6';
-                  strokeWidth = 3.5;
-                  fillColor = '#dbeafe';
+                  strokeColor = isDark ? '#60a5fa' : '#3b82f6';
+                  strokeWidth = 2.25;
+                  fillColor = isDark ? '#172554' : '#dbeafe';
                 }
 
                 return (
@@ -685,7 +1024,7 @@ export const FloorMap: React.FC<FloorMapProps> = ({
 
                     <text
                       fontSize={fs}
-                      className="fill-slate-900 font-bold pointer-events-none"
+                      className={`${isDark ? 'fill-slate-100' : 'fill-slate-900'} font-bold pointer-events-none`}
                       textAnchor="middle"
                     >
                       {lines.map((t, idx) => (
@@ -702,10 +1041,10 @@ export const FloorMap: React.FC<FloorMapProps> = ({
                           y={ty + lines.length * fs * 1.25 + 4}
                           className={
                             hasDefect
-                              ? 'fill-rose-600 font-bold'
+                              ? (isDark ? 'fill-rose-300 font-bold' : 'fill-rose-600 font-bold')
                               : isFullyChecked
-                              ? 'fill-emerald-700 font-bold'
-                              : 'fill-slate-500 font-semibold'
+                              ? (isDark ? 'fill-emerald-300 font-bold' : 'fill-emerald-700 font-bold')
+                              : (isDark ? 'fill-slate-300 font-semibold' : 'fill-slate-500 font-semibold')
                           }
                         >
                           {hasDefect
@@ -723,23 +1062,6 @@ export const FloorMap: React.FC<FloorMapProps> = ({
           </div>
         </div>
       </div>
-
-      {/* Quick Re-open Banner on Main View if Drawer is closed */}
-      {!isInspectionDrawerOpen && (
-        <div className="p-4 rounded-2xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 flex items-center justify-between gap-3 text-xs font-bold text-blue-900 dark:text-blue-200 shadow-sm">
-          <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-blue-600 animate-ping" />
-            <span>📍 กำลังเลือก: <b>{currentRoomDef?.n || activeRoomId}</b> ({currentRoomItems.length} รายการ)</span>
-          </div>
-          <button
-            type="button"
-            onClick={() => setIsInspectionDrawerOpen(true)}
-            className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold shadow-xs transition cursor-pointer active:scale-95 flex items-center gap-1.5"
-          >
-            <span>[🔍 เปิดแผงตรวจเช็ก]</span>
-          </button>
-        </div>
-      )}
 
       {/* 📱 3. RIGHT SLIDE-OVER INSPECTION PANEL (Side Sheet Drawer) */}
       {/* Backdrop */}
@@ -759,25 +1081,24 @@ export const FloorMap: React.FC<FloorMapProps> = ({
           boxShadow: '-8px 0 32px rgba(0, 0, 0, 0.3)',
         }}
       >
-        {/* Drawer Header with Prominent Back Button [<] & Close Button [X] */}
-        <div className="p-4 sm:p-5 border-b border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-[#181A20]/95 backdrop-blur-md flex items-center justify-between gap-3 shrink-0 sticky top-0 z-10">
-          <div className="flex items-center gap-2.5 min-w-0">
-            {/* Back Button to Floor Map */}
+        {/* Drawer Header with Single Back Button & Quick Pass All */}
+        <div className="p-3.5 sm:p-4 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-[#181A20] flex items-center justify-between gap-2 shrink-0">
+          <div className="flex items-center gap-2 min-w-0">
             <button
               type="button"
               onClick={handleCloseRoomDrawer}
-              className="px-3.5 py-2 rounded-2xl bg-blue-50 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 text-xs font-bold hover:bg-blue-100 transition flex items-center gap-1.5 cursor-pointer active:scale-95 shrink-0"
+              className="px-3 py-2 rounded-2xl bg-blue-50 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 text-xs font-bold hover:bg-blue-100 transition flex items-center gap-1 cursor-pointer active:scale-95 shrink-0"
               title="กลับไปผังห้องผ่าตัด"
             >
               <ArrowLeft className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-              <span>[← ผังห้อง]</span>
+              <span className="hidden xs:inline">ผังห้อง</span>
             </button>
 
             <div className="min-w-0">
-              <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white truncate flex items-center gap-1.5">
+              <h3 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white truncate flex items-center gap-1.5">
                 <span>📍 {currentRoomDef?.n || activeRoomId}</span>
                 <span className="text-xs font-normal text-slate-500 dark:text-slate-400">
-                  ({currentRoomItems.length} รายการ)
+                  ({currentRoomItems.length})
                 </span>
               </h3>
               <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
@@ -791,51 +1112,69 @@ export const FloorMap: React.FC<FloorMapProps> = ({
             </div>
           </div>
 
-          <div className="flex items-center gap-2 shrink-0">
-            {/* Quick Mark All Normal Button */}
+          <div className="flex items-center gap-1.5 shrink-0">
             <button
               type="button"
-              onClick={handleMarkAllRoomNormal}
-              className="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs transition cursor-pointer active:scale-95 flex items-center gap-1 hidden sm:flex"
-              title="ทำเครื่องหมายปกติทุกรายการในห้องนี้"
+              onClick={handleToggleMarkAllRoom}
+              className={`px-2.5 sm:px-3 py-2 rounded-xl text-white font-bold text-xs shadow-xs transition cursor-pointer active:scale-95 flex items-center gap-1 ${
+                isRoomAllPassed
+                  ? 'bg-amber-600 hover:bg-amber-700'
+                  : 'bg-emerald-600 hover:bg-emerald-700'
+              }`}
+              title={
+                isRoomAllPassed
+                  ? 'ยกเลิกการตรวจทั้งหมดในห้องนี้ (รีเซ็ตกลับเป็นยังไม่ตรวจ)'
+                  : 'ทำเครื่องหมายปกติทุกรายการในห้องนี้'
+              }
             >
-              <CheckCheck size={16} />
-              <span>ผ่านหมด</span>
+              {isRoomAllPassed ? <RotateCcw size={15} /> : <CheckCheck size={15} />}
+              <span>{isRoomAllPassed ? 'ยกเลิกตรวจ' : 'ผ่านหมด'}</span>
             </button>
 
-            {/* Close Button X */}
             <button
               type="button"
               onClick={handleCloseRoomDrawer}
               className="p-2 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition cursor-pointer active:scale-90"
               title="ปิดแผงตรวจเช็ก"
             >
-              <X className="w-5 h-5" />
+              <X className="w-4 h-4" />
             </button>
           </div>
         </div>
 
-        {/* Mobile Quick Mark All Normal Bar */}
-        <div className="px-4 py-2 bg-slate-50 dark:bg-slate-900/60 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between sm:hidden text-xs">
-          <span className="text-slate-500 dark:text-slate-400 font-medium">ทางลัดการตรวจ:</span>
-          <button
-            type="button"
-            onClick={handleMarkAllRoomNormal}
-            className="px-3 py-1.5 rounded-xl bg-emerald-600 text-white font-bold text-xs shadow-xs transition cursor-pointer active:scale-95 flex items-center gap-1"
-          >
-            <CheckCheck size={14} />
-            <span>ทำเครื่องหมายผ่านทั้งหมด</span>
-          </button>
+        {/* 🔍 Search Input inside Room Drawer */}
+        <div className="p-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/60 shrink-0">
+          <div className="relative">
+            <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
+            <input
+              type="text"
+              value={drawerSearchTerm}
+              onChange={(e) => setDrawerSearchTerm(e.target.value)}
+              placeholder="ค้นหาชื่อเครื่อง, ลำดับ (#), หรือรหัสพัสดุในห้องนี้..."
+              className="w-full pl-9 pr-8 py-2 bg-white dark:bg-slate-800 text-slate-900 dark:text-white rounded-xl border border-slate-200 dark:border-slate-700 text-xs outline-none focus:border-blue-500 shadow-xs"
+            />
+            {drawerSearchTerm && (
+              <button
+                type="button"
+                onClick={() => setDrawerSearchTerm('')}
+                className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
         </div>
 
-        {/* Drawer Body - Scrollable Checklist Cards */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-3 pb-24">
-          {currentRoomItems.length === 0 ? (
+        {/* Drawer Body - Equipment List Immediately Visible */}
+        <div className="flex-1 overflow-y-auto p-3.5 sm:p-5 space-y-3 pb-24">
+          {displayedDrawerItems.length === 0 ? (
             <div className="p-8 text-center text-slate-400 text-xs">
-              ไม่พบรายการครุภัณฑ์ในห้องนี้
+              {drawerSearchTerm.trim()
+                ? `ไม่พบรายการครุภัณฑ์ที่ตรงกับ "${drawerSearchTerm}"`
+                : 'ไม่พบรายการครุภัณฑ์ในห้องนี้'}
             </div>
           ) : (
-            currentRoomItems.map((item, idx) => {
+            displayedDrawerItems.map((item, idx) => {
               const itemKey = item.id || `${activeRoomId}_${idx}`;
               const altKey = `${currentRoomDef?.n || activeRoomId}|${item.name}|${item.code || ''}`;
               const check = currentRoomChecks[itemKey] || currentRoomChecks[altKey];
@@ -846,17 +1185,26 @@ export const FloorMap: React.FC<FloorMapProps> = ({
               return (
                 <div
                   key={itemKey}
-                  className={`p-3.5 rounded-2xl border transition-all duration-200 flex flex-col justify-between space-y-3 ${
+                  className={`p-3.5 rounded-2xl border transition-colors duration-150 card-perf flex flex-col justify-between space-y-3 ${
                     isBad
-                      ? 'bg-rose-50/80 dark:bg-rose-950/30 border-rose-300 dark:border-rose-800 text-slate-900 dark:text-white shadow-xs'
+                      ? 'bg-rose-50/90 dark:bg-rose-950/30 border-rose-300 dark:border-rose-800 text-slate-900 dark:text-white shadow-xs'
                       : isOk
-                      ? 'bg-emerald-50/70 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-800 text-slate-900 dark:text-white shadow-xs'
-                      : 'bg-white dark:bg-slate-800/80 border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white shadow-xs hover:border-slate-300 dark:hover:border-slate-600'
+                      ? 'bg-emerald-50/85 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-800 text-slate-900 dark:text-white shadow-xs'
+                      : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white shadow-xs hover:border-slate-300 dark:hover:border-slate-600'
                   }`}
                 >
                   <div className="space-y-1.5">
                     <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0 flex-1">
+                      <div
+                        className="min-w-0 flex-1 cursor-pointer"
+                        onClick={() =>
+                          setViewingDetailItem({
+                            item,
+                            result: check?.result,
+                            note: check?.note,
+                          })
+                        }
+                      >
                         <div className="flex items-center gap-1.5 flex-wrap mb-1">
                           {item.no && (
                             <span className="text-[10px] px-2 py-0.5 rounded-md bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 font-mono font-bold">
@@ -869,7 +1217,7 @@ export const FloorMap: React.FC<FloorMapProps> = ({
                             </span>
                           )}
                         </div>
-                        <h4 className="font-bold text-sm text-slate-900 dark:text-white leading-snug">
+                        <h4 className="font-bold text-sm text-slate-900 dark:text-white leading-snug hover:text-blue-600 transition-colors">
                           {item.name}
                         </h4>
                         {item.spec && (
@@ -877,22 +1225,68 @@ export const FloorMap: React.FC<FloorMapProps> = ({
                         )}
                       </div>
 
-                      {item.img && (
-                        <div
-                          onClick={() => onZoomImage && onZoomImage(item.img!)}
-                          className="w-12 h-12 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 shrink-0 cursor-pointer hover:opacity-85 transition relative"
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {item.img && (
+                          <div
+                            onClick={() => onZoomImage && onZoomImage(item.img!)}
+                            className="w-12 h-12 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 shrink-0 cursor-pointer hover:opacity-85 transition relative"
+                          >
+                            <img
+                              src={item.img}
+                              alt={item.name}
+                              className="w-full h-full object-cover"
+                            />
+                            <Maximize2
+                              size={10}
+                              className="absolute bottom-1 right-1 text-white bg-black/60 rounded p-0.5"
+                            />
+                          </div>
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setViewingDetailItem({
+                              item,
+                              result: check?.result,
+                              note: check?.note,
+                            });
+                          }}
+                          className="p-2 rounded-xl bg-slate-100 hover:bg-blue-50 text-slate-500 hover:text-blue-600 dark:bg-slate-700/70 dark:text-slate-300 dark:hover:text-blue-400 transition cursor-pointer active:scale-90"
+                          title="ดูรายละเอียดทะเบียนครุภัณฑ์"
                         >
-                          <img
-                            src={item.img}
-                            alt={item.name}
-                            className="w-full h-full object-cover"
-                          />
-                          <Maximize2
-                            size={10}
-                            className="absolute bottom-1 right-1 text-white bg-black/60 rounded p-0.5"
-                          />
-                        </div>
-                      )}
+                          <Eye size={14} />
+                        </button>
+
+                        {onEditEquipment && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openEditEqModal(item);
+                            }}
+                            className="p-2 rounded-xl bg-slate-100 hover:bg-blue-50 text-slate-500 hover:text-blue-600 dark:bg-slate-700/70 dark:text-slate-300 dark:hover:text-blue-400 transition cursor-pointer active:scale-90"
+                            title="แก้ไขครุภัณฑ์"
+                          >
+                            <Pencil size={14} />
+                          </button>
+                        )}
+
+                        {onDeleteEquipment && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEqToDelete({ item, key: itemKey });
+                            }}
+                            className="p-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-500 hover:text-rose-600 dark:bg-rose-950/40 dark:hover:bg-rose-900/60 transition cursor-pointer active:scale-90"
+                            title="ลบครุภัณฑ์รายการนี้"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
 
@@ -953,7 +1347,7 @@ export const FloorMap: React.FC<FloorMapProps> = ({
 
         {/* Drawer Footer Sticky Save Button */}
         {onOpenReport && (
-          <div className="p-4 border-t border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-[#181A20]/95 backdrop-blur-md shrink-0">
+          <div className="p-4 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-[#181A20] shrink-0">
             <button
               type="button"
               onClick={async () => {
@@ -982,6 +1376,353 @@ export const FloorMap: React.FC<FloorMapProps> = ({
           </div>
         )}
       </div>
+
+      {/* Edit / Add 12-Field Room Equipment Modal */}
+      {editingEq && (
+        <div
+          className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in"
+          onClick={() => {
+            setEditingEq(null);
+            setIsAddingMissing(false);
+          }}
+        >
+          <div
+            className="w-full max-w-lg max-h-[88vh] flex flex-col bg-white dark:bg-[#1E2024] rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-700 font-sans text-xs overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between p-4 sm:p-5 border-b border-slate-100 dark:border-slate-800 shrink-0">
+              <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                {isAddingMissing ? (
+                  <Plus className="w-4 h-4 text-amber-600" />
+                ) : (
+                  <Pencil className="w-4 h-4 text-blue-600" />
+                )}
+                <span>
+                  {isAddingMissing
+                    ? `เพิ่มครุภัณฑ์แทรกตามลำดับ ${editEqNo ? `(#${editEqNo})` : ''}`
+                    : `แก้ไขครุภัณฑ์ (${currentRoomDef?.n || activeRoomId})`}
+                </span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingEq(null);
+                  setIsAddingMissing(false);
+                }}
+                className="p-1.5 rounded-full text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEqEdit} className="flex-1 overflow-y-auto p-4 sm:p-5 pb-6 space-y-3">
+              {editEqError && (
+                <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 font-bold">
+                  {editEqError}
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-2.5">
+                <div>
+                  <label className="block font-bold text-slate-700 dark:text-slate-200 mb-1">
+                    ลำดับที่ (#)
+                  </label>
+                  <input
+                    type="text"
+                    value={editEqNo}
+                    onChange={(e) => setEditEqNo(e.target.value)}
+                    placeholder="เช่น 23"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white outline-none focus:border-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 dark:text-slate-200 mb-1">
+                    จำนวน
+                  </label>
+                  <input
+                    type="text"
+                    value={editEqQty}
+                    onChange={(e) => setEditEqQty(e.target.value)}
+                    placeholder="1"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white outline-none focus:border-blue-500"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 dark:text-slate-200 mb-1">
+                  ชื่อรายการครุภัณฑ์ <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={editEqName}
+                  onChange={(e) => setEditEqName(e.target.value)}
+                  placeholder="ระบุชื่อครุภัณฑ์"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white outline-none focus:border-blue-500"
+                  required
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2.5">
+                <div>
+                  <label className="block font-bold text-slate-700 dark:text-slate-200 mb-1">
+                    หมายเลขพัสดุ
+                  </label>
+                  <input
+                    type="text"
+                    value={editEqCode}
+                    onChange={(e) => setEditEqCode(e.target.value)}
+                    placeholder="6515-xxx-xxxx"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white outline-none focus:border-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 dark:text-slate-200 mb-1">
+                    รหัส SAP
+                  </label>
+                  <input
+                    type="text"
+                    value={editEqSap}
+                    onChange={(e) => setEditEqSap(e.target.value)}
+                    placeholder="เช่น 10000xxxx"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white outline-none focus:border-blue-500"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 dark:text-slate-200 mb-1">
+                  มาตรฐาน / รายละเอียด (Spec)
+                </label>
+                <input
+                  type="text"
+                  value={editEqSpec}
+                  onChange={(e) => setEditEqSpec(e.target.value)}
+                  placeholder="ยี่ห้อ / รุ่น / S/N"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white outline-none focus:border-blue-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2.5">
+                <div>
+                  <label className="block font-bold text-slate-700 dark:text-slate-200 mb-1">
+                    แหล่งเงินที่ได้มา
+                  </label>
+                  <input
+                    type="text"
+                    value={editEqSource}
+                    onChange={(e) => setEditEqSource(e.target.value)}
+                    placeholder="เช่น เงินบำรุง / งบประมาณ"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white outline-none focus:border-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 dark:text-slate-200 mb-1">
+                    ว/ด/ป ที่ได้มา
+                  </label>
+                  <input
+                    type="text"
+                    value={editEqDate}
+                    onChange={(e) => setEditEqDate(e.target.value)}
+                    placeholder="เช่น 15/05/2565"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white outline-none focus:border-blue-500"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2.5">
+                <div>
+                  <label className="block font-bold text-slate-700 dark:text-slate-200 mb-1">
+                    อัตราภาษี (%)
+                  </label>
+                  <input
+                    type="text"
+                    value={editEqTax}
+                    onChange={(e) => setEditEqTax(e.target.value)}
+                    placeholder="7"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white outline-none focus:border-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 dark:text-slate-200 mb-1">
+                    ราคา (รวมภาษี)
+                  </label>
+                  <input
+                    type="text"
+                    value={editEqPrice}
+                    onChange={(e) => setEditEqPrice(e.target.value)}
+                    placeholder="เช่น 125000"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white outline-none focus:border-blue-500"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2.5">
+                <div>
+                  <label className="block font-bold text-slate-700 dark:text-slate-200 mb-1">
+                    สถานที่ตั้ง / ห้อง
+                  </label>
+                  <select
+                    value={editEqRoomId}
+                    onChange={(e) => setEditEqRoomId(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white outline-none focus:border-blue-500"
+                  >
+                    {rooms
+                      .filter((r) => r.m)
+                      .map((r) => (
+                        <option key={r.id} value={r.id}>
+                          {r.n}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 dark:text-slate-200 mb-1">
+                    สถานะ / ผลการตรวจสอบ
+                  </label>
+                  <select
+                    value={editEqStatus}
+                    onChange={(e) => setEditEqStatus(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white outline-none focus:border-blue-500"
+                  >
+                    <option value="ปกติ">ปกติ (ใช้งานได้)</option>
+                    <option value="ผิดปกติ">ชำรุด / ผิดปกติ</option>
+                    <option value="ส่งคืน">ส่งคืน</option>
+                    <option value="เก็บสำรอง">เก็บสำรอง</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 pb-2 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingEq(null);
+                    setIsAddingMissing(false);
+                  }}
+                  className="px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold cursor-pointer"
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold flex items-center gap-1.5 cursor-pointer shadow-sm"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  <span>{isAddingMissing ? 'เพิ่มรายการ' : 'บันทึก'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Room Equipment Confirmation Modal */}
+      {eqToDelete && (
+        <div
+          className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in"
+          onClick={() => setEqToDelete(null)}
+        >
+          <div
+            className="w-full max-w-sm bg-white dark:bg-[#1E2024] rounded-3xl p-5 pb-6 shadow-2xl border border-rose-200 dark:border-rose-900/50 space-y-3 font-sans text-xs"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-base font-bold text-rose-600 flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5" />
+              <span>ยืนยันการลบครุภัณฑ์</span>
+            </h3>
+            <p className="text-slate-700 dark:text-slate-300">
+              คุณต้องการลบรายการ <b>"{eqToDelete.item.name}"</b> ออกจากห้อง {currentRoomDef?.n || activeRoomId} ใช่หรือไม่?
+            </p>
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => setEqToDelete(null)}
+                className="px-3.5 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold cursor-pointer"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDeleteEq}
+                className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold cursor-pointer shadow-sm"
+              >
+                ยืนยันลบ
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 12-Field Equipment Detail Modal */}
+      <EquipmentDetailModal
+        isOpen={Boolean(viewingDetailItem)}
+        item={viewingDetailItem?.item || null}
+        result={viewingDetailItem?.result}
+        note={viewingDetailItem?.note}
+        onClose={() => setViewingDetailItem(null)}
+        onEdit={(it) => openEditEqModal(it)}
+        onZoomImage={onZoomImage}
+      />
+
+      {/* 🎉 100% Inspection Complete Centered Popup (Preview Only, No Auto GAS Submit) */}
+      {showCompletionModal && (
+        <div
+          className="fixed inset-0 z-[60] bg-black/65 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in"
+          onClick={() => !isConfirmingPreview && setShowCompletionModal(false)}
+        >
+          <div
+            className="w-full max-w-md bg-white dark:bg-[#1E2024] rounded-3xl p-6 pb-7 shadow-2xl border border-emerald-200 dark:border-emerald-800/60 space-y-4 font-sans text-center"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="w-14 h-14 mx-auto rounded-full bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
+              <CheckCircle2 className="w-8 h-8" />
+            </div>
+            <div className="space-y-1.5">
+              <h3 className="text-lg font-extrabold text-slate-900 dark:text-white">
+                ตรวจเช็กครุภัณฑ์ครบ 100% แล้ว
+              </h3>
+              <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
+                คุณตรวจเช็กครบทุกรายการแล้ว ต้องการกดยืนยันเพื่อส่งข้อมูลเข้าหน้ารายงาน (Preview) หรือไม่?
+              </p>
+              <p className="text-[11px] text-slate-400">
+                (ระบบจะเปิดหน้ารายงานตัวอย่างเพื่อตรวจสอบ/พิมพ์ PDF และรีเซ็ตการติ๊กเป็นรอบใหม่ โดยยังไม่ส่งเข้า Google Sheets อัตโนมัติ)
+              </p>
+            </div>
+            <div className="flex gap-2.5 pt-2">
+              <button
+                type="button"
+                disabled={isConfirmingPreview}
+                onClick={() => setShowCompletionModal(false)}
+                className="flex-1 py-2.5 px-4 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold text-xs cursor-pointer hover:bg-slate-200 transition"
+              >
+                ตรวจเช็กต่อ
+              </button>
+              <button
+                type="button"
+                disabled={isConfirmingPreview}
+                onClick={async () => {
+                  try {
+                    setIsConfirmingPreview(true);
+                    setShowCompletionModal(false);
+                    if (onPreviewAndReset) {
+                      await onPreviewAndReset();
+                    } else if (onOpenReport) {
+                      await onOpenReport();
+                    }
+                  } finally {
+                    setIsConfirmingPreview(false);
+                  }
+                }}
+                className="flex-1 py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-md flex items-center justify-center gap-1.5 cursor-pointer active:scale-95 transition disabled:opacity-60"
+              >
+                <FileText className="w-4 h-4" />
+                <span>ยืนยัน (Preview รายงาน)</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -1,7 +1,17 @@
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { User, WardChannel, CheckItemState, ListConfig, EquipmentItem, InspectionHistoryRecord } from '../types';
-import { saveUserToFirebase } from '../services/firebase';
+import {
+  auth,
+  authReadyPromise,
+  saveUserToFirebase,
+  saveChannelsToFirebase,
+  fetchChannelsFromFirebase,
+  saveChannelDataToFirebase,
+  fetchChannelDataFromFirebase,
+  deleteChannelInFirebase,
+} from '../services/firebase';
+import { onAuthStateChanged } from 'firebase/auth';
 import {
   STORAGE_KEYS,
   getStored,
@@ -15,10 +25,14 @@ import {
 } from '../services/storage';
 import { sanitizeItemName, sortItemsNaturally } from '../utils/itemUtils';
 
+const CHANNELS_INITIALIZED_KEY = 'anesthesia_channels_initialized';
+const CHANNELS_PENDING_SYNC_KEY = 'anesthesia_channels_pending_sync';
+const DELETED_CHANNELS_STORAGE_KEY = 'anesthesia_deleted_channel_ids';
+
 // Helper to deep clone and sanitize lists for a channel (retains items & subItems, but completely strips any check results)
-export function sanitizeListsForChannel(sourceLists: Record<'bag' | 'cart', ListConfig>): Record<'bag' | 'cart', ListConfig> {
-  const cloned: Record<'bag' | 'cart', ListConfig> = JSON.parse(JSON.stringify(sourceLists));
-  (['bag', 'cart'] as const).forEach((catKey) => {
+export function sanitizeListsForChannel(sourceLists: Record<'bag' | 'cart' | string, ListConfig>): Record<'bag' | 'cart' | string, ListConfig> {
+  const cloned: Record<'bag' | 'cart' | string, ListConfig> = JSON.parse(JSON.stringify(sourceLists));
+  (['bag', 'cart', 'ambulance'] as const).forEach((catKey) => {
     const cat = cloned[catKey];
     if (cat && cat.groups) {
       Object.keys(cat.groups).forEach((groupName) => {
@@ -44,12 +58,10 @@ export function sanitizeListsForChannel(sourceLists: Record<'bag' | 'cart', List
 
 export const DEFAULT_CHANNELS: WardChannel[] = [
   { id: 'channel_master', name: 'คลินิกวิสัญญี (Master)', isDefault: true, createdAt: '2026-01-01T00:00:00.000Z' },
-  { id: 'channel_opd', name: 'วอร์ด OPD', isDefault: false, createdAt: '2026-01-01T00:00:00.000Z' },
-  { id: 'channel_ipd1', name: 'วอร์ด IPD 1', isDefault: false, createdAt: '2026-01-01T00:00:00.000Z' },
 ];
 
 export interface ChannelData {
-  lists: Record<'bag' | 'cart', ListConfig>;
+  lists: Record<'bag' | 'cart' | string, ListConfig>;
   globalChecks: Record<string, Record<string, CheckItemState>>;
   emergencyWeekDates: Record<string, Record<number, string>>;
 }
@@ -71,55 +83,203 @@ export interface DataContextType {
   addChannel: (name: string, duplicateFromMaster?: boolean) => WardChannel;
   removeChannel: (id: string) => void;
   renameChannel: (id: string, newName: string) => void;
-  batchAddItems: (type: 'bag' | 'cart', items: any[]) => void;
-  addBatchItemsToChannel: (channelId: string, items: any[], type?: 'bag' | 'cart') => void;
-  batchUpdateItemQuantities: (channelId: string, updates: Array<{ itemName: string; newQty: string }>, targetType?: 'bag' | 'cart') => void;
-  setItems: (type: 'bag' | 'cart', items: any[]) => void;
+  batchAddItems: (type: 'bag' | 'cart' | 'ambulance' | string, items: any[]) => void;
+  addBatchItemsToChannel: (channelId: string, items: any[], type?: 'bag' | 'cart' | 'ambulance' | string) => void;
+  batchUpdateItemQuantities: (channelId: string, updates: Array<{ itemName: string; newQty: string }>, targetType?: 'bag' | 'cart' | 'ambulance' | string) => void;
+  setItems: (type: 'bag' | 'cart' | 'ambulance' | string, items: any[]) => void;
   reRenderData: () => void;
 
   // Isolated Data
   channelData: ChannelData;
-  updateChannelData: (newData: Partial<ChannelData>) => void;
+  updateChannelData: (
+    newData: Partial<ChannelData> | ((prev: ChannelData) => Partial<ChannelData>)
+  ) => void;
 }
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
 
+const persistChannelList = (list: WardChannel[]) => {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem(STORAGE_KEYS.CHANNELS, JSON.stringify(list));
+  localStorage.setItem('anesthesia_channels', JSON.stringify(list));
+  localStorage.setItem(CHANNELS_INITIALIZED_KEY, 'true');
+};
+
+const getDeletedChannelIds = (): string[] => {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = localStorage.getItem(DELETED_CHANNELS_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+};
+
+const saveDeletedChannelIds = (ids: string[]) => {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(DELETED_CHANNELS_STORAGE_KEY, JSON.stringify(Array.from(new Set(ids))));
+  } catch {}
+};
+
+const ensureMasterChannelOnly = (list: WardChannel[]): WardChannel[] => {
+  const valid = Array.isArray(list) ? list.filter((c) => c && c.id && c.name) : [];
+  const hasMaster = valid.some((c) => c.id === 'channel_master');
+  if (hasMaster) return valid;
+  return [DEFAULT_CHANNELS[0], ...valid];
+};
+
 export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  // ... (User state management remains same)
-  // [Cut down to essential]
   const [userName, setUserNameState] = useState<string>('สาธิต');
   const [userPosition, setUserPositionState] = useState<string>('พยาบาลวิสัญญี');
   const [userProfile, setUserProfileState] = useState<User | null>(null);
 
-  // Channel Management States - Always ensure default channels exist
+  // Channel Management States - Seed ONLY channel_master once, never resurrect deleted non-master channels
   const [channels, setChannels] = useState<WardChannel[]>(() => {
-    const stored = getStored<WardChannel[]>(STORAGE_KEYS.CHANNELS, DEFAULT_CHANNELS);
-    const existingIds = new Set(stored.map((c) => c.id));
-    const merged = [...stored];
-    let hasNew = false;
-    DEFAULT_CHANNELS.forEach((def) => {
-      if (!existingIds.has(def.id)) {
-        merged.push(def);
-        hasNew = true;
-      }
-    });
-    if (hasNew && typeof window !== 'undefined') {
-      localStorage.setItem(STORAGE_KEYS.CHANNELS, JSON.stringify(merged));
-      localStorage.setItem('anesthesia_channels', JSON.stringify(merged));
+    if (typeof window === 'undefined') return DEFAULT_CHANNELS;
+    const isInitialized = localStorage.getItem(CHANNELS_INITIALIZED_KEY) === 'true';
+    const rawPrimary = localStorage.getItem(STORAGE_KEYS.CHANNELS);
+    const rawLegacy = localStorage.getItem('anesthesia_channels');
+    const deletedIds = new Set(getDeletedChannelIds());
+
+    let stored: WardChannel[] | null = null;
+    try {
+      if (rawPrimary) stored = JSON.parse(rawPrimary);
+      else if (rawLegacy) stored = JSON.parse(rawLegacy);
+    } catch {
+      stored = null;
     }
-    return merged;
+
+    if (Array.isArray(stored) && stored.length > 0) {
+      const filtered = stored.filter((c) => c && (c.id === 'channel_master' || !deletedIds.has(c.id)));
+      const normalized = ensureMasterChannelOnly(filtered);
+      persistChannelList(normalized);
+      return normalized;
+    }
+
+    if (isInitialized) {
+      persistChannelList(DEFAULT_CHANNELS);
+      return DEFAULT_CHANNELS;
+    }
+
+    persistChannelList(DEFAULT_CHANNELS);
+    return DEFAULT_CHANNELS;
   });
 
   const [activeChannelId, setActiveChannelIdState] = useState<string>(() => {
-    return getStoredString(STORAGE_KEYS.ACTIVE_CHANNEL_ID, getStoredString('anesthesia_active_channel_id', 'channel_master'));
+    if (typeof window === 'undefined') return 'channel_master';
+    const saved =
+      localStorage.getItem(STORAGE_KEYS.ACTIVE_CHANNEL_ID) ||
+      localStorage.getItem('anesthesia_active_channel_id') ||
+      localStorage.getItem('active_channel_id');
+    return saved && saved.trim() ? saved.trim() : 'channel_master';
   });
+
+  // Auth-aware Firebase Channel Sync (waits for Firebase Auth so it never fails unauthenticated or overwrites local deletions)
+  useEffect(() => {
+    let cancelled = false;
+
+    const syncChannelsWithCloud = async () => {
+      if (cancelled || !auth.currentUser) return;
+      try {
+        const hasPendingSync =
+          typeof window !== 'undefined' &&
+          localStorage.getItem(CHANNELS_PENDING_SYNC_KEY) === 'true';
+        const deletedIds = getDeletedChannelIds();
+
+        if (hasPendingSync) {
+          // Local channel additions/deletions happened before auth finished or offline — push authoritative local list to cloud
+          let localList = channels;
+          try {
+            const raw = localStorage.getItem(STORAGE_KEYS.CHANNELS);
+            if (raw) {
+              const parsed = JSON.parse(raw);
+              if (Array.isArray(parsed) && parsed.length > 0) localList = ensureMasterChannelOnly(parsed);
+            }
+          } catch {}
+          const ok = await saveChannelsToFirebase(localList);
+          for (const delId of deletedIds) {
+            if (delId && delId !== 'channel_master') {
+              await deleteChannelInFirebase(delId).catch(() => {});
+            }
+          }
+          if (ok && !cancelled && typeof window !== 'undefined') {
+            localStorage.removeItem(CHANNELS_PENDING_SYNC_KEY);
+          }
+          return;
+        }
+
+        const remoteChannels = await fetchChannelsFromFirebase();
+        if (cancelled) return;
+
+        if (!remoteChannels || remoteChannels.length === 0) {
+          // Cloud has no channels document yet — initialize cleanly with local list (or Master only)
+          await saveChannelsToFirebase(ensureMasterChannelOnly(channels)).catch(() => {});
+          return;
+        }
+
+        const deletedSet = new Set(deletedIds);
+        const filteredRemote = remoteChannels.filter(
+          (c) => c && c.id && (c.id === 'channel_master' || !deletedSet.has(c.id))
+        );
+        const normalized = ensureMasterChannelOnly(filteredRemote);
+
+        // If we filtered out locally-deleted channels from stale remote list, push the clean list back to Firestore
+        if (filteredRemote.length !== remoteChannels.length) {
+          await saveChannelsToFirebase(normalized).catch(() => {});
+          for (const delId of deletedIds) {
+            if (delId && delId !== 'channel_master') {
+              await deleteChannelInFirebase(delId).catch(() => {});
+            }
+          }
+        }
+
+        if (cancelled) return;
+        setChannels(normalized);
+        persistChannelList(normalized);
+        setActiveChannelIdState((currId) => {
+          if (normalized.some((c) => c.id === currId)) return currId;
+          const fallback = normalized[0]?.id || 'channel_master';
+          if (typeof window !== 'undefined') {
+            localStorage.setItem(STORAGE_KEYS.ACTIVE_CHANNEL_ID, fallback);
+            localStorage.setItem('anesthesia_active_channel_id', fallback);
+            localStorage.setItem('active_channel_id', fallback);
+          }
+          return fallback;
+        });
+      } catch {
+        // Keep local channels on offline/error
+      }
+    };
+
+    const unsub = onAuthStateChanged(auth, (user) => {
+      if (user && !cancelled) {
+        void syncChannelsWithCloud();
+      }
+    });
+
+    if (auth.currentUser) {
+      void syncChannelsWithCloud();
+    }
+
+    return () => {
+      cancelled = true;
+      unsub();
+    };
+  }, []);
 
   // Channel Data - Guaranteed initial population from getInitialLists() with true isolation
   const [channelData, setChannelData] = useState<ChannelData>(() => {
-    const initialActiveId = getStoredString(STORAGE_KEYS.ACTIVE_CHANNEL_ID, getStoredString('anesthesia_active_channel_id', 'channel_master'));
+    const initialActiveId =
+      (typeof window !== 'undefined' &&
+        (localStorage.getItem(STORAGE_KEYS.ACTIVE_CHANNEL_ID) ||
+          localStorage.getItem('anesthesia_active_channel_id') ||
+          localStorage.getItem('active_channel_id'))) ||
+      'channel_master';
     const key = getChannelDbKey(initialActiveId);
     const stored = getStored<ChannelData | null>(key, null);
-    if (stored && stored.lists && stored.lists.bag?.groups && Object.keys(stored.lists.bag.groups).length > 0) {
+    if (stored && stored.lists && (stored.lists.bag || stored.lists.cart)) {
       return stored;
     }
 
@@ -130,7 +290,6 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const isMaster = initialActiveId === 'channel_master';
     const baseData: ChannelData = {
       lists: cleanLists,
-      // Master keeps checks, but any other ward channel starts with 0 checked items ({})
       globalChecks: isMaster ? (masterData?.globalChecks || getStored(STORAGE_KEYS.GLOBAL_CHECKS, {})) : {},
       emergencyWeekDates: isMaster ? (masterData?.emergencyWeekDates || getStored(STORAGE_KEYS.EMER_WEEK_DATES, {})) : {},
     };
@@ -144,7 +303,6 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   });
 
   // One-time legacy cleanup for default non-master channels ('channel_opd', 'channel_ipd1')
-  // Ensures any previously copied checks from Master are purged so readiness is 0/XX (0%)
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const migrationKey = 'anesthesia_channel_isolation_v5';
@@ -167,15 +325,35 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   }, []);
 
-  // Load channel data when channel switches with deep clone isolation & zero-check guarantee
+  // Load channel data when channel switches with deep clone isolation
   useEffect(() => {
     const key = getChannelDbKey(activeChannelId);
     const stored = getStored<ChannelData | null>(key, null);
-    
-    if (stored && stored.lists && stored.lists.bag?.groups && Object.keys(stored.lists.bag.groups).length > 0) {
+
+    if (stored && stored.lists && (stored.lists.bag || stored.lists.cart)) {
       setChannelData(stored);
-    } else {
-      let masterData = getStored<ChannelData | null>(getChannelDbKey('channel_master'), null);
+      return;
+    }
+
+    // Check Firebase for saved channel data before falling back to cloning Master
+    let cancelled = false;
+    fetchChannelDataFromFirebase(activeChannelId).then((remote) => {
+      if (cancelled) return;
+      if (remote && remote.lists) {
+        const remoteData: ChannelData = {
+          lists: remote.lists,
+          globalChecks: remote.globalChecks || {},
+          emergencyWeekDates: remote.emergencyWeekDates || {},
+        };
+        setChannelData(remoteData);
+        setStored(key, remoteData);
+        setStored(getChannelListsKey(activeChannelId), remoteData.lists);
+        setStored(getChannelChecksKey(activeChannelId), remoteData.globalChecks);
+        setStored(getChannelWeekDatesKey(activeChannelId), remoteData.emergencyWeekDates);
+        return;
+      }
+
+      const masterData = getStored<ChannelData | null>(getChannelDbKey('channel_master'), null);
       const sourceLists = (masterData && masterData.lists) ? masterData.lists : getInitialLists();
       const cleanLists = sanitizeListsForChannel(sourceLists);
 
@@ -190,22 +368,28 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setStored(getChannelListsKey(activeChannelId), cleanLists);
       setStored(getChannelChecksKey(activeChannelId), newData.globalChecks);
       setStored(getChannelWeekDatesKey(activeChannelId), newData.emergencyWeekDates);
-    }
+    }).catch(() => {});
+
+    return () => { cancelled = true; };
   }, [activeChannelId]);
 
-  const updateChannelData = (newData: Partial<ChannelData>) => {
+  const updateChannelData = (
+    newData: Partial<ChannelData> | ((prev: ChannelData) => Partial<ChannelData>)
+  ) => {
     setChannelData((prev) => {
-      const updated = { ...prev, ...newData };
+      const patch = typeof newData === 'function' ? newData(prev) : newData;
+      const updated = { ...prev, ...patch };
       setStored(getChannelDbKey(activeChannelId), updated);
-      if (newData.lists) {
-        setStored(getChannelListsKey(activeChannelId), newData.lists);
+      if (patch.lists) {
+        setStored(getChannelListsKey(activeChannelId), patch.lists);
       }
-      if (newData.globalChecks) {
-        setStored(getChannelChecksKey(activeChannelId), newData.globalChecks);
+      if (patch.globalChecks) {
+        setStored(getChannelChecksKey(activeChannelId), patch.globalChecks);
       }
-      if (newData.emergencyWeekDates) {
-        setStored(getChannelWeekDatesKey(activeChannelId), newData.emergencyWeekDates);
+      if (patch.emergencyWeekDates) {
+        setStored(getChannelWeekDatesKey(activeChannelId), patch.emergencyWeekDates);
       }
+      saveChannelDataToFirebase(activeChannelId, updated).catch(() => {});
       return updated;
     });
   };
@@ -219,6 +403,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   }, [channels, activeChannelId]);
 
   const setActiveChannelId = (id: string) => {
+    if (!id) return;
     setActiveChannelIdState(id);
     if (typeof window !== 'undefined') {
       localStorage.setItem(STORAGE_KEYS.ACTIVE_CHANNEL_ID, id);
@@ -227,7 +412,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
       const key = getChannelDbKey(id);
       let targetData = getStored<ChannelData | null>(key, null);
-      if (!targetData || !targetData.lists || !targetData.lists.bag?.groups) {
+      if (!targetData || !targetData.lists || (!targetData.lists.bag && !targetData.lists.cart)) {
         const masterData = getStored<ChannelData | null>(getChannelDbKey('channel_master'), null);
         const sourceLists = (masterData && masterData.lists) ? masterData.lists : getInitialLists();
         const cleanLists = sanitizeListsForChannel(sourceLists);
@@ -259,15 +444,23 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
     const nextChannels = [...channels, newChan];
     setChannels(nextChannels);
+    persistChannelList(nextChannels);
     if (typeof window !== 'undefined') {
-      localStorage.setItem(STORAGE_KEYS.CHANNELS, JSON.stringify(nextChannels));
-      localStorage.setItem('anesthesia_channels', JSON.stringify(nextChannels));
+      localStorage.setItem(CHANNELS_PENDING_SYNC_KEY, 'true');
     }
+    authReadyPromise.then((user) => {
+      if (user) {
+        saveChannelsToFirebase(nextChannels)
+          .then((ok) => {
+            if (ok && typeof window !== 'undefined') localStorage.removeItem(CHANNELS_PENDING_SYNC_KEY);
+          })
+          .catch(() => {});
+      }
+    });
 
-    // 1. Deep Clone Equipment Items Only: Clean all check properties (res, weekVals, etc.)
     const masterData = getStored<ChannelData | null>(getChannelDbKey('channel_master'), null);
     const sourceLists = (masterData && masterData.lists) ? masterData.lists : (channelData.lists || getInitialLists());
-    
+
     const cleanLists = duplicateFromMaster
       ? sanitizeListsForChannel(sourceLists)
       : {
@@ -275,19 +468,18 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           cart: { title: 'รถฉุกเฉิน', sheet: 'รถ Emergency', groups: {} },
         };
 
-    // 2. EXPUNGE / RESET Check State 100% (Starts at 0 / XX (0%) readiness with zero checked items)
     const newChannelData: ChannelData = {
       lists: cleanLists,
-      globalChecks: {}, // 100% Empty
-      emergencyWeekDates: {}, // 100% Empty
+      globalChecks: {},
+      emergencyWeekDates: {},
     };
 
     setStored(getChannelDbKey(newId), newChannelData);
     setStored(getChannelListsKey(newId), cleanLists);
     setStored(getChannelChecksKey(newId), {});
     setStored(getChannelWeekDatesKey(newId), {});
+    saveChannelDataToFirebase(newId, newChannelData).catch(() => {});
 
-    // 3. Switch to the newly created channel immediately
     setActiveChannelId(newId);
     setChannelData(newChannelData);
 
@@ -301,38 +493,66 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const removeChannel = (id: string) => {
     const target = channels.find((c) => c.id === id);
-    if (!target || target.isDefault) {
-      alert('ไม่สามารถลบ Channel หลัก (Master) ได้');
+    if (!target || target.isDefault || id === 'channel_master') {
       return;
     }
-    const nextChannels = channels.filter((c) => c.id !== id);
+    const nextChannels = ensureMasterChannelOnly(channels.filter((c) => c.id !== id));
     setChannels(nextChannels);
+    persistChannelList(nextChannels);
+
+    // Record permanent deletion locally so stale remote caches cannot resurrect this channel
+    const updatedDeleted = [...getDeletedChannelIds(), id];
+    saveDeletedChannelIds(updatedDeleted);
     if (typeof window !== 'undefined') {
-      localStorage.setItem('anesthesia_channels', JSON.stringify(nextChannels));
+      localStorage.setItem(CHANNELS_PENDING_SYNC_KEY, 'true');
       localStorage.removeItem(getChannelDbKey(id));
+      localStorage.removeItem(getChannelListsKey(id));
+      localStorage.removeItem(getChannelChecksKey(id));
+      localStorage.removeItem(getChannelWeekDatesKey(id));
     }
+
+    authReadyPromise.then(async (user) => {
+      if (!user) return;
+      const savedList = await saveChannelsToFirebase(nextChannels).catch(() => false);
+      await deleteChannelInFirebase(id).catch(() => false);
+      if (savedList && typeof window !== 'undefined') {
+        localStorage.removeItem(CHANNELS_PENDING_SYNC_KEY);
+      }
+    });
+
     if (activeChannelId === id) {
       setActiveChannelId('channel_master');
     }
   };
 
   const renameChannel = (id: string, newName: string) => {
+    if (!newName.trim()) return;
     const nextChannels = channels.map((c) => (c.id === id ? { ...c, name: newName.trim() } : c));
     setChannels(nextChannels);
+    persistChannelList(nextChannels);
     if (typeof window !== 'undefined') {
-      localStorage.setItem('anesthesia_channels', JSON.stringify(nextChannels));
+      localStorage.setItem(CHANNELS_PENDING_SYNC_KEY, 'true');
     }
+    authReadyPromise.then((user) => {
+      if (user) {
+        saveChannelsToFirebase(nextChannels)
+          .then((ok) => {
+            if (ok && typeof window !== 'undefined') localStorage.removeItem(CHANNELS_PENDING_SYNC_KEY);
+          })
+          .catch(() => {});
+      }
+    });
   };
 
-  const addBatchItemsToChannel = (channelId: string, newItems: any[], targetType: 'bag' | 'cart' = 'bag') => {
+  const addBatchItemsToChannel = (channelId: string, newItems: any[], targetType: 'bag' | 'cart' | 'ambulance' | string = 'bag') => {
     const targetChannelId = channelId || activeChannelId || 'channel_master';
     const key = getChannelDbKey(targetChannelId);
 
     setChannelData((prev) => {
       const currentChannelData = targetChannelId === activeChannelId ? prev : (getStored<ChannelData | null>(key, null) || prev);
       const currentList = currentChannelData.lists?.[targetType] || {
-        title: targetType === 'bag' ? 'กระเป๋าฉุกเฉิน' : 'รถฉุกเฉิน',
-        sheet: targetType === 'bag' ? 'กระเป๋า Emergency' : 'รถ Emergency',
+        title: targetType === 'bag' ? 'กระเป๋าฉุกเฉิน' : targetType === 'ambulance' ? 'รถพยาบาลฉุกเฉิน' : 'รถฉุกเฉิน',
+        sheet: targetType === 'bag' ? 'กระเป๋า Emergency' : targetType === 'ambulance' ? 'รถ Ambulance' : 'รถ Emergency',
         groups: {},
       };
 
@@ -405,7 +625,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const batchUpdateItemQuantities = (
     channelId: string,
     updates: Array<{ itemName: string; newQty: string }>,
-    targetType: 'bag' | 'cart' = 'bag'
+    targetType: 'bag' | 'cart' | 'ambulance' | string = 'bag'
   ) => {
     const targetChannelId = channelId || activeChannelId || 'channel_master';
     const key = getChannelDbKey(targetChannelId);
@@ -465,11 +685,11 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     });
   };
 
-  const batchAddItems = (type: 'bag' | 'cart', items: any[]) => {
+  const batchAddItems = (type: 'bag' | 'cart' | 'ambulance' | string, items: any[]) => {
     addBatchItemsToChannel(activeChannelId, items, type);
   };
 
-  const setItems = (type: 'bag' | 'cart', items: any[]) => {
+  const setItems = (type: 'bag' | 'cart' | 'ambulance' | string, items: any[]) => {
     addBatchItemsToChannel(activeChannelId, items, type);
   };
 
@@ -538,8 +758,6 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         username: 'admin',
         role: 'admin',
         active: true,
-        salt: '',
-        hash: '',
         must: false,
         created: new Date().toISOString(),
         last: new Date().toISOString(),
@@ -625,7 +843,7 @@ export const useDataContext = (): DataContextType => {
           localStorage.setItem('user_display_name', n);
           localStorage.setItem('user_display_position', p);
         }
-        return { id: 'usr_admin', username: 'admin', name: n, role: 'admin', position: p, active: true, salt: '', hash: '', must: false, created: '', last: '', avatar: a };
+        return { id: 'usr_admin', username: 'admin', name: n, role: 'admin', position: p, active: true, must: false, created: '', last: '', avatar: a };
       },
       channels: DEFAULT_CHANNELS,
       activeChannelId: 'channel_master',

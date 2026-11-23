@@ -84,11 +84,10 @@ export interface DrugInventoryReportPreviewProps {
   signature?: string;
 }
 
-export const DrugInventoryReportPreview: React.FC<DrugInventoryReportPreviewProps> = ({
+export const DrugInventoryReportPreview: React.FC<DrugInventoryReportPreviewProps> = React.memo(({
   drugs = [],
   date: surveyDate = '',
   inspector = '',
-  signature = '',
   clinicName = 'คลินิกงานบริการผู้ป่วยในวิสัญญี',
   subCategory = 'monthly',
   onSubCategoryChange,
@@ -103,11 +102,10 @@ export const DrugInventoryReportPreview: React.FC<DrugInventoryReportPreviewProp
   }, [drugs, subCategory]);
 
   const mainHeading = getDrugCategoryTitle(subCategory, surveyDate);
-  const effectiveInspector = (inspector || (typeof window !== 'undefined' ? localStorage.getItem('user_display_name') : null) || 'สาธิต').trim();
 
   return (
     <div
-      className="a4-page-sheet a4-print-container paper-preview sheet-preview isolate !bg-white !text-black flex flex-col justify-start gap-2"
+      className="a4-page-sheet a4-print-container paper-preview sheet-preview !bg-white !text-black flex flex-col justify-start gap-2"
       style={{
         width: '100%',
         margin: '0 auto',
@@ -116,57 +114,31 @@ export const DrugInventoryReportPreview: React.FC<DrugInventoryReportPreviewProp
         overflow: 'visible',
         background: '#ffffff',
         borderRadius: '8px',
-        backgroundColor: '#ffffff !important',
-        color: '#000000 !important',
+        color: '#000000',
         fontFamily: "'TH Sarabun PSK', 'Sarabun', Tahoma, sans-serif",
-        minHeight: '1160px',
-        height: '100%',
       }}
     >
       <style>{`
-        .a4-page-sheet,
-        .a4-page-sheet *,
-        .a4-print-container, 
-        .a4-print-container *, 
-        .a4-print-container table, 
-        .a4-print-container thead, 
-        .a4-print-container tbody, 
-        .a4-print-container tr, 
-        .a4-print-container td, 
-        .a4-print-container th {
-          background-color: #ffffff !important;
-          color: #000000 !important;
-          border-color: #cbd5e1 !important;
-          background-image: none !important;
-          color-scheme: light !important;
-          white-space: normal !important;
-          word-break: keep-all !important;
-          padding: 6px 4px !important;
-          overflow: visible !important;
-          line-height: 1.3 !important;
-          font-size: 11px !important;
-          vertical-align: middle !important;
-          height: auto !important;
+        .a4-print-container table {
+          background-color: #ffffff;
+          color: #000000;
+          border-color: #cbd5e1;
+          border-collapse: collapse;
         }
-        .a4-print-container p, 
-        .a4-print-container span, 
-        .a4-print-container div {
-          background-color: #ffffff !important;
-          color: #000000 !important;
-          border-color: #cbd5e1 !important;
-          background-image: none !important;
-          color-scheme: light !important;
+        .a4-print-container th,
+        .a4-print-container td {
+          color: #000000;
+          border-color: #cbd5e1;
+          white-space: normal;
+          word-break: keep-all;
+          padding: 6px 4px;
+          line-height: 1.3;
+          font-size: 11px;
+          vertical-align: middle;
         }
-        .a4-page-sheet th,
-        .a4-print-container th, 
-        .a4-print-container .bg-slate-100,
+        .a4-print-container th,
         .a4-print-container thead tr {
           background-color: #f1f5f9 !important;
-          color: #000000 !important;
-        }
-        /* Specifically target icons if any */
-        .a4-page-sheet svg,
-        .a4-print-container svg {
           color: #000000 !important;
         }
       `}</style>
@@ -275,7 +247,7 @@ export const DrugInventoryReportPreview: React.FC<DrugInventoryReportPreviewProp
       </div>
 
       {/* 2. Standard 8-Column Table Grid */}
-      <div style={{ width: '100%', overflowX: 'auto', WebkitOverflowScrolling: 'touch', boxSizing: 'border-box' }}>
+      <div style={{ width: '100%', boxSizing: 'border-box' }}>
       <table
         className="border-collapse border border-slate-400"
         style={{
@@ -369,7 +341,7 @@ export const DrugInventoryReportPreview: React.FC<DrugInventoryReportPreviewProp
               const displayNote = noteParts.length > 0 ? noteParts.join(' | ') : '-';
 
               return (
-                <tr key={d.id || idx} className="hover:bg-slate-50 transition-colors">
+                <tr key={d.id || idx} className="hover:bg-slate-50">
                   {/* Col 1: ชนิดยา/สารน้ำ (ชิดซ้าย, padding-left: 8px) */}
                   <td
                     className="border border-slate-300"
@@ -442,7 +414,7 @@ export const DrugInventoryReportPreview: React.FC<DrugInventoryReportPreviewProp
 
     </div>
   );
-};
+});
 
 export function generateDrugPrintHtml(
   drugs: DrugItem[],

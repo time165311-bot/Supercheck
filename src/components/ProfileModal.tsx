@@ -20,10 +20,11 @@ import {
   ZoomIn,
   ZoomOut,
 } from 'lucide-react';
-import { User } from '../types';
+import { InspectionHistoryRecord, User } from '../types';
 import { UserAvatarBadge } from './UserAvatarBadge';
 import { AvatarRingKey, getEffectiveAvatarRing, RING_CONFIGS } from '../utils/avatarRings';
 import { saveUserToFirebase } from '../services/firebase';
+import { compressImageForFirestore } from '../utils/helpers';
 
 const PRESET_AVATARS = [
   {
@@ -63,6 +64,7 @@ const PRESET_AVATARS = [
 interface ProfileModalProps {
   isOpen: boolean;
   currentUser: User | null;
+  historyRecords?: InspectionHistoryRecord[];
   onClose: () => void;
   onUpdateAvatar?: (newAvatar: string) => void;
   onUpdateUser?: (updatedUser: User) => void;
@@ -75,6 +77,7 @@ interface ProfileModalProps {
 export const ProfileModal: React.FC<ProfileModalProps> = ({
   isOpen,
   currentUser,
+  historyRecords = [],
   onClose,
   onUpdateAvatar,
   onUpdateUser,
@@ -134,12 +137,13 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
   const [selectedRingColor, setSelectedRingColor] = useState<AvatarRingKey>(() => {
     return getEffectiveAvatarRing(currentUser);
   });
+  const [profileNotice, setProfileNotice] = useState<string | null>(null);
 
   // Load user data on open
   useEffect(() => {
     if (isOpen) {
       const activeName = (typeof window !== 'undefined' ? localStorage.getItem('user_display_name') : null) || currentUser?.name || 'สาธิต';
-      const activePos = (typeof window !== 'undefined' ? localStorage.getItem('user_display_position') : null) || currentUser?.position || (currentUser?.role === 'admin' ? 'วิสัญญีแพทย์' : 'พยาบาลวิสัญญี');
+      const activePos = (typeof window !== 'undefined' ? localStorage.getItem('user_display_position') : null) || currentUser?.position || 'พยาบาลวิสัญญี';
       setName(activeName);
       setTempName(activeName);
       setPosition(activePos);
@@ -147,6 +151,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
       setAvatar(currentUser?.avatar || '');
       setProfileSaved(false);
       setAvatarSaved(false);
+      setProfileNotice(null);
       setRawImageForCrop(null);
       setSelectedRingColor(getEffectiveAvatarRing({ ...(currentUser || {}), position: activePos } as any));
 
@@ -163,9 +168,10 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
   const handleSaveProfile = async () => {
     const trimmedName = tempName.trim();
     if (!trimmedName) {
-      alert('กรุณากรอกชื่อ-นามสกุล ผู้ใช้งาน');
+      setProfileNotice('กรุณากรอกชื่อ-นามสกุล ผู้ใช้งาน');
       return;
     }
+    setProfileNotice(null);
     const trimmedPos = tempPosition.trim() || 'พยาบาลวิสัญญี';
 
     // 1. Save to localStorage immediately
@@ -184,8 +190,6 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
         username: 'admin',
         role: 'admin',
         active: true,
-        salt: '',
-        hash: '',
         must: false,
         created: new Date().toISOString(),
         last: new Date().toISOString(),
@@ -232,34 +236,20 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
     setTimeout(() => setProfileSaved(false), 3000);
   };
 
-  // Compute Personal Activity Stats dynamically from localStorage
+  // Compute Personal Activity Stats from live historyRecords prop (no bloated localStorage reads)
   const userStats = useMemo(() => {
     if (!currentUser) {
       return { drugChecks: 0, totalItemsChecked: 0, consistencyRate: 100 };
     }
 
     try {
-      const historyRaw = localStorage.getItem('anesthesia_history');
-      const historyList: any[] = historyRaw ? JSON.parse(historyRaw) : [];
+      const historyList = Array.isArray(historyRecords) ? historyRecords : [];
 
-      const logsRaw = localStorage.getItem('anesthesia_audit_logs');
-      const auditLogs: any[] = logsRaw ? JSON.parse(logsRaw) : [];
-
-      const checksRaw = localStorage.getItem('anesthesia_global_checks');
-      const globalChecks: Record<string, Record<string, any>> = checksRaw ? JSON.parse(checksRaw) : {};
-
-      // 1. Drug inventory checks count
       const myDrugHistory = historyList.filter(
         (h) => h.type === 'drug' && (h.who?.includes(currentUser.name) || h.who?.includes(currentUser.username))
       );
-      const myDrugLogs = auditLogs.filter(
-        (l) =>
-          (l.user === currentUser.username || l.name === currentUser.name) &&
-          (l.details?.includes('ยา') || l.details?.includes('คลังยา'))
-      );
-      const drugChecks = Math.max(myDrugHistory.length, myDrugLogs.length, 1);
+      const drugChecks = Math.max(myDrugHistory.length, 1);
 
-      // 2. Equipment / Bag / Cart items inspected count
       let itemsChecked = 0;
       historyList.forEach((h) => {
         if (h.who?.includes(currentUser.name) || h.who?.includes(currentUser.username)) {
@@ -269,21 +259,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
         }
       });
 
-      // Also count globalChecks items marked as normal/defect
-      let currentCheckedCount = 0;
-      Object.values(globalChecks).forEach((roomChecks) => {
-        if (roomChecks && typeof roomChecks === 'object') {
-          Object.values(roomChecks).forEach((c: any) => {
-            if (c?.result === 'ปกติ' || c?.result === 'ผิดปกติ') {
-              currentCheckedCount++;
-            }
-          });
-        }
-      });
-
-      const totalItemsChecked = Math.max(itemsChecked, currentCheckedCount, 42);
-
-      // 3. Consistency / On-time completion rate
+      const totalItemsChecked = Math.max(itemsChecked, 42);
       const consistencyRate = 100;
 
       return {
@@ -291,10 +267,10 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
         totalItemsChecked,
         consistencyRate,
       };
-    } catch (e) {
+    } catch {
       return { drugChecks: 3, totalItemsChecked: 45, consistencyRate: 100 };
     }
-  }, [currentUser]);
+  }, [currentUser, historyRecords]);
 
   // Image cropper effect
   useEffect(() => {
@@ -496,27 +472,35 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
     const hasDrawn = imgData.data.some((channel) => channel !== 0);
 
     if (!hasDrawn) {
-      alert('กรุณาเซ็นชื่อลงบนกระดานก่อนกดบันทึก');
+      setProfileNotice('กรุณาเซ็นชื่อลงบนกระดานก่อนกดบันทึก');
       return;
     }
+    setProfileNotice(null);
 
     const dataUrl = canvas.toDataURL('image/png');
     saveSignaturePermanently(dataUrl);
   };
 
-  const handleUploadSignatureFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleUploadSignatureFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const dataUrl = ev.target?.result as string;
-      if (dataUrl) {
-        saveSignaturePermanently(dataUrl);
-      }
-    };
-    reader.readAsDataURL(file);
     e.target.value = '';
+
+    try {
+      const compressedDataUrl = await compressImageForFirestore(file, 800, 0.75);
+      if (compressedDataUrl) {
+        saveSignaturePermanently(compressedDataUrl);
+      }
+    } catch {
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const dataUrl = ev.target?.result as string;
+        if (dataUrl) {
+          saveSignaturePermanently(dataUrl);
+        }
+      };
+      reader.readAsDataURL(file);
+    }
   };
 
   const saveSignaturePermanently = (dataUrl: string) => {
@@ -564,11 +548,11 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
   };
 
   const handleSelectRingColor = (key: AvatarRingKey) => {
-    if (currentUser?.role !== 'admin') return;
     setSelectedRingColor(key);
     if (currentUser?.id) {
       localStorage.setItem(`user_avatar_ring_${currentUser.id}`, key);
     }
+    localStorage.setItem('user_avatar_ring_default', key);
     window.dispatchEvent(new Event('user_avatar_ring_updated'));
   };
 
@@ -607,6 +591,16 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
             <X className="w-5 h-5" />
           </button>
         </div>
+
+        {/* Inline Feedback Notice */}
+        {profileNotice && (
+          <div className="mx-4 mt-3 px-3.5 py-2 rounded-xl bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs font-bold flex items-center justify-between gap-2">
+            <span>⚠️ {profileNotice}</span>
+            <button type="button" onClick={() => setProfileNotice(null)} className="cursor-pointer">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
 
         {/* Tab Navigation (Facebook Clean Tabs) */}
         <div className="flex border-b border-[#e4e6eb] dark:border-[#3a3b3c] px-4 gap-2 shrink-0 bg-[#f0f2f5] dark:bg-[#18191a] text-xs">
@@ -753,18 +747,16 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                   <Camera className="w-3.5 h-3.5" />
                   <span>แก้ไขรูปโปรไฟล์</span>
                 </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (onOpenPasswordModal) {
-                      onOpenPasswordModal();
-                    }
-                  }}
-                  className="flex-1 py-2.5 px-3 rounded-xl bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 font-bold border border-amber-200 dark:border-amber-900/50 hover:bg-amber-100 dark:hover:bg-amber-900/60 flex items-center justify-center gap-1.5 transition text-xs cursor-pointer active:scale-95 shadow-2xs"
-                >
-                  <Key className="w-3.5 h-3.5" />
-                  <span>เปลี่ยนรหัสผ่าน</span>
-                </button>
+                {onOpenPasswordModal && (
+                  <button
+                    type="button"
+                    onClick={() => onOpenPasswordModal()}
+                    className="flex-1 py-2.5 px-3 rounded-xl bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 font-bold border border-amber-200 dark:border-amber-900/50 hover:bg-amber-100 dark:hover:bg-amber-900/60 flex items-center justify-center gap-1.5 transition text-xs cursor-pointer active:scale-95 shadow-2xs"
+                  >
+                    <Key className="w-3.5 h-3.5" />
+                    <span>เปลี่ยนรหัสผ่าน</span>
+                  </button>
+                )}
               </div>
 
               {/* 1. Health App Style Personal Activity Stats Widget */}
@@ -1184,16 +1176,21 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                             type="file"
                             accept="image/*"
                             className="hidden"
-                            onChange={(e) => {
+                            onChange={async (e) => {
                               const file = e.target.files?.[0];
-                              if (!file) return;
-                              const reader = new FileReader();
-                              reader.onload = (ev) => {
-                                const dataUrl = ev.target?.result as string;
-                                if (dataUrl) setRawImageForCrop(dataUrl);
-                              };
-                              reader.readAsDataURL(file);
                               e.target.value = '';
+                              if (!file) return;
+                              try {
+                                const compressedDataUrl = await compressImageForFirestore(file, 1024, 0.72);
+                                if (compressedDataUrl) setRawImageForCrop(compressedDataUrl);
+                              } catch {
+                                const reader = new FileReader();
+                                reader.onload = (ev) => {
+                                  const dataUrl = ev.target?.result as string;
+                                  if (dataUrl) setRawImageForCrop(dataUrl);
+                                };
+                                reader.readAsDataURL(file);
+                              }
                             }}
                           />
                         </label>
@@ -1249,67 +1246,49 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                     </div>
                   </div>
 
-                  {/* Avatar Ring Color Customization Palette */}
+                  {/* Avatar Ring Color Customization Palette (Open Access for All Staff) */}
                   <div className="p-4 bg-white dark:bg-[#18191a] rounded-2xl border border-[#e4e6eb] dark:border-[#3a3b3c] space-y-3">
                     <div className="flex items-center justify-between">
                       <span className="font-bold text-[#050505] dark:text-[#e4e6eb] text-xs flex items-center gap-1.5">
                         <Sparkles className="w-4 h-4 text-[#1877f2]" />
                         <span>สีกรอบออร่ารูปโปรไฟล์ (Avatar Ring Palette)</span>
                       </span>
-                      {currentUser.role === 'admin' ? (
-                        <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-purple-100 text-purple-700 dark:bg-purple-950/80 dark:text-purple-300 border border-purple-300 dark:border-purple-800">
-                          👑 ปลดล็อกสิทธิ์ Admin
-                        </span>
-                      ) : (
-                        <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400">
-                          🔒 กำหนดตามตำแหน่ง
-                        </span>
-                      )}
+                      <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-950/80 dark:text-blue-300 border border-blue-300 dark:border-blue-800">
+                        ปรับแต่งได้อิสระ
+                      </span>
                     </div>
 
-                    {currentUser.role === 'admin' ? (
-                      <div>
-                        <span className="text-[11px] text-[#65676b] dark:text-[#b0b3b8] block mb-2 font-medium">
-                          คลิกเลือกเฉดสีกรอบรูปโปรไฟล์ของคุณ (Real-time Preview บน Header และหน้าหลัก):
-                        </span>
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                          {(Object.keys(RING_CONFIGS) as AvatarRingKey[]).map((key) => {
-                            const cfg = RING_CONFIGS[key];
-                            const isSelected = selectedRingColor === key;
-                            return (
-                              <button
-                                key={key}
-                                type="button"
-                                onClick={() => handleSelectRingColor(key)}
-                                className={`p-2.5 rounded-xl border text-left transition cursor-pointer flex items-center gap-2 ${
-                                  isSelected
-                                    ? 'bg-[#e7f3ff] dark:bg-[#1877f2]/20 border-[#1877f2] ring-2 ring-[#1877f2]/20 shadow-xs'
-                                    : 'bg-white/50 dark:bg-[#242526]/50 border-[#e4e6eb] dark:border-[#3a3b3c] hover:bg-[#f0f2f5] dark:hover:bg-[#242526]'
-                                }`}
-                              >
-                                <span className={`w-4 h-4 rounded-full ${cfg.dotBg} shrink-0 shadow-2xs`} />
-                                <div className="min-w-0 flex-1">
-                                  <span className="font-bold text-[#050505] dark:text-[#e4e6eb] text-[11px] block truncate">
-                                    {cfg.emoji} {cfg.label.split(' ')[0]}
-                                  </span>
-                                </div>
-                                {isSelected && <Check className="w-3.5 h-3.5 text-[#1877f2] shrink-0" />}
-                              </button>
-                            );
-                          })}
-                        </div>
+                    <div>
+                      <span className="text-[11px] text-[#65676b] dark:text-[#b0b3b8] block mb-2 font-medium">
+                        คลิกเลือกเฉดสีกรอบรูปโปรไฟล์ของคุณ (Real-time Preview บนหน้าหลัก):
+                      </span>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                        {(Object.keys(RING_CONFIGS) as AvatarRingKey[]).map((key) => {
+                          const cfg = RING_CONFIGS[key];
+                          const isSelected = selectedRingColor === key;
+                          return (
+                            <button
+                              key={key}
+                              type="button"
+                              onClick={() => handleSelectRingColor(key)}
+                              className={`p-2.5 rounded-xl border text-left transition cursor-pointer flex items-center gap-2 ${
+                                isSelected
+                                  ? 'bg-[#e7f3ff] dark:bg-[#1877f2]/20 border-[#1877f2] ring-2 ring-[#1877f2]/20 shadow-xs'
+                                  : 'bg-white/50 dark:bg-[#242526]/50 border-[#e4e6eb] dark:border-[#3a3b3c] hover:bg-[#f0f2f5] dark:hover:bg-[#242526]'
+                              }`}
+                            >
+                              <span className={`w-4 h-4 rounded-full ${cfg.dotBg} shrink-0 shadow-2xs`} />
+                              <div className="min-w-0 flex-1">
+                                <span className="font-bold text-[#050505] dark:text-[#e4e6eb] text-[11px] block truncate">
+                                  {cfg.emoji} {cfg.label.split(' ')[0]}
+                                </span>
+                              </div>
+                              {isSelected && <Check className="w-3.5 h-3.5 text-[#1877f2] shrink-0" />}
+                            </button>
+                          );
+                        })}
                       </div>
-                    ) : (
-                      <div className="p-3 bg-[#f0f2f5] dark:bg-[#242526] rounded-xl border border-[#e4e6eb] dark:border-[#3a3b3c] space-y-1">
-                        <div className="flex items-center gap-2 text-xs font-bold text-[#050505] dark:text-[#e4e6eb]">
-                          <span className={`w-3.5 h-3.5 rounded-full ${RING_CONFIGS[selectedRingColor]?.dotBg || 'bg-slate-400'} shrink-0`} />
-                          <span>สีกรอบรูปโปรไฟล์: {RING_CONFIGS[selectedRingColor]?.label || 'สีเทามินิมอล'}</span>
-                        </div>
-                        <p className="text-[11px] text-[#65676b] dark:text-[#b0b3b8] leading-tight">
-                          สีกรอบรูปโปรไฟล์ถูกกำหนดอัตโนมัติตามตำแหน่งสายงานของคุณ ({position}) · เฉพาะผู้ดูแลระบบ (Admin) เท่านั้นที่สามารถเลือกเปลี่ยนสีได้อย่างอิสระ
-                        </p>
-                      </div>
-                    )}
+                    </div>
                   </div>
                 </>
               )}

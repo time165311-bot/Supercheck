@@ -77,8 +77,6 @@ export const UserManagement: React.FC<UserManagementProps> = ({
         name: name.trim(),
         role,
         active: true,
-        salt: '',
-        hash: password,
         must: false,
         created: new Date().toISOString(),
         last: '',
@@ -103,7 +101,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
     if (onResetPassword) {
       await onResetPassword(user.id, pw);
     } else {
-      const next = users.map((u) => (u.id === user.id ? { ...u, hash: pw, must: true } : u));
+      const next = users.map((u) => (u.id === user.id ? { ...u, must: true } : u));
       if (onUsersChange) onUsersChange(next);
     }
     alert(`รีเซ็ตรหัสผ่านของ ${user.name} สำเร็จแล้ว`);
