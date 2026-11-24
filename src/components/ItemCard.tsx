@@ -33,13 +33,8 @@ export const DrugItemCard: React.FC<DrugItemCardProps> = React.memo(({
   onEdit,
   onDelete,
 }) => {
-  const cardTone = isExpired
-    ? 'bg-rose-50/90 dark:bg-[#1E1F20] border-rose-200 dark:border-rose-900/40 text-slate-900 dark:text-white'
-    : isExpiringSoon
-    ? 'bg-amber-50/90 dark:bg-[#1E1F20] border-amber-200 dark:border-amber-900/40 text-slate-900 dark:text-white'
-    : isLowStock
-    ? 'bg-orange-50/90 dark:bg-[#1E1F20] border-orange-200 dark:border-orange-900/40 text-slate-900 dark:text-white'
-    : 'bg-white dark:bg-[#1E1F20] border-slate-200 dark:border-white/10 text-slate-900 dark:text-white';
+  const cardTone =
+    'bg-white dark:bg-[#1E1F20] border-slate-200 dark:border-white/10 text-slate-900 dark:text-[#E3E3E3] hover:border-blue-300 dark:hover:border-white/25';
 
   const statusLabel = isExpired
     ? 'หมดอายุ'
@@ -50,16 +45,16 @@ export const DrugItemCard: React.FC<DrugItemCardProps> = React.memo(({
     : 'พร้อมใช้';
 
   const statusTone = isExpired
-    ? 'bg-rose-600 text-white'
+    ? 'bg-rose-500/12 text-rose-700 dark:bg-rose-500/20 dark:text-[#F28B82] border border-rose-200/80 dark:border-rose-500/30'
     : isExpiringSoon
-    ? 'bg-amber-500 text-white'
+    ? 'bg-amber-500/12 text-amber-700 dark:bg-amber-500/20 dark:text-[#FDD663] border border-amber-200/80 dark:border-amber-500/30'
     : isLowStock
-    ? 'bg-orange-500 text-white'
-    : 'bg-emerald-600 text-white';
+    ? 'bg-orange-500/12 text-orange-700 dark:bg-orange-500/20 dark:text-orange-300 border border-orange-200/80 dark:border-orange-500/30'
+    : 'bg-emerald-500/12 text-emerald-700 dark:bg-emerald-500/20 dark:text-[#81C995] border border-emerald-200/80 dark:border-emerald-500/30';
 
   return (
     <div
-      className={`p-3 sm:p-3.5 rounded-2xl border shadow-xs transition-colors duration-150 card-perf flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 hover:border-blue-300 ${cardTone}`}
+      className={`p-3 sm:p-3.5 rounded-2xl border shadow-xs transition-colors duration-150 card-perf flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 ${cardTone}`}
     >
       {/* Left Info Column */}
       <button
@@ -67,45 +62,45 @@ export const DrugItemCard: React.FC<DrugItemCardProps> = React.memo(({
         onClick={() => onSelectDetail(item)}
         className="flex items-center gap-3 flex-1 min-w-0 w-full text-left cursor-pointer active:opacity-80 touch-manipulation"
       >
-        <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-700 font-black border border-blue-100 flex items-center justify-center shrink-0 text-sm tabular-nums">
+        <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-[#282A2C] text-blue-700 dark:text-[#A8C7FA] font-black border border-blue-100 dark:border-white/10 flex items-center justify-center shrink-0 text-sm tabular-nums">
           {index + 1}
         </div>
 
         <div className="space-y-0.5 min-w-0 flex-1">
           <div className="flex items-center gap-2 min-w-0">
-            <h3 className="text-xs sm:text-sm font-bold text-slate-800 dark:text-white truncate leading-tight">
+            <h3 className="text-xs sm:text-sm font-bold text-slate-800 dark:text-[#E3E3E3] truncate leading-tight">
               {item.name}
             </h3>
             {item.unit && (
-              <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-[10px] font-bold border border-slate-200 dark:border-white/10 shrink-0 whitespace-nowrap">
+              <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-[#282A2C] text-slate-600 dark:text-[#C4C7C5] text-[10px] font-bold border border-slate-200 dark:border-white/10 shrink-0 whitespace-nowrap">
                 {item.unit}
               </span>
             )}
             {(item.tmtCode || item.hospitalDrugCode) && (
-              <span className="hidden sm:inline-block px-1.5 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 text-[9px] font-mono font-bold border border-indigo-200 dark:border-indigo-900/40 shrink-0 whitespace-nowrap">
+              <span className="hidden sm:inline-block px-1.5 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 text-[9px] font-mono font-bold border border-indigo-200 dark:border-indigo-500/30 shrink-0 whitespace-nowrap">
                 {item.tmtCode || item.hospitalDrugCode}
               </span>
             )}
           </div>
 
-          <div className="flex items-center gap-2.5 text-[11px] text-slate-500 dark:text-slate-400 flex-wrap font-sans">
+          <div className="flex items-center gap-2.5 text-[11px] text-slate-500 dark:text-[#8E918F] flex-wrap font-sans">
             <span className="tabular-nums">
-              คงเหลือ: <b className="text-slate-900 dark:text-white font-extrabold">{item.remaining}</b> {item.unit || ''} (Min: {item.minStock})
+              คงเหลือ: <b className="text-slate-900 dark:text-[#E3E3E3] font-extrabold">{item.remaining}</b> {item.unit || ''} (Min: {item.minStock})
             </span>
             {((item.lots && item.lots.length > 0) || item.lotNumber) && (
-              <span className="px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 text-[10px] font-mono font-bold border border-blue-200 shrink-0 whitespace-nowrap">
+              <span className="px-1.5 py-0.5 rounded bg-blue-50 dark:bg-[#A8C7FA]/15 text-blue-700 dark:text-[#A8C7FA] text-[10px] font-mono font-bold border border-blue-200 dark:border-[#A8C7FA]/25 shrink-0 whitespace-nowrap">
                 {item.lots && item.lots.length > 1
                   ? `${item.lots.length} Lots (FEFO)`
                   : `Lot: ${item.lots?.[0]?.lotNumber || item.lotNumber}`}
               </span>
             )}
             {item.expDate && (
-              <span className={`flex items-center gap-1 font-semibold tabular-nums ${isCurrentYear ? 'text-rose-600 font-bold' : ''}`}>
+              <span className={`flex items-center gap-1 font-semibold tabular-nums ${isCurrentYear ? 'text-rose-600 dark:text-[#F28B82] font-bold' : ''}`}>
                 <span>
                   EXP: <span className={isCurrentYear ? 'underline' : ''}>{item.expDate}</span>
                 </span>
                 {isCurrentYear && (
-                  <span className="px-1.5 py-0.5 rounded bg-rose-100 text-rose-700 text-[9px] font-bold border border-rose-200 shrink-0 whitespace-nowrap">
+                  <span className="px-1.5 py-0.5 rounded bg-rose-100 dark:bg-rose-500/20 text-rose-700 dark:text-[#F28B82] text-[9px] font-bold border border-rose-200 dark:border-rose-500/30 shrink-0 whitespace-nowrap">
                     EXP ปีนี้
                   </span>
                 )}
@@ -116,7 +111,7 @@ export const DrugItemCard: React.FC<DrugItemCardProps> = React.memo(({
       </button>
 
       {/* Right Actions & Stepper Controls */}
-      <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto justify-between sm:justify-end pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100">
+      <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto justify-between sm:justify-end pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100 dark:border-white/10">
         {/* Status Badge (Locked shrink-0 & whitespace-nowrap) */}
         <span
           className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase shrink-0 whitespace-nowrap ${statusTone}`}
@@ -125,19 +120,19 @@ export const DrugItemCard: React.FC<DrugItemCardProps> = React.memo(({
         </span>
 
         {/* Quantity Stepper [-] count [+] */}
-        <div className="flex items-center bg-slate-100 rounded-xl p-0.5 border border-slate-200 shrink-0">
+        <div className="flex items-center bg-slate-100 dark:bg-[#282A2C] rounded-xl p-0.5 border border-slate-200 dark:border-white/10 shrink-0">
           <button
             type="button"
             onClick={(e) => {
               e.stopPropagation();
               onDeltaQty(item.id, -1);
             }}
-            className="w-8 h-8 rounded-lg bg-white text-slate-700 hover:bg-slate-200 flex items-center justify-center transition-transform active:scale-95 active:opacity-80 cursor-pointer shadow-xs touch-manipulation"
+            className="w-8 h-8 rounded-lg bg-white dark:bg-[#1E1F20] text-slate-700 dark:text-[#E3E3E3] hover:bg-slate-200 dark:hover:bg-[#333537] flex items-center justify-center transition-transform active:scale-95 active:opacity-80 cursor-pointer shadow-xs touch-manipulation"
             title="ลดจำนวน 1"
           >
             <Minus className="w-3.5 h-3.5" />
           </button>
-          <span className="w-9 text-center font-extrabold text-xs text-slate-900 tabular-nums">
+          <span className="w-9 text-center font-extrabold text-xs text-slate-900 dark:text-[#E3E3E3] tabular-nums">
             {item.remaining}
           </span>
           <button
@@ -146,7 +141,7 @@ export const DrugItemCard: React.FC<DrugItemCardProps> = React.memo(({
               e.stopPropagation();
               onDeltaQty(item.id, 1);
             }}
-            className="w-8 h-8 rounded-lg bg-white text-slate-700 hover:bg-slate-200 flex items-center justify-center transition-transform active:scale-95 active:opacity-80 cursor-pointer shadow-xs touch-manipulation"
+            className="w-8 h-8 rounded-lg bg-white dark:bg-[#1E1F20] text-slate-700 dark:text-[#E3E3E3] hover:bg-slate-200 dark:hover:bg-[#333537] flex items-center justify-center transition-transform active:scale-95 active:opacity-80 cursor-pointer shadow-xs touch-manipulation"
             title="เพิ่มจำนวน 1"
           >
             <Plus className="w-3.5 h-3.5" />
@@ -157,7 +152,7 @@ export const DrugItemCard: React.FC<DrugItemCardProps> = React.memo(({
         <button
           type="button"
           onClick={() => onSelectDetail(item)}
-          className="px-2.5 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-xs flex items-center gap-1 transition-colors active:opacity-80 cursor-pointer border border-blue-100 shrink-0 whitespace-nowrap touch-manipulation"
+          className="px-2.5 py-1.5 rounded-xl bg-blue-50 dark:bg-[#A8C7FA]/15 hover:bg-blue-100 dark:hover:bg-[#A8C7FA]/25 text-blue-700 dark:text-[#A8C7FA] font-bold text-xs flex items-center gap-1 transition-colors active:opacity-80 cursor-pointer border border-blue-100 dark:border-[#A8C7FA]/25 shrink-0 whitespace-nowrap touch-manipulation"
           title="ดูรายละเอียดข้อมูลยาครบถ้วน"
         >
           <Info className="w-3.5 h-3.5 shrink-0" />
@@ -169,7 +164,7 @@ export const DrugItemCard: React.FC<DrugItemCardProps> = React.memo(({
           <button
             type="button"
             onClick={() => onEdit(item)}
-            className="p-2 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors active:opacity-80 cursor-pointer touch-manipulation"
+            className="p-2 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-[#E3E3E3] hover:bg-slate-100 dark:hover:bg-[#282A2C] transition-colors active:opacity-80 cursor-pointer touch-manipulation"
             title="แก้ไขข้อมูลยา"
           >
             <Pencil className="w-3.5 h-3.5" />
@@ -177,7 +172,7 @@ export const DrugItemCard: React.FC<DrugItemCardProps> = React.memo(({
           <button
             type="button"
             onClick={() => onDelete(item)}
-            className="p-2 rounded-xl text-rose-500 hover:bg-rose-50 transition-colors active:opacity-80 cursor-pointer touch-manipulation"
+            className="p-2 rounded-xl text-rose-500 dark:text-[#F28B82] hover:bg-rose-50 dark:hover:bg-rose-500/15 transition-colors active:opacity-80 cursor-pointer touch-manipulation"
             title="ลบรายการยา"
           >
             <Trash2 className="w-3.5 h-3.5" />

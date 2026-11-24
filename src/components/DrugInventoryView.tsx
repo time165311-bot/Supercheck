@@ -486,8 +486,8 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
           onClick={() => setActiveTab('monthly')}
           className={`px-4 py-2.5 rounded-2xl transition-colors duration-150 active:opacity-80 cursor-pointer whitespace-nowrap shrink-0 ${
             activeTab === 'monthly'
-              ? 'bg-blue-600 text-white shadow-sm font-extrabold'
-              : 'bg-white text-slate-700 hover:bg-slate-50 border border-slate-200'
+              ? 'bg-blue-600 dark:bg-[#A8C7FA] text-white dark:text-[#131314] shadow-sm font-extrabold'
+              : 'bg-white dark:bg-[#1E1F20] text-slate-700 dark:text-[#C4C7C5] hover:bg-slate-50 dark:hover:bg-[#282A2C] border border-slate-200 dark:border-white/10'
           }`}
         >
           <span>💊 ยาและสารน้ำประจำเดือน</span>
@@ -497,8 +497,8 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
           onClick={() => setActiveTab('quarterly')}
           className={`px-4 py-2.5 rounded-2xl transition-colors duration-150 active:opacity-80 cursor-pointer whitespace-nowrap shrink-0 ${
             activeTab === 'quarterly'
-              ? 'bg-blue-600 text-white shadow-sm font-extrabold'
-              : 'bg-white text-slate-700 hover:bg-slate-50 border border-slate-200'
+              ? 'bg-blue-600 dark:bg-[#A8C7FA] text-white dark:text-[#131314] shadow-sm font-extrabold'
+              : 'bg-white dark:bg-[#1E1F20] text-slate-700 dark:text-[#C4C7C5] hover:bg-slate-50 dark:hover:bg-[#282A2C] border border-slate-200 dark:border-white/10'
           }`}
         >
           <span>🚨 ยาความเสี่ยงสูง/กู้ชีพ (3 เดือน)</span>
@@ -508,8 +508,8 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
           onClick={() => setActiveTab('adhoc')}
           className={`px-4 py-2.5 rounded-2xl transition-colors duration-150 active:opacity-80 cursor-pointer whitespace-nowrap shrink-0 ${
             activeTab === 'adhoc'
-              ? 'bg-blue-600 text-white shadow-sm font-extrabold'
-              : 'bg-white text-slate-700 hover:bg-slate-50 border border-slate-200'
+              ? 'bg-blue-600 dark:bg-[#A8C7FA] text-white dark:text-[#131314] shadow-sm font-extrabold'
+              : 'bg-white dark:bg-[#1E1F20] text-slate-700 dark:text-[#C4C7C5] hover:bg-slate-50 dark:hover:bg-[#282A2C] border border-slate-200 dark:border-white/10'
           }`}
         >
           <span>📦 ยาฉุกเฉินเฉพาะกิจ (ครั้งคราว)</span>
@@ -517,22 +517,22 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
       </div>
 
       {/* Search & Status Filter Control Bar */}
-      <div className="p-3 bg-white rounded-2xl border border-slate-200 shadow-xs space-y-2.5">
+      <div className="p-3 bg-white dark:bg-[#1E1F20] rounded-2xl border border-slate-200 dark:border-white/10 shadow-xs space-y-2.5">
         <div className="flex flex-col sm:flex-row items-center justify-between gap-2">
           {/* Search Input */}
           <div className="relative flex-1 w-full">
-            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-[#8E918F]" />
             <input
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               placeholder="ค้นหาชื่อยา, สารน้ำ, รหัสบาร์โค้ด..."
-              className="w-full pl-9 pr-8 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs outline-none focus:ring-2 focus:ring-blue-100 font-medium text-slate-800"
+              className="w-full pl-9 pr-8 py-2 bg-slate-50 dark:bg-[#282A2C] border border-slate-200 dark:border-white/10 rounded-xl text-xs outline-none focus:ring-2 focus:ring-blue-100 dark:focus:ring-[#A8C7FA]/25 font-medium text-slate-800 dark:text-[#E3E3E3]"
             />
             {searchTerm && (
               <button
                 onClick={() => setSearchTerm('')}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-[#E3E3E3] cursor-pointer"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
@@ -540,13 +540,13 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
           </div>
 
           {/* Status Filter Buttons */}
-          <div className="flex items-center gap-1 w-full sm:w-auto overflow-x-auto pb-1 sm:pb-0 text-xs">
+          <div className="flex items-center gap-1.5 w-full sm:w-auto overflow-x-auto pb-1 sm:pb-0 text-xs">
             <button
               onClick={() => setStatusFilter('all')}
               className={`px-3 py-1.5 min-h-[32px] rounded-xl font-semibold whitespace-nowrap transition cursor-pointer ${
                 statusFilter === 'all'
-                  ? 'bg-blue-600 text-white shadow-xs'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  ? 'bg-blue-600 dark:bg-[#A8C7FA] text-white dark:text-[#131314] shadow-xs'
+                  : 'bg-slate-100 dark:bg-[#282A2C] text-slate-600 dark:text-[#C4C7C5] hover:bg-slate-200 dark:hover:bg-[#333537]'
               }`}
             >
               ทั้งหมด ({drugs.filter((d) => d.category === activeTab).length})
@@ -555,8 +555,8 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
               onClick={() => setStatusFilter('low')}
               className={`px-3 py-1.5 min-h-[32px] rounded-xl font-semibold whitespace-nowrap transition cursor-pointer ${
                 statusFilter === 'low'
-                  ? 'bg-orange-500 text-white shadow-xs'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  ? 'bg-orange-500/90 dark:bg-orange-500/25 text-white dark:text-orange-300 border border-transparent dark:border-orange-500/40 shadow-xs'
+                  : 'bg-slate-100 dark:bg-[#282A2C] text-slate-600 dark:text-[#C4C7C5] hover:bg-slate-200 dark:hover:bg-[#333537]'
               }`}
             >
               สต็อกต่ำ
@@ -565,8 +565,8 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
               onClick={() => setStatusFilter('expiring')}
               className={`px-3 py-1.5 min-h-[32px] rounded-xl font-semibold whitespace-nowrap transition cursor-pointer ${
                 statusFilter === 'expiring'
-                  ? 'bg-amber-500 text-white shadow-xs'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  ? 'bg-amber-500/90 dark:bg-amber-500/25 text-white dark:text-[#FDD663] border border-transparent dark:border-amber-500/40 shadow-xs'
+                  : 'bg-slate-100 dark:bg-[#282A2C] text-slate-600 dark:text-[#C4C7C5] hover:bg-slate-200 dark:hover:bg-[#333537]'
               }`}
             >
               ใกล้หมดอายุ
@@ -575,8 +575,8 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
               onClick={() => setStatusFilter('expired')}
               className={`px-3 py-1.5 min-h-[32px] rounded-xl font-semibold whitespace-nowrap transition cursor-pointer ${
                 statusFilter === 'expired'
-                  ? 'bg-rose-600 text-white shadow-xs'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  ? 'bg-rose-600 dark:bg-rose-500/25 text-white dark:text-[#F28B82] border border-transparent dark:border-rose-500/40 shadow-xs'
+                  : 'bg-slate-100 dark:bg-[#282A2C] text-slate-600 dark:text-[#C4C7C5] hover:bg-slate-200 dark:hover:bg-[#333537]'
               }`}
             >
               <span>หมดอายุ</span>
@@ -584,16 +584,16 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
           </div>
         </div>
 
-        <div className="flex items-center justify-between border-t border-slate-100 pt-3">
-          <span className="text-slate-500 font-medium">
-            พบ <b>{displayedDrugs.length}</b> รายการยาในหมวดนี้
+        <div className="flex items-center justify-between border-t border-slate-100 dark:border-white/10 pt-3">
+          <span className="text-slate-500 dark:text-[#8E918F] font-medium">
+            พบ <b className="text-slate-800 dark:text-[#E3E3E3]">{displayedDrugs.length}</b> รายการยาในหมวดนี้
           </span>
 
           <div className="flex items-center gap-2">
             <button
               onClick={handleClearAllCategory}
               disabled={displayedDrugs.length === 0}
-              className="px-3.5 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold flex items-center gap-1.5 transition cursor-pointer active:scale-95 border border-rose-200 disabled:opacity-30"
+              className="px-3.5 py-1.5 rounded-xl bg-rose-50 dark:bg-rose-500/15 hover:bg-rose-100 dark:hover:bg-rose-500/25 text-rose-600 dark:text-[#F28B82] font-bold flex items-center gap-1.5 transition cursor-pointer active:scale-95 border border-rose-200 dark:border-rose-500/30 disabled:opacity-30"
               title="ลบรายการทั้งหมดในหมวดนี้"
             >
               <Trash2 className="w-4 h-4 shrink-0" />
@@ -602,7 +602,7 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
 
             <button
               onClick={handleBatchCheckAll}
-              className="px-3.5 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold flex items-center gap-1.5 transition cursor-pointer active:scale-95 shadow-xs"
+              className="px-3.5 py-1.5 rounded-xl bg-emerald-600 dark:bg-emerald-500/20 hover:bg-emerald-700 dark:hover:bg-emerald-500/30 text-white dark:text-[#81C995] border border-transparent dark:border-emerald-500/35 font-bold flex items-center gap-1.5 transition cursor-pointer active:scale-95 shadow-xs"
             >
               <Check className="w-4 h-4 shrink-0" />
               <span>บันทึกเช็คปกติ</span>
@@ -613,7 +613,7 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
 
       {/* Clean Inventory List View */}
       {displayedDrugs.length === 0 ? (
-        <div className="p-10 text-center bg-white rounded-3xl border border-dashed border-slate-200 text-slate-400 text-xs">
+        <div className="p-10 text-center bg-white dark:bg-[#1E1F20] rounded-3xl border border-dashed border-slate-200 dark:border-white/10 text-slate-400 dark:text-[#8E918F] text-xs">
           ไม่พบรายการยาที่ตรงกับเงื่อนไขการค้นหา
         </div>
       ) : (

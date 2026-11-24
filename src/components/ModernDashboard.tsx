@@ -17,7 +17,6 @@ import {
   ScanLine,
 } from 'lucide-react';
 import { CheckItemState, DrugItem, EquipmentItem, ExpiryAlertItem, ListConfig, User } from '../types';
-import { getItemSizes } from '../utils/itemUtils';
 import {
   ALERTS_UPDATED_EVENT,
   DISMISSED_ALERTS_STORAGE_KEY,
@@ -38,15 +37,15 @@ interface ModernDashboardProps {
   currentUser: User | null;
   drugs: DrugItem[];
   equipment: Record<string, EquipmentItem[]>;
-  lists: Record<'bag' | 'cart', ListConfig>;
+  lists: Record<string, ListConfig>;
   globalChecks: Record<string, Record<string, CheckItemState>>;
   expiryAlerts: ExpiryAlertItem[];
   theme?: 'light' | 'dark';
   onToggleTheme?: () => void;
   onNavigate: (view: 'home' | 'eq_overview' | 'room_check' | 'bag_check' | 'cart_check' | 'ambulance_check' | 'users' | 'drug_check') => void;
-  activeCategory?: 'equipment' | 'bag' | 'cart' | 'medicine';
+  activeCategory?: 'equipment' | 'bag' | 'ambulance' | 'cart' | 'medicine';
   activeCategoryIndex?: number;
-  onSelectCategory?: (category: 'equipment' | 'bag' | 'cart' | 'medicine', index?: number) => void;
+  onSelectCategory?: (category: 'equipment' | 'bag' | 'ambulance' | 'cart' | 'medicine', index?: number) => void;
   onSelectRoom?: (roomId: string) => void;
   onLogout?: () => void;
   onOpenNotifications?: () => void;
@@ -69,12 +68,14 @@ interface ModernDashboardProps {
   };
 }
 
-const CATEGORY_ORDER: Array<'medicine' | 'equipment' | 'bag' | 'cart'> = [
+const CATEGORY_ORDER: Array<'medicine' | 'equipment' | 'bag' | 'ambulance' | 'cart'> = [
   'medicine',
   'equipment',
   'bag',
+  'ambulance',
   'cart',
 ];
+const CATEGORY_COUNT = CATEGORY_ORDER.length;
 
 export const ModernDashboard: React.FC<ModernDashboardProps> = ({
   currentUser,
@@ -113,41 +114,31 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
 
   const effectiveDisplayName = (typeof window !== 'undefined' ? localStorage.getItem('user_display_name') : null) || currentUser?.name || 'สาธิต';
 
-  // Helper to map category ID / index to Swiper slide index (center cycle of 12-item loopedCategories)
+  // Helper to map category ID / index to Swiper slide index (center cycle of 15-item loopedCategories)
   const resolvedCategoryIndex = useMemo(() => {
-    if (typeof activeCategoryIndex === 'number' && activeCategoryIndex >= 0 && activeCategoryIndex < 4) {
+    if (typeof activeCategoryIndex === 'number' && activeCategoryIndex >= 0 && activeCategoryIndex < CATEGORY_COUNT) {
       return activeCategoryIndex;
     }
     const found = CATEGORY_ORDER.indexOf(activeCategory);
     return found >= 0 ? found : 2;
   }, [activeCategory, activeCategoryIndex]);
 
-  const initialSlideIndex = useMemo(() => 4 + resolvedCategoryIndex, [resolvedCategoryIndex]);
+  const initialSlideIndex = useMemo(() => CATEGORY_COUNT + resolvedCategoryIndex, [resolvedCategoryIndex]);
+  const lastSlideModRef = React.useRef<number>(resolvedCategoryIndex);
 
   React.useEffect(() => {
     if (!swiperRef.current) return;
-    const currentRealMod = ((swiperRef.current.realIndex ?? 0) % 4 + 4) % 4;
+    if (lastSlideModRef.current === resolvedCategoryIndex) return;
+    const currentRealMod = ((swiperRef.current.realIndex ?? 0) % CATEGORY_COUNT + CATEGORY_COUNT) % CATEGORY_COUNT;
     if (currentRealMod !== resolvedCategoryIndex) {
       try {
-        swiperRef.current.slideTo(4 + resolvedCategoryIndex, 300);
-      } catch (e) {
+        lastSlideModRef.current = resolvedCategoryIndex;
+        swiperRef.current.slideTo(CATEGORY_COUNT + resolvedCategoryIndex, 300);
+      } catch {
         // ignore
       }
     }
   }, [resolvedCategoryIndex]);
-
-  // Detect touch capability to decouple mouse clicks on desktop from touch dragging on mobile
-  const [isTouchDevice, setIsTouchDevice] = useState(false);
-  useEffect(() => {
-    const checkTouch = () => {
-      setIsTouchDevice(
-        'ontouchstart' in window || navigator.maxTouchPoints > 0 || window.matchMedia('(pointer: coarse)').matches
-      );
-    };
-    checkTouch();
-    window.addEventListener('resize', checkTouch, { passive: true });
-    return () => window.removeEventListener('resize', checkTouch);
-  }, []);
 
   // Window Resize & Viewport Breakpoint Listener to re-calculate Swiper dimensions & reset layout
   useLayoutEffect(() => {
@@ -158,7 +149,7 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
           swiperRef.current.updateSize();
           swiperRef.current.updateSlides();
           swiperRef.current.updateProgress();
-        } catch (e) {
+        } catch {
           // ignore
         }
       }
@@ -199,9 +190,14 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
   const handlePointerUp = () => {
     pointerStartRef.current = null;
     if (isDragActionRef.current) {
-      dragSuppressionUntilRef.current = Date.now() + 260;
+      dragSuppressionUntilRef.current = Date.now() + 240;
       isDragActionRef.current = false;
     }
+  };
+
+  const handlePointerCancel = () => {
+    pointerStartRef.current = null;
+    isDragActionRef.current = false;
   };
 
   const handleCategorySelect = (
@@ -216,10 +212,11 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
     lastNavTimeRef.current = now;
 
     if (onSelectCategory) {
-      if (targetView === 'room_check' || targetView === 'eq_overview') onSelectCategory('equipment', 1);
+      if (targetView === 'drug_check') onSelectCategory('medicine', 0);
+      else if (targetView === 'room_check' || targetView === 'eq_overview') onSelectCategory('equipment', 1);
       else if (targetView === 'bag_check') onSelectCategory('bag', 2);
-      else if (targetView === 'cart_check') onSelectCategory('cart', 3);
-      else if (targetView === 'drug_check') onSelectCategory('medicine', 0);
+      else if (targetView === 'ambulance_check') onSelectCategory('ambulance', 3);
+      else if (targetView === 'cart_check') onSelectCategory('cart', 4);
     }
 
     onNavigate(targetView);
@@ -309,50 +306,21 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
     [equipment]
   );
 
-  const countSubItems = (it: EquipmentItem): number => {
-    if (!it || isJunkTestItem(it.id || '', it.name)) return 0;
-    if (it.subItems && Array.isArray(it.subItems) && it.subItems.length > 1) {
-      return it.subItems.length;
-    }
-    const sizes = getItemSizes(it);
-    if (sizes && sizes.length > 1) {
-      return sizes.length;
-    }
-    if (it.subExps && Array.isArray(it.subExps) && it.subExps.length > 1) {
-      return it.subExps.length;
-    }
-    return 1;
+  const countListItems = (groups?: Record<string, EquipmentItem[]>): number => {
+    let count = 0;
+    Object.values(groups || {}).forEach((arr) => {
+      if (Array.isArray(arr)) {
+        count += arr.filter((it) => it && !isJunkTestItem(it.id || '', it.name)).length;
+      }
+    });
+    return count;
   };
 
-  const bagCount = useMemo(() => {
-    let count = 0;
-    Object.values(lists?.bag?.groups || {}).forEach((arr) => {
-      if (Array.isArray(arr)) {
-        arr.forEach((it) => {
-          count += countSubItems(it);
-        });
-      }
-    });
-    return count;
-  }, [lists?.bag?.groups]);
+  const bagCount = useMemo(() => countListItems(lists?.bag?.groups), [lists?.bag?.groups]);
+  const ambulanceCount = useMemo(() => countListItems(lists?.ambulance?.groups), [lists?.ambulance?.groups]);
+  const cartCount = useMemo(() => countListItems(lists?.cart?.groups), [lists?.cart?.groups]);
 
-  const cartCount = useMemo(() => {
-    let count = 0;
-    Object.values(lists?.cart?.groups || {}).forEach((arr) => {
-      if (Array.isArray(arr)) {
-        arr.forEach((it) => {
-          count += countSubItems(it);
-        });
-      }
-    });
-    return count;
-  }, [lists?.cart?.groups]);
-
-  const totalInventoryCount = drugsCount + equipmentCount + bagCount + cartCount;
-  const pendingCount = Math.max(0, stats.grandTotal - stats.grandChecked);
-
-  const normalStroke = stats.grandTotal > 0 ? (stats.grandNormal / stats.grandTotal) * 100 : 0;
-  const defectiveStroke = stats.grandTotal > 0 ? (stats.grandDefective / stats.grandTotal) * 100 : 0;
+  const totalInventoryCount = drugsCount + equipmentCount + bagCount + ambulanceCount + cartCount;
 
   // Defective items list (Strictly matched against existing inventory + validated names)
   const defectiveItems = useMemo<Array<{
@@ -360,14 +328,14 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
     name: string;
     location: string;
     note?: string;
-    targetView: 'eq_overview' | 'bag_check' | 'cart_check' | 'drug_check';
+    targetView: 'eq_overview' | 'bag_check' | 'ambulance_check' | 'cart_check' | 'drug_check';
   }>>(() => {
     const list: Array<{
       category: string;
       name: string;
       location: string;
       note?: string;
-      targetView: 'eq_overview' | 'bag_check' | 'cart_check' | 'drug_check';
+      targetView: 'eq_overview' | 'bag_check' | 'ambulance_check' | 'cart_check' | 'drug_check';
     }> = [];
 
     // 1. Equipment (validate against actual equipment items in each room)
@@ -390,8 +358,8 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
       });
     });
 
-    // 2. Bag & Cart (validate against actual existing items in lists)
-    (['bag', 'cart'] as const).forEach((cat) => {
+    // 2. Bag, Ambulance & Cart (validate against actual existing items in lists)
+    (['bag', 'ambulance', 'cart'] as const).forEach((cat) => {
       const checks = (globalChecks && globalChecks[cat]) || {};
       const groups = lists?.[cat]?.groups || {};
       if (!checks || typeof checks !== 'object') return;
@@ -399,14 +367,15 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
       Object.entries(groups).forEach(([groupName, groupItems]) => {
         (groupItems || []).forEach((it, idx) => {
           const itemKey = it.id || `${cat}_${groupName}_${idx}`;
-          const val = checks[itemKey];
+          const altKey = `${cat}_${idx}`;
+          const val = checks[itemKey] || checks[altKey];
           if (val && val.result === 'ผิดปกติ' && !isJunkTestItem(itemKey, it.name)) {
             list.push({
-              category: cat === 'bag' ? 'กระเป๋า Emergency' : 'รถเข็นฉุกเฉิน',
+              category: cat === 'bag' ? 'กระเป๋า Emergency' : cat === 'ambulance' ? 'รถพยาบาลฉุกเฉิน' : 'รถเข็นฉุกเฉิน',
               name: it.name,
               location: groupName || cat,
               note: val.note,
-              targetView: cat === 'bag' ? 'bag_check' : 'cart_check',
+              targetView: cat === 'bag' ? 'bag_check' : cat === 'ambulance' ? 'ambulance_check' : 'cart_check',
             });
           }
         });
@@ -450,16 +419,16 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
       });
     });
 
-    ['bag', 'cart'].forEach((typeKey) => {
-      const config = lists?.[typeKey as 'bag' | 'cart'];
+    (['bag', 'ambulance', 'cart'] as const).forEach((typeKey) => {
+      const config = lists?.[typeKey];
       if (config && config.groups) {
-        Object.entries(config.groups).forEach(([grp, items]) => {
+        Object.entries(config.groups).forEach(([, items]) => {
           (items || []).forEach((it) => {
             if (it && (it.name.toLowerCase().includes(q) || (it.code && it.code.toLowerCase().includes(q)))) {
               results.push({
                 name: it.name,
-                location: typeKey === 'bag' ? 'กระเป๋า Emergency' : 'รถเข็นฉุกเฉิน',
-                targetView: typeKey === 'bag' ? 'bag_check' : 'cart_check',
+                location: typeKey === 'bag' ? 'กระเป๋า Emergency' : typeKey === 'ambulance' ? 'รถพยาบาลฉุกเฉิน' : 'รถเข็นฉุกเฉิน',
+                targetView: typeKey === 'bag' ? 'bag_check' : typeKey === 'ambulance' ? 'ambulance_check' : 'cart_check',
               });
             }
           });
@@ -498,7 +467,7 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
     {
       id: 'ambulance',
       title: 'รถพยาบาลฉุกเฉิน (Ambulance)',
-      count: `14 รายการ`,
+      count: `${ambulanceCount} รายการ`,
       icon: <Truck className="w-4 h-4 text-sky-400 shrink-0" />,
       bg: categoryCovers.cart,
       targetView: 'ambulance_check' as const,
@@ -511,9 +480,9 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
       bg: categoryCovers.cart,
       targetView: 'cart_check' as const,
     },
-  ], [drugsCount, equipmentCount, bagCount, cartCount]);
+  ], [drugsCount, equipmentCount, bagCount, ambulanceCount, cartCount]);
 
-  // Looped categories (12 items total: 3 cycles of the 4 categories)
+  // Looped categories (15 items total: 3 cycles of the 5 categories)
   const loopedCategories = useMemo(() => {
     return [
       ...categories.map((c) => ({ ...c, uniqueId: `${c.id}-c1` })),
@@ -855,9 +824,21 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
               <ChevronRight size={22} />
             </button>
             <Swiper
-              onSwiper={(swiper) => (swiperRef.current = swiper)}
+              onSwiper={(swiper) => {
+                swiperRef.current = swiper;
+              }}
+              onAfterInit={(swiper) => {
+                setTimeout(() => {
+                  try {
+                    swiper.update();
+                  } catch {
+                    // ignore
+                  }
+                }, 40);
+              }}
               onSlideChange={(swiper) => {
-                const modIdx = ((swiper.realIndex ?? 0) % 4 + 4) % 4;
+                const modIdx = ((swiper.realIndex ?? 0) % CATEGORY_COUNT + CATEGORY_COUNT) % CATEGORY_COUNT;
+                lastSlideModRef.current = modIdx;
                 const catId = CATEGORY_ORDER[modIdx];
                 if (catId && onSelectCategory) {
                   onSelectCategory(catId, modIdx);
@@ -868,7 +849,7 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
               }}
               onTouchEnd={() => {
                 if (isDragActionRef.current) {
-                  dragSuppressionUntilRef.current = Date.now() + 260;
+                  dragSuppressionUntilRef.current = Date.now() + 240;
                   isDragActionRef.current = false;
                 }
               }}
@@ -877,23 +858,24 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
               grabCursor={true}
               simulateTouch={true}
               allowTouchMove={true}
+              touchStartPreventDefault={false}
               slideToClickedSlide={true}
               loop={true}
               loopPreventsSliding={false}
-              loopAdditionalSlides={4}
+              loopAdditionalSlides={5}
               initialSlide={initialSlideIndex}
-              speed={320}
+              speed={300}
               resistance={true}
-              resistanceRatio={0.82}
-              touchRatio={1.15}
+              resistanceRatio={0.7}
+              touchRatio={1}
               touchAngle={45}
               longSwipes={true}
               longSwipesRatio={0.2}
-              longSwipesMs={250}
+              longSwipesMs={220}
               shortSwipes={true}
               followFinger={true}
-              preventClicks={true}
-              preventClicksPropagation={true}
+              preventClicks={false}
+              preventClicksPropagation={false}
               observer={true}
               observeParents={true}
               resizeObserver={true}
@@ -920,6 +902,7 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
                       onPointerDown={handlePointerDown}
                       onPointerMove={handlePointerMove}
                       onPointerUp={handlePointerUp}
+                      onPointerCancel={handlePointerCancel}
                       onClick={() => {
                         if (!isDragActionRef.current && Date.now() >= dragSuppressionUntilRef.current) {
                           handleCategorySelect(item.targetView);
@@ -1116,7 +1099,15 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
                     <button
                       type="button"
                       key={`exp_${idx}`}
-                      onClick={() => onNavigate(alertItem.category === 'bag' ? 'bag_check' : 'cart_check')}
+                      onClick={() =>
+                        onNavigate(
+                          alertItem.category === 'bag'
+                            ? 'bag_check'
+                            : alertItem.category === 'ambulance'
+                            ? 'ambulance_check'
+                            : 'cart_check'
+                        )
+                      }
                       className={`p-3 rounded-2xl border flex items-center justify-between gap-3 text-left hover:border-amber-400 transition-colors cursor-pointer active:opacity-80 ${
                         isDarkMode
                           ? 'bg-[#101216] border-slate-800 text-white'

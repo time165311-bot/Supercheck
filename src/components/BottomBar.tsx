@@ -30,18 +30,22 @@ export const BottomBar: React.FC<BottomBarProps> = ({
   const isDark = theme === 'dark';
   const trimmedSheetUrl = sheetUrl?.trim() || '';
 
-  if (!isVisible) return null;
-
   return (
     <nav
-      className="fixed bottom-4 left-0 right-0 z-40 px-2.5 sm:px-3 pointer-events-none flex justify-center md:hidden"
+      aria-hidden={!isVisible}
+      className={`fixed bottom-4 left-0 right-0 z-40 px-2.5 sm:px-3 pointer-events-none flex justify-center md:hidden transition-opacity duration-200 ${
+        isVisible ? 'opacity-100' : 'opacity-0'
+      }`}
       style={{
         paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+        willChange: 'transform, opacity',
+        transform: isVisible ? 'translate3d(0, 0, 0)' : 'translate3d(0, calc(100% + 28px), 0)',
+        transition: 'transform 0.24s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.2s ease',
       }}
     >
-      {/* ตัวแถบ Navigator หลัก: ทึบแสง 100%, โค้งมน 3xl, แบ่ง 5 ช่องเท่ากัน ล็อกคงที่ตลอดเวลา */}
+      {/* ตัวแถบ Navigator หลัก: ทึบแสง 100%, โค้งมน 3xl, แบ่ง 5 ช่องเท่ากัน */}
       <div
-        className={`pointer-events-auto w-full max-w-md shadow-lg rounded-3xl px-2 py-2 flex items-center justify-between border transition-colors duration-200 ${
+        className={`${isVisible ? 'pointer-events-auto' : 'pointer-events-none'} w-full max-w-md shadow-lg rounded-3xl px-2 py-2 flex items-center justify-between border transition-colors duration-200 ${
           isDark
             ? 'bg-[#181A20] border-slate-800 text-white'
             : 'bg-white border-slate-200 text-slate-800'

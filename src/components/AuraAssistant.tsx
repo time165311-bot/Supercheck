@@ -157,6 +157,13 @@ interface AuraAssistantProps {
   onCaptureSnapshot?: (label: string) => AuraDataSnapshot;
   onRestoreSnapshot?: (snapshot: AuraDataSnapshot) => Promise<boolean>;
   onDirectClearInventory?: (targetCategory: string) => Promise<AuraDataSnapshot>;
+  onDeleteAllEquipment?: () => Promise<{
+    success: boolean;
+    deletedCount: number;
+    syncedToCloud: boolean;
+    error?: string;
+    snapshot?: AuraDataSnapshot;
+  }>;
   onUpdateInventoryItem?: (params: {
     targetType: 'drug' | 'bag' | 'cart' | 'room';
     itemId: string;
@@ -313,6 +320,8 @@ interface ChatMessage {
     description: string;
     targetCat: string;
     status: 'pending' | 'confirmed' | 'cancelled';
+    actionKind?: 'clear_inventory' | 'delete_all_equipment';
+    itemCount?: number;
   };
   handoverText?: string;
   undoSnapshot?: AuraDataSnapshot;
@@ -349,6 +358,7 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
   onCaptureSnapshot,
   onRestoreSnapshot,
   onDirectClearInventory,
+  onDeleteAllEquipment,
   onUpdateInventoryItem,
   onAttachEquipmentPhotos,
   onBulkImportEquipment,
@@ -617,7 +627,15 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
   }, [isOpen, drugs, equipment, messages.length]);
 
   // 🛡️ Human-in-the-Loop Confirmation Card Helper
-  const addConfirmationCard = (title: string, description: string, targetCat: string) => {
+  const addConfirmationCard = (
+    title: string,
+    description: string,
+    targetCat: string,
+    options?: {
+      actionKind?: 'clear_inventory' | 'delete_all_equipment';
+      itemCount?: number;
+    }
+  ) => {
     const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     setMessages((prev) => [
       ...prev,
@@ -631,11 +649,17 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
           description,
           targetCat,
           status: 'pending',
+          actionKind: options?.actionKind || 'clear_inventory',
+          itemCount: options?.itemCount,
         },
       },
     ]);
     notifyUnreadIfClosed();
-    speakText(`น้องออร่าขอทวนคำสั่งก่อนทำจริงนะคะ พี่พยาบาลต้องการล้างข้อมูลในหมวด ${targetCat} ใช่ไหมคะ?`);
+    speakText(
+      options?.actionKind === 'delete_all_equipment'
+        ? `น้องออร่าขอทวนคำสั่งก่อนลบจริงนะคะ ต้องการลบครุภัณฑ์ทั้งหมด ${options.itemCount ?? 0} รายการออกจากฐานข้อมูลใช่ไหมคะ?`
+        : `น้องออร่าขอทวนคำสั่งก่อนทำจริงนะคะ พี่พยาบาลต้องการล้างข้อมูลในหมวด ${targetCat} ใช่ไหมคะ?`
+    );
   };
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -3615,13 +3639,40 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
               setDbActionStatus(null);
             }
           }
-        } else if (name === 'clearTargetInventory') {
-          const targetCat = args?.targetCategory || 'รายการ';
-          addConfirmationCard(
-            `ยืนยันล้างข้อมูลหมวด "${targetCat}"`,
-            `⚠️ น้องออร่าได้รับคำสั่งให้ล้างรายการทั้งหมดในหมวด **[${targetCat}]** ค่ะ\n\nเพื่อความปลอดภัยของข้อมูลในวอร์ด น้องออร่าขอทวนคำสั่งก่อนทำจริงนะคะ พี่พยาบาลต้องการดำเนินการลบข้อมูลในหมวดนี้ใช่ไหมคะ?`,
-            targetCat
-          );
+        } else if (
+          name === 'delete_all_equipment' ||
+          name === 'clear_category_items' ||
+          name === 'clearTargetInventory'
+        ) {
+          const targetCat =
+            name === 'delete_all_equipment'
+              ? 'ครุภัณฑ์'
+              : String(args?.targetCategory || args?.category || 'รายการ');
+          const isEquipmentClear =
+            name === 'delete_all_equipment' ||
+            /ครุ|equipment/i.test(targetCat);
+
+          if (isEquipmentClear) {
+            const totalEqCount = Object.values(equipment || {}).reduce(
+              (sum, arr) => sum + (Array.isArray(arr) ? arr.filter((it) => it && it.name).length : 0),
+              0
+            );
+            addConfirmationCard(
+              'ยืนยันการลบครุภัณฑ์ทั้งหมด',
+              `⚠️ **ยืนยันการลบครุภัณฑ์ทั้งหมด ${totalEqCount.toLocaleString()} รายการ** ออกจากฐานข้อมูล (${activeChannel?.name || 'Master'})?\n\nข้อมูลที่ลบจะไม่สามารถกู้คืนได้ กรุณาตรวจสอบและกดปุ่มด้านล่างเพื่อดำเนินการค่ะ`,
+              'ครุภัณฑ์',
+              {
+                actionKind: 'delete_all_equipment',
+                itemCount: totalEqCount,
+              }
+            );
+          } else {
+            addConfirmationCard(
+              `ยืนยันล้างข้อมูลหมวด "${targetCat}"`,
+              `⚠️ น้องออร่าได้รับคำสั่งให้ล้างรายการทั้งหมดในหมวด **[${targetCat}]** ค่ะ\n\nเพื่อความปลอดภัยของข้อมูลในวอร์ด น้องออร่าขอทวนคำสั่งก่อนทำจริงนะคะ พี่พยาบาลต้องการดำเนินการลบข้อมูลในหมวดนี้ใช่ไหมคะ?`,
+              targetCat
+            );
+          }
         } else if (data.text) {
           addMessage('ai', data.text, false, undefined, undefined, currentChoices, { sources: groundingSources });
         }
@@ -3838,12 +3889,12 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
 
   return (
     <>
-      {/* Floating AI Toggle Button */}
+      {/* Floating AI Toggle Button (Bottom-Left) */}
       {!isOpen && isBottomBarVisible && !isAnyModalOpen && (
         <button
           type="button"
           onClick={handleOpen}
-          className="fixed bottom-24 right-4 z-30 w-14 h-14 rounded-full bg-gradient-to-tr from-blue-600 via-indigo-500 to-teal-400 text-white flex items-center justify-center shadow-lg shadow-blue-500/25 hover:brightness-110 active:scale-95 active:opacity-90 transition-all cursor-pointer group border border-white/25 touch-manipulation"
+          className="fixed bottom-24 left-4 z-30 w-14 h-14 rounded-full bg-gradient-to-tr from-blue-600 via-indigo-500 to-teal-400 text-white flex items-center justify-center shadow-lg shadow-blue-500/25 hover:brightness-110 active:scale-95 active:opacity-90 transition-all cursor-pointer group border border-white/25 touch-manipulation"
           title="คุยกับน้องออร่า"
         >
           <Sparkles size={26} />
@@ -3853,7 +3904,7 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
               aria-label="มีข้อความใหม่จากน้องออร่า"
             />
           )}
-          <span className="absolute right-full mr-3 px-3 py-1.5 rounded-xl bg-slate-900 text-white text-[10px] font-bold whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-md border border-white/10">
+          <span className="absolute left-full ml-3 px-3 py-1.5 rounded-xl bg-slate-900 text-white text-[10px] font-bold whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-md border border-white/10">
             คุยกับน้องออร่า
           </span>
         </button>
@@ -3870,7 +3921,7 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
           onClick={handleClose}
         >
           <div
-            className={`w-full sm:max-w-md h-[92dvh] max-h-dvh sm:h-[600px] sm:max-h-[90dvh] flex flex-col rounded-t-[2rem] sm:rounded-[2rem] shadow-xl border transition-[transform,opacity] duration-200 origin-bottom-right overflow-hidden overscroll-contain ${
+            className={`w-full sm:max-w-md h-[92dvh] max-h-dvh sm:h-[600px] sm:max-h-[90dvh] flex flex-col rounded-t-[2rem] sm:rounded-[2rem] shadow-xl border transition-[transform,opacity] duration-200 origin-bottom-left overflow-hidden overscroll-contain ${
               isAnimating ? 'scale-100 opacity-100' : 'scale-95 opacity-0'
             } ${isDarkMode ? 'bg-[#0E0E10] border-[#26272B] text-[#E3E3E3]' : 'bg-white border-slate-200 text-slate-900'}`}
             onClick={(e) => e.stopPropagation()}
@@ -4522,8 +4573,35 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
                               onClick={async () => {
                                 if (dbActionStatus) return;
                                 const targetCat = m.confirmationData?.targetCat || '';
-                                setDbActionStatus('กำลังดำเนินการ...');
+                                const isDeleteAllEq = m.confirmationData?.actionKind === 'delete_all_equipment';
+                                setDbActionStatus(
+                                  isDeleteAllEq ? 'กำลังลบครุภัณฑ์ทั้งหมดออกจากฐานข้อมูล...' : 'กำลังดำเนินการ...'
+                                );
                                 try {
+                                  if (isDeleteAllEq && onDeleteAllEquipment) {
+                                    const delRes = await onDeleteAllEquipment();
+                                    setMessages((prev) => {
+                                      const next = [...prev];
+                                      next[idx] = {
+                                        ...next[idx],
+                                        confirmationData: { ...next[idx].confirmationData!, status: 'confirmed' },
+                                      };
+                                      return next;
+                                    });
+                                    addMessage(
+                                      'ai',
+                                      delRes.syncedToCloud
+                                        ? `🗑️ ลบครุภัณฑ์ทั้งหมด **${delRes.deletedCount.toLocaleString()} รายการ** ใน **${activeChannel?.name || 'Master'}** ออกจากฐานข้อมูล Firestore และเคลียร์หน้าเว็บเป็น 0 รายการเรียบร้อยแล้วค่ะ ✨🌸`
+                                        : `🗑️ ล้างรายการครุภัณฑ์ในหน้าเว็บ **${delRes.deletedCount.toLocaleString()} รายการ** เป็น 0 รายการแล้วค่ะ${delRes.error ? `\n⚠️ หมายเหตุ Cloud: ${delRes.error}` : ''}`,
+                                      false,
+                                      undefined,
+                                      undefined,
+                                      ['🏥 เปิดภาพรวมครุภัณฑ์', '📋 สรุปส่งเวร (Shift Handover)'],
+                                      { undoSnapshot: delRes.snapshot }
+                                    );
+                                    return;
+                                  }
+
                                   let snap: AuraDataSnapshot | undefined;
                                   if (onDirectClearInventory) {
                                     snap = await onDirectClearInventory(targetCat);
@@ -4556,7 +4634,9 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
                               }}
                               className="flex-1 py-2 px-3 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-md active:scale-95 transition cursor-pointer disabled:opacity-50"
                             >
-                              ✅ ยืนยันการลบ
+                              {m.confirmationData.actionKind === 'delete_all_equipment'
+                                ? 'ยืนยันลบทั้งหมด'
+                                : '✅ ยืนยันการลบ'}
                             </button>
                             <button
                               type="button"
@@ -4574,7 +4654,7 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
                               }}
                               className="flex-1 py-2 px-3 rounded-xl bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 font-bold text-xs transition cursor-pointer"
                             >
-                              ❌ ยกเลิก
+                              ยกเลิก
                             </button>
                           </div>
                         ) : m.confirmationData.status === 'confirmed' ? (

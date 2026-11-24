@@ -154,16 +154,17 @@ export default function App() {
   });
 
   // Remember Active Selected Category ('bag' by default or last inspected)
-  const CATEGORY_INDEX_MAP: Record<'medicine' | 'equipment' | 'bag' | 'cart', number> = {
+  const CATEGORY_INDEX_MAP: Record<'medicine' | 'equipment' | 'bag' | 'ambulance' | 'cart', number> = {
     medicine: 0,
     equipment: 1,
     bag: 2,
-    cart: 3,
+    ambulance: 3,
+    cart: 4,
   };
-  const [activeCategory, setActiveCategory] = useState<'medicine' | 'equipment' | 'bag' | 'cart'>(() => {
+  const [activeCategory, setActiveCategory] = useState<'medicine' | 'equipment' | 'bag' | 'ambulance' | 'cart'>(() => {
     try {
       const saved = sessionStorage.getItem('anesthesia_active_category');
-      if (saved === 'medicine' || saved === 'equipment' || saved === 'bag' || saved === 'cart') {
+      if (saved === 'medicine' || saved === 'equipment' || saved === 'bag' || saved === 'ambulance' || saved === 'cart') {
         return saved;
       }
     } catch {}
@@ -175,10 +176,10 @@ export default function App() {
       const savedIdx = sessionStorage.getItem('anesthesia_active_category_index');
       if (savedIdx !== null) {
         const parsed = Number(savedIdx);
-        if (Number.isInteger(parsed) && parsed >= 0 && parsed < 4) return parsed;
+        if (Number.isInteger(parsed) && parsed >= 0 && parsed < 5) return parsed;
       }
       const savedCat = sessionStorage.getItem('anesthesia_active_category');
-      if (savedCat === 'medicine' || savedCat === 'equipment' || savedCat === 'bag' || savedCat === 'cart') {
+      if (savedCat === 'medicine' || savedCat === 'equipment' || savedCat === 'bag' || savedCat === 'ambulance' || savedCat === 'cart') {
         return CATEGORY_INDEX_MAP[savedCat];
       }
     } catch {}
@@ -186,9 +187,9 @@ export default function App() {
   });
 
   const setCategoryAndIndex = useCallback(
-    (cat: 'medicine' | 'equipment' | 'bag' | 'cart', idx?: number) => {
+    (cat: 'medicine' | 'equipment' | 'bag' | 'ambulance' | 'cart', idx?: number) => {
       setActiveCategory(cat);
-      setActiveCategoryIndex(typeof idx === 'number' && idx >= 0 && idx < 4 ? idx : CATEGORY_INDEX_MAP[cat]);
+      setActiveCategoryIndex(typeof idx === 'number' && idx >= 0 && idx < 5 ? idx : CATEGORY_INDEX_MAP[cat]);
     },
     []
   );
@@ -712,6 +713,7 @@ export default function App() {
 
           if (dir === 'down' && cumulativeDelta >= SCROLL_THRESHOLD && currentTop > 32) {
             setIsTopHeaderVisible((prev) => (prev ? false : prev));
+            setIsBottomBarVisible((prev) => (prev ? false : prev));
             scrollAnchorTopRef.current = currentTop;
           } else if (dir === 'up' && cumulativeDelta <= -SCROLL_THRESHOLD) {
             setIsBottomBarVisible((prev) => (prev ? prev : true));
@@ -727,8 +729,7 @@ export default function App() {
           try {
             sessionStorage.setItem(`anesthesia_scroll_${currentView}`, String(Math.round(el.scrollTop)));
           } catch {}
-          setIsBottomBarVisible((prev) => (prev ? prev : true));
-        }, 650);
+        }, 450);
       });
     }
   };
@@ -1421,7 +1422,7 @@ export default function App() {
   const expiryAlerts = useMemo<ExpiryAlertItem[]>(() => {
     const alerts: ExpiryAlertItem[] = [];
 
-    const checkListExp = (catKey: 'bag' | 'cart', config: ListConfig) => {
+    const checkListExp = (catKey: 'bag' | 'cart' | 'ambulance', config: ListConfig) => {
       if (!config || !config.groups) return;
       Object.entries(config.groups).forEach(([groupName, groupItems]) => {
         groupItems.forEach((item) => {
@@ -1444,11 +1445,12 @@ export default function App() {
     };
 
     checkListExp('bag', lists.bag);
+    if (lists.ambulance) checkListExp('ambulance', lists.ambulance);
     checkListExp('cart', lists.cart);
     return alerts;
   }, [lists]);
 
-  // Overall Statistics Calculation (Filters random test artifacts & matches ModernDashboard check resolution)
+  // Overall Statistics Calculation (Filters random test artifacts & matches ModernDashboard check resolution across all 5 categories)
   const overallStats = useMemo(() => {
     let grandTotal = 0;
     let grandChecked = 0;
@@ -1463,7 +1465,20 @@ export default function App() {
       return !n;
     };
 
-    // Room Equipment
+    // 1. Drugs & Fluids
+    (drugs || []).forEach((d) => {
+      if (!d || isJunkTestItem(d.name, d.id)) return;
+      grandTotal++;
+      if (Number(d.remaining) <= 0) {
+        grandChecked++;
+        grandDefective++;
+      } else {
+        grandChecked++;
+        grandNormal++;
+      }
+    });
+
+    // 2. Room Equipment
     Object.entries(equipment).forEach(([roomId, items]) => {
       const roomObj = ROOMS.find((r) => r.id === roomId);
       const roomName = roomObj?.n || roomId;
@@ -1484,9 +1499,9 @@ export default function App() {
       });
     });
 
-    // Lists (Bag & Cart)
-    ['bag', 'cart'].forEach((catKey) => {
-      const config = lists[catKey as 'bag' | 'cart'];
+    // 3. Lists (Bag, Ambulance & Cart)
+    (['bag', 'ambulance', 'cart'] as const).forEach((catKey) => {
+      const config = lists[catKey];
       const catChecks = globalChecks[catKey] || {};
       if (config && config.groups) {
         Object.entries(config.groups).forEach(([gName, items]) => {
@@ -1508,7 +1523,7 @@ export default function App() {
       }
     });
 
-    const completionPct = grandTotal > 0 ? Math.round((grandChecked / grandTotal) * 100) : 0;
+    const completionPct = grandTotal > 0 ? Math.round((grandNormal / grandTotal) * 100) : 0;
 
     return {
       grandTotal,
@@ -1517,7 +1532,7 @@ export default function App() {
       grandDefective,
       completionPct,
     };
-  }, [equipment, lists, globalChecks]);
+  }, [drugs, equipment, lists, globalChecks]);
 
   // Transform Bag List for Swiper Inspection Carousel
   const bagInspectionItems = useMemo<InspectionSlideItem[]>(() => {
@@ -1966,6 +1981,7 @@ export default function App() {
     handleAuraBulkAutoCheck,
     handleAuraClearInventory,
     executeAuraClearInventory,
+    executeDeleteAllEquipment,
     createAuraSnapshot,
     restoreAuraSnapshot,
     handleAuraDirectClear,
@@ -2508,6 +2524,7 @@ export default function App() {
                 {currentView === 'drug_check' && '💊 คลังยาและสารน้ำ'}
                 {currentView === 'room_check' && '🩺 ครุภัณฑ์ประจำห้องผ่าตัด'}
                 {currentView === 'bag_check' && '🎒 ตรวจเช็กกระเป๋าฉุกเฉิน'}
+                {currentView === 'ambulance_check' && '🚑 ตรวจเช็กรถพยาบาลฉุกเฉิน'}
                 {currentView === 'cart_check' && '🛒 ตรวจเช็กรถฉุกเฉิน'}
                 {currentView === 'eq_overview' && '📋 ภาพรวมครุภัณฑ์วิสัญญี'}
               </span>
@@ -2531,15 +2548,17 @@ export default function App() {
             onSelectCategory={(cat, idx) => setCategoryAndIndex(cat, idx)}
             onOpenChannelSelector={() => setIsChannelModalOpen(true)}
             onNavigate={(view) => {
-              if (view === 'room_check') {
+              if (view === 'drug_check') {
+                setCategoryAndIndex('medicine', 0);
+              } else if (view === 'room_check' || view === 'eq_overview') {
                 setSelectedRoomId(null);
                 setCategoryAndIndex('equipment', 1);
               } else if (view === 'bag_check') {
                 setCategoryAndIndex('bag', 2);
+              } else if (view === 'ambulance_check') {
+                setCategoryAndIndex('ambulance', 3);
               } else if (view === 'cart_check') {
-                setCategoryAndIndex('cart', 3);
-              } else if (view === 'drug_check') {
-                setCategoryAndIndex('medicine', 0);
+                setCategoryAndIndex('cart', 4);
               }
               changeView(view as any);
             }}
@@ -2651,7 +2670,7 @@ export default function App() {
         {/* 4.5. AMBULANCE CHECK (รถพยาบาลฉุกเฉิน Checklist View) */}
         {currentView === 'ambulance_check' && (
           <EmergencyChecklistView
-            type="cart"
+            type="ambulance"
             title="ตรวจเช็กรถพยาบาลฉุกเฉิน (Ambulance)"
             subtitle="ตรวจสอบอุปกรณ์ช่วยหายใจ ออกซิเจน และเวชภัณฑ์บนรถพยาบาล"
             listConfig={lists.ambulance || lists.cart}
@@ -3419,11 +3438,12 @@ export default function App() {
             if (targetCat === 'bag') {
               setCategoryAndIndex('bag', 2);
               changeView('bag_check');
-            } else if (targetCat === 'cart') {
-              setCategoryAndIndex('cart', 3);
-              changeView('cart_check');
             } else if (targetCat === 'ambulance') {
+              setCategoryAndIndex('ambulance', 3);
               changeView('ambulance_check');
+            } else if (targetCat === 'cart') {
+              setCategoryAndIndex('cart', 4);
+              changeView('cart_check');
             } else if (targetCat === 'drug') {
               setCategoryAndIndex('medicine', 0);
               changeView('drug_check');
@@ -3445,8 +3465,11 @@ export default function App() {
             if (category === 'bag') {
               setCategoryAndIndex('bag', 2);
               changeView('bag_check');
+            } else if (category === 'ambulance') {
+              setCategoryAndIndex('ambulance', 3);
+              changeView('ambulance_check');
             } else if (category === 'cart') {
-              setCategoryAndIndex('cart', 3);
+              setCategoryAndIndex('cart', 4);
               changeView('cart_check');
             } else if (category === 'drug') {
               setCategoryAndIndex('medicine', 0);
@@ -3797,6 +3820,7 @@ export default function App() {
         onCaptureSnapshot={createAuraSnapshot}
         onRestoreSnapshot={restoreAuraSnapshot}
         onDirectClearInventory={handleAuraDirectClear}
+        onDeleteAllEquipment={executeDeleteAllEquipment}
         onUpdateInventoryItem={handleAuraUpdateItem}
         onAttachEquipmentPhotos={handleAttachEquipmentPhotos}
         onBulkImportEquipment={handleBulkImportEquipment}
@@ -3818,8 +3842,10 @@ export default function App() {
             setCategoryAndIndex('equipment', 1);
           } else if (view === 'bag_check') {
             setCategoryAndIndex('bag', 2);
+          } else if (view === 'ambulance_check') {
+            setCategoryAndIndex('ambulance', 3);
           } else if (view === 'cart_check') {
-            setCategoryAndIndex('cart', 3);
+            setCategoryAndIndex('cart', 4);
           } else if (view === 'drug_check') {
             setCategoryAndIndex('medicine', 0);
           } else if (category) {

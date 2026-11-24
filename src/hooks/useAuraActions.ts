@@ -10,6 +10,7 @@ import {
   WardChannel,
 } from '../types';
 import {
+  auth,
   clearAllEquipmentInFirebase,
   clearChannelDrugsInFirebase,
   clearChannelEquipmentInFirebase,
@@ -312,11 +313,16 @@ export function useAuraActions(params: UseAuraActionsParams) {
           currentUser,
         });
       } else if (q.includes('ครุภัณฑ์') || q.includes('equipment') || q.includes('ครุ')) {
+        equipmentRef.current = {};
         setEquipment({});
         setStored(chKeys.EQ, {});
         if (isMaster) setStored(STORAGE_KEYS.EQ, {});
         await clearChannelEquipmentInFirebase(channelId, 'room').catch(() => {});
         await persistClearedFlags({ equipmentCleared: true }, channelId);
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new Event('storage'));
+        }
+        reRenderData();
         logAuditEvent({
           action: 'CLEAR_EQUIPMENT',
           targetCollection: 'equipment',
@@ -495,6 +501,76 @@ export function useAuraActions(params: UseAuraActionsParams) {
     },
     [createAuraSnapshot, executeAuraClearInventory]
   );
+
+  const executeDeleteAllEquipment = useCallback(async (): Promise<{
+    success: boolean;
+    deletedCount: number;
+    syncedToCloud: boolean;
+    error?: string;
+    snapshot: AuraDataSnapshot;
+  }> => {
+    const channelId = activeChannelId || 'channel_master';
+    const isMaster = channelId === 'channel_master';
+    const chKeys = getChannelStorageKeys(channelId);
+    const deletedCount = Object.values(equipmentRef.current || {}).reduce(
+      (sum, arr) => sum + (Array.isArray(arr) ? arr.filter((it) => it && it.name).length : 0),
+      0
+    );
+    const snapshot = createAuraSnapshot(`ก่อนลบครุภัณฑ์ทั้งหมด (${deletedCount} รายการ)`);
+
+    // 1. Clear UI State & LocalStorage immediately to 0 items
+    equipmentRef.current = {};
+    setEquipment({});
+    setStored(chKeys.EQ, {});
+    if (isMaster) {
+      setStored(STORAGE_KEYS.EQ, {});
+    }
+
+    let syncedToCloud = false;
+    let cloudError: string | undefined;
+
+    // 2. Delete all channel equipment documents from Firestore (writeBatch) & persist cleared flag
+    if (auth.currentUser) {
+      try {
+        syncedToCloud = await clearChannelEquipmentInFirebase(channelId, 'room');
+        await persistClearedFlags({ equipmentCleared: true }, channelId);
+      } catch (err: any) {
+        cloudError = err?.message || 'ไม่สามารถลบข้อมูลใน Firestore ได้ (ตรวจสอบสิทธิ์ Admin)';
+        syncedToCloud = false;
+      }
+    } else {
+      await persistClearedFlags({ equipmentCleared: true }, channelId).catch(() => {});
+      cloudError = 'ยังไม่ได้เข้าสู่ระบบบัญชี Google จึงล้างข้อมูลเฉพาะในเครื่อง';
+    }
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('storage'));
+    }
+    reRenderData();
+    setPendingClearCategory(null);
+
+    logAuditEvent({
+      action: 'CLEAR_EQUIPMENT',
+      targetCollection: 'equipment',
+      targetId: channelId,
+      details: {
+        category: 'equipment',
+        channelId,
+        deletedCount,
+        syncedToCloud,
+        note: `ลบรายการครุภัณฑ์ทั้งหมด ${deletedCount} รายการผ่านน้องออร่า (ยืนยันโดยผู้ใช้)`,
+      },
+      currentUser,
+    });
+
+    return {
+      success: true,
+      deletedCount,
+      syncedToCloud,
+      error: cloudError,
+      snapshot,
+    };
+  }, [activeChannelId, createAuraSnapshot, currentUser, reRenderData, setEquipment, setPendingClearCategory]);
 
   const handleAuraUpdateItem = useCallback(
     async (arg: {
@@ -1471,6 +1547,7 @@ export function useAuraActions(params: UseAuraActionsParams) {
     handleAuraBulkAutoCheck,
     handleAuraClearInventory,
     executeAuraClearInventory,
+    executeDeleteAllEquipment,
     createAuraSnapshot,
     restoreAuraSnapshot,
     handleAuraDirectClear,

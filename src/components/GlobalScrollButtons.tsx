@@ -10,6 +10,7 @@ interface GlobalScrollButtonsProps {
 }
 
 export const GlobalScrollButtons: React.FC<GlobalScrollButtonsProps> = ({
+  isBottomBarVisible = true,
   isAnyModalOpen = false,
   scrollContainerRef,
 }) => {
@@ -85,14 +86,16 @@ export const GlobalScrollButtons: React.FC<GlobalScrollButtonsProps> = ({
     <div
       style={{
         position: 'fixed',
-        left: '16px', // Move to the LEFT side to avoid overlapping Aura on the right
-        bottom: 'calc(100px + env(safe-area-inset-bottom, 0px))',
+        right: '16px',
+        bottom: isBottomBarVisible
+          ? 'calc(96px + env(safe-area-inset-bottom, 0px))'
+          : 'calc(24px + env(safe-area-inset-bottom, 0px))',
         zIndex: 30,
         opacity: isVisible ? 1 : 0,
         pointerEvents: isVisible ? 'auto' : 'none',
-        transform: isVisible ? 'translateX(0) scale(1)' : 'translateX(-20px) scale(0.9)',
+        transform: isVisible ? 'translateX(0) scale(1)' : 'translateX(20px) scale(0.9)',
       }}
-      className="flex flex-col gap-2 items-center select-none transition-[transform,opacity] duration-200 ease-out transform-gpu"
+      className="flex flex-col gap-2 items-center select-none transition-[transform,opacity,bottom] duration-200 ease-out transform-gpu"
     >
       {/* 1. ปุ่ม [↑] (Scroll to Top) */}
       <button

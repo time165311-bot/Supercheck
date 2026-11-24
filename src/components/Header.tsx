@@ -310,21 +310,19 @@ export const Header: React.FC<HeaderProps> = ({
             </nav>
           </div>
 
-          {/* Right Side Cluster: [ User/Role Badge | 🔔 Notifications | ☰ Menu ] */}
-          <div className="flex items-center gap-3 shrink-0 relative justify-self-end">
+          {/* Right Side Cluster: [ User Avatar + Name | 🔔 Notifications | ☰ Menu ] */}
+          <div className="flex items-center gap-2.5 sm:gap-3 shrink-0 relative justify-self-end">
             {currentUser && (
               <button
                 type="button"
                 onClick={onOpenProfile}
                 title={isAdmin ? 'ระดับสิทธิ์: ผู้ดูแลระบบ (Admin)' : 'ระดับสิทธิ์: เจ้าหน้าที่ (Staff)'}
-                className={`px-2.5 sm:px-3 py-1 rounded-full text-[11px] sm:text-xs font-bold select-none flex items-center gap-1.5 shrink-0 cursor-pointer ${
-                  isAdmin
-                    ? 'bg-purple-600 dark:bg-purple-700 text-white shadow-xs'
-                    : 'bg-blue-50 dark:bg-blue-500/20 text-blue-600 dark:text-blue-300'
-                }`}
+                className="flex items-center gap-2 pl-1 pr-2.5 sm:pr-3 py-1 rounded-full border border-slate-200 dark:border-white/10 bg-slate-100/90 hover:bg-slate-200/80 dark:bg-[#282A2C] dark:hover:bg-[#333537] text-slate-800 dark:text-[#E3E3E3] text-[11px] sm:text-xs font-bold select-none shrink-0 cursor-pointer transition-colors"
               >
-                <ShieldCheck className="w-3.5 h-3.5" />
-                <span>{currentUser.name || (isAdmin ? 'Admin' : 'Staff')}</span>
+                <UserAvatarBadge user={currentUser} size="sm" />
+                <span className="truncate max-w-[72px] sm:max-w-[120px] whitespace-nowrap">
+                  {currentUser.name || (isAdmin ? 'Admin' : 'สาธิต')}
+                </span>
               </button>
             )}
 

@@ -24,7 +24,7 @@ interface NotificationModalProps {
   expiryAlerts?: ExpiryAlertItem[];
   alerts?: ExpiryAlertItem[];
   auditLogs?: AuditLogEntry[];
-  onNavigateToCategory?: (category: 'bag' | 'cart') => void;
+  onNavigateToCategory?: (category: 'bag' | 'cart' | 'ambulance') => void;
   onOpenReport?: () => void;
   onOpenQuickReplace?: (alert: ExpiryAlertItem) => void;
   onClearLogs?: () => void;

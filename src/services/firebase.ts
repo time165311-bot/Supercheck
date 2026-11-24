@@ -546,8 +546,11 @@ export async function clearChannelEquipmentInFirebase(
     const docsToDelete = snap.docs.filter((d) => {
       if (filterType === 'all') return true;
       const data = d.data() || {};
-      const t = data.type || 'room';
-      return t === filterType || (filterType === 'room' && !data.type && Boolean(data.roomId));
+      const t = String(data.type || 'room').toLowerCase();
+      if (filterType === 'room') {
+        return t !== 'bag' && t !== 'cart' && t !== 'ambulance';
+      }
+      return t === filterType;
     });
     for (let i = 0; i < docsToDelete.length; i += 400) {
       const batch = writeBatch(db);
@@ -781,8 +784,11 @@ export async function clearAllEquipmentInFirebase(filterType: 'room' | 'bag' | '
     const docsToDelete = snap.docs.filter((d) => {
       if (filterType === 'all') return true;
       const data = d.data() || {};
-      const t = data.type || 'room';
-      return t === filterType || (filterType === 'room' && !data.type && Boolean(data.roomId));
+      const t = String(data.type || 'room').toLowerCase();
+      if (filterType === 'room') {
+        return t !== 'bag' && t !== 'cart' && t !== 'ambulance';
+      }
+      return t === filterType;
     });
     for (let i = 0; i < docsToDelete.length; i += 400) {
       const batch = writeBatch(db);

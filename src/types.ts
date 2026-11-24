@@ -115,7 +115,7 @@ export interface AuditLogEntry {
 
 export interface ExpiryAlertItem {
   item: EquipmentItem;
-  category: 'bag' | 'cart';
+  category: 'bag' | 'cart' | 'ambulance';
   categoryTitle: string;
   groupName: string;
   daysRemaining: number;

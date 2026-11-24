@@ -86,7 +86,7 @@ export function getItemSizes(item: {
   }
 
   // 2. Specific medical supplies (Type 2: distinct items grouped together)
-  if (name.includes('สำลีก้อน') || name.includes('ถุงมือ')) {
+  if (name.includes('สำลีก้อน') && name.includes('ถุงมือ')) {
     return ['สำลีก้อน', 'ถุงมือ'];
   }
   if (name.includes('betadine') || name.includes('ammonia')) {

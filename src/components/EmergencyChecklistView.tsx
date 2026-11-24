@@ -12,8 +12,6 @@ import {
   Plus,
   Calendar,
   Check,
-  Camera,
-  Loader2,
   Trash2,
   ChevronDown,
   ChevronUp,
@@ -24,10 +22,7 @@ import { CheckItemState, ListConfig, EquipmentItem } from '../types';
 import { formatAcquiredDate } from './OfficialReportModal';
 import { EditItemModal } from './EditItemModal';
 import { getWednesdaysInfoForMonth } from '../utils/wednesdayUtils';
-import { quickOcrCategory } from '../services/auraService';
-import { prepareImageForOCR } from '../utils/imageUtils';
 import { compressImageForFirestore } from '../utils/helpers';
-import { speakWithAura } from '../utils/textToSpeech';
 
 import {
   getItemSizes,
@@ -86,7 +81,7 @@ export interface EmergencyChecklistProps {
   subtitle: string;
   listConfig: ListConfig;
   checks: Record<string, CheckItemState>;
-  onToggleCheck: (itemKey: string, result: 'ปกติ' | 'ผิดปกติ', itemName: string, week?: number, isMassAction?: boolean, customValue?: string) => void;
+  onToggleCheck: (itemKey: string, result: 'ปกติ' | 'ผิดปกติ' | '', itemName: string, week?: number, isMassAction?: boolean, customValue?: string) => void;
   onUpdateNote: (itemKey: string, note: string) => void;
   onOpenBarcodeScan?: () => void;
   onZoomImage?: (imgUrl: string) => void;
@@ -401,100 +396,31 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
     return 'normal';
   };
 
-  // Summary statistics for selectedWeek
+  // Summary statistics for selectedWeek (readinessPct reflects normal/ready items strictly)
   const totalCount = allItems.length;
   const normalCount = allItems.filter((i) => getItemWeekStatus(i) === 'normal').length;
   const defectiveCount = allItems.filter((i) => getItemWeekStatus(i) === 'defective').length;
   const checkedCount = normalCount + defectiveCount;
+  const readinessPct = totalCount > 0 ? Math.round((normalCount / totalCount) * 100) : 0;
 
-  // 📷 Mode 3: Quick Section OCR
-  const quickOcrInputRef = useRef<HTMLInputElement>(null);
-  const [isQuickScanning, setIsQuickScanning] = useState(false);
-  const [quickScanToast, setQuickScanToast] = useState<string | null>(null);
-
-  const handleQuickOcrFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (quickOcrInputRef.current) quickOcrInputRef.current.value = '';
-
-    setIsQuickScanning(true);
-    setQuickScanToast('📸 น้องออร่ากำลังประมวลผลสแกนด่วนหมวดนี้...');
-
-    try {
-      const rotatedBase64 = await prepareImageForOCR(file);
-      const targetGrp = selectedGroup === 'all' ? (groups[0] || 'Airway') : selectedGroup;
-      const res = await quickOcrCategory(rotatedBase64, targetGrp);
-
-      if (res.parsedItems && res.parsedItems.length > 0) {
-        let matchCount = 0;
-        const targetItems = selectedGroup === 'all' ? allItems : allItems.filter((i) => i.groupName === selectedGroup);
-
-        res.parsedItems.forEach((parsed) => {
-          const pName = (parsed.name || '').trim().toLowerCase();
-          if (!pName) return;
-
-          const match = targetItems.find((it) => {
-            return matchMedicalItemName(pName, it.name, it.spec || '');
-          });
-
-          if (match) {
-            const isDefect = parsed.status === 'INCOMPLETE' || parsed.status === 'EXPIRED' || (parsed.issue && parsed.issue.trim() !== '');
-            const valToSet = isDefect ? String(parsed.actual || '0') : getRealTargetCheckValue(match as any);
-            onToggleCheck(match.itemKey, isDefect ? 'ผิดปกติ' : 'ปกติ', match.name, selectedWeek, false, valToSet);
-            if (parsed.exp && parsed.exp !== '-') {
-              onUpdateNote(match.itemKey, `EXP: ${parsed.exp}`);
-            }
-            matchCount++;
-          }
-        });
-
-        const toastMsg = `✅ สแกนด่วนสำเร็จ! อัปเดตรายการ ${matchCount} รายการ`;
-        setQuickScanToast(toastMsg);
-        speakWithAura(`สแกนด่วนหมวด ${targetGrp} สำเร็จแล้วค่ะพี่พยาบาล อัปเดต ${matchCount} รายการค่ะ`);
-      } else {
-        setQuickScanToast('⚠️ น้องออร่าไม่พบข้อมูลอุปกรณ์ในหมวดนี้ กรุณาลองถ่ายภาพใหม่ให้ชัดเจนนะคะ');
-      }
-    } catch (err) {
-      console.warn('Quick scan error:', err);
-      setQuickScanToast('❌ สแกนด่วนขัดข้อง กรุณาลองใหม่อีกครั้ง');
-    } finally {
-      setIsQuickScanning(false);
-      setTimeout(() => setQuickScanToast(null), 4500);
-    }
-  };
-
-  // 2. Toggle Pass All 3-State Logic
+  // Toggle Pass All / Cancel Check Logic (strictly checked against selectedWeek status)
   const areAllPassed = useMemo(() => {
     if (filteredItems.length === 0) return false;
-    return filteredItems.every((item) => {
-      const c = checks[item.itemKey];
-      const wkVal = c?.weekVals?.[selectedWeek];
-      const classification = getItemQuantityClassification(item);
-      
-      if (classification.isType2) {
-        const subInfo = getItemSubItemsInfo(item);
-        const subStat = parseSubItemStatuses(wkVal, classification.subQuantities);
-        return subStat.every((s, idx) => {
-          const target = String(subInfo.quantities[idx] || 1);
-          return s === target;
-        });
-      }
-      if (classification.isType1) {
-        const parsed = parseInt(String(wkVal || '').replace(/\D/g, ''), 10);
-        return !isNaN(parsed) && parsed >= classification.totalQty;
-      }
-      return wkVal === '1' || c?.result === 'ปกติ';
-    });
+    return filteredItems.every((item) => getItemWeekStatus(item) === 'normal');
   }, [filteredItems, checks, selectedWeek]);
 
   const handleTogglePassAll = () => {
     if (areAllPassed) {
-      // If already all passed, toggle them back to unchecked state
-      filteredItems.forEach((item) => {
-        onToggleCheck(item.itemKey, 'ปกติ', item.name, selectedWeek, true, '');
-      });
+      // Reset all items in current view/week back to unchecked (0%)
+      if (selectedGroup === 'all' && !searchQuery.trim() && onClearWeekChecks) {
+        onClearWeekChecks(selectedWeek);
+      } else {
+        filteredItems.forEach((item) => {
+          onToggleCheck(item.itemKey, '', item.name, selectedWeek, true, '');
+        });
+      }
     } else {
-      // Mark all filtered items as passed with their real target quantities (including sub-items)
+      // Mark all items (including sub-items & countable items) as passed with real target quantities
       filteredItems.forEach((item) => {
         const passVal = getRealTargetCheckValue(item);
         onToggleCheck(item.itemKey, 'ปกติ', item.name, selectedWeek, true, passVal);
@@ -580,15 +506,7 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
   }, [newItemName, newItemSpec, newItemQty]);
 
   return (
-    <div className="space-y-3.5 font-['TH_Sarabun_New','Sarabun',sans-serif] pb-28 animate-in fade-in duration-300 text-slate-800 relative">
-      
-      {/* 🌟 Floating Quick Scan Toast Notification */}
-      {quickScanToast && (
-        <div className="fixed top-16 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-2xl bg-slate-900 text-white text-xs font-bold shadow-md flex items-center gap-2 border border-blue-400">
-          <CheckCircle2 size={16} className="text-emerald-400 shrink-0" />
-          <span>{quickScanToast}</span>
-        </div>
-      )}
+    <div className="space-y-3.5 font-['TH_Sarabun_New','Sarabun',sans-serif] pb-28 animate-in fade-in duration-300 text-slate-800 dark:text-[#E3E3E3] relative">
       {/* Inline Warning / Notice Banner */}
       {actionNotice && (
         <div className="fixed top-16 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-2xl bg-rose-600 text-white text-xs font-bold shadow-2xl flex items-center gap-2 animate-in fade-in">
@@ -645,16 +563,16 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
               <span className="hidden sm:inline">ลบทั้งหมด</span>
             </button>
 
-            {/* 3-State Toggle Pass All Button */}
+            {/* 2-State Toggle Pass All / Cancel All Button */}
             <button
               type="button"
               onClick={handleTogglePassAll}
-              className={`px-3 py-2 rounded-xl text-white font-bold text-xs shadow-xs transition flex items-center gap-1 cursor-pointer active:scale-95 ${
-                areAllPassed ? 'bg-amber-600 hover:bg-amber-700' : 'bg-emerald-500 hover:bg-emerald-600'
+              className={`px-3 py-2 rounded-xl text-white font-bold text-xs shadow-xs transition flex items-center gap-1.5 cursor-pointer active:scale-95 whitespace-nowrap ${
+                areAllPassed ? 'bg-rose-600 hover:bg-rose-700' : 'bg-emerald-600 hover:bg-emerald-700'
               }`}
               title={areAllPassed ? `ยกเลิกการตรวจทั้งหมด (สัปดาห์ที่ ${selectedWeek})` : `กดตรวจผ่านปกติทุกรายการประจำสัปดาห์ที่ ${selectedWeek}`}
             >
-              <Check size={15} />
+              {areAllPassed ? <X size={15} /> : <Check size={15} />}
               <span>{areAllPassed ? `ยกเลิกตรวจ (W${selectedWeek})` : `ตรวจผ่านทั้งหมด (W${selectedWeek})`}</span>
             </button>
 
@@ -732,7 +650,7 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
             title="บันทึกข้อมูลและเข้าสู่หน้าพรีวิวเพื่อพิมพ์ PDF"
           >
             {isSavingReport ? (
-              <Loader2 size={15} className="animate-spin" />
+              <span className="inline-block w-3.5 h-3.5 rounded-full border-2 border-white/40 border-t-white animate-spin" />
             ) : (
               <CheckCircle2 size={15} className="group-hover:scale-110 transition-transform" />
             )}
@@ -742,40 +660,61 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
       </div>
 
       {/* Progress & Summary Badge Bar */}
-      <div className="p-3 rounded-2xl bg-white dark:bg-slate-800/90 border border-slate-200/90 dark:border-slate-700 shadow-xs flex items-center justify-between flex-wrap gap-2 text-xs">
-        <div className="flex items-center gap-2 font-bold text-slate-800 dark:text-slate-100">
-          <span>ความพร้อม (สัปดาห์ที่ {selectedWeek}):</span>
-          <span className="text-blue-600 dark:text-blue-400 font-extrabold">
-            {checkedCount} / {totalCount}
-          </span>
-          <span className="text-slate-500 dark:text-slate-400 font-normal">
-            ({Math.round(totalCount > 0 ? (checkedCount / totalCount) * 100 : 0)}%)
-          </span>
+      <div className="p-3.5 rounded-2xl bg-white dark:bg-[#1E1F20] border border-slate-200/90 dark:border-white/10 shadow-xs space-y-2.5 text-xs">
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div className="flex items-center gap-2 font-bold text-slate-800 dark:text-[#E3E3E3] tabular-nums">
+            <span>ความพร้อม (สัปดาห์ที่ {selectedWeek}):</span>
+            <span className="text-blue-600 dark:text-[#A8C7FA] font-extrabold">
+              {normalCount} / {totalCount}
+            </span>
+            <span className="text-slate-500 dark:text-[#8E918F] font-semibold">
+              ({readinessPct}%)
+            </span>
+          </div>
+
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/12 dark:bg-emerald-500/15 text-emerald-700 dark:text-[#81C995] font-bold border border-emerald-200 dark:border-emerald-500/30 tabular-nums whitespace-nowrap">
+              ✓ ปกติ {normalCount}
+            </span>
+            {defectiveCount > 0 && (
+              <span className="px-2.5 py-0.5 rounded-full bg-rose-500/12 dark:bg-rose-500/15 text-rose-700 dark:text-[#F28B82] font-bold border border-rose-200 dark:border-rose-500/30 flex items-center gap-1 tabular-nums whitespace-nowrap">
+                <AlertTriangle size={12} />
+                <span>ไม่ครบ/มีปัญหา {defectiveCount}</span>
+              </span>
+            )}
+            {totalCount - checkedCount > 0 && (
+              <span className="px-2.5 py-0.5 rounded-full bg-slate-100 dark:bg-[#282A2C] text-slate-600 dark:text-[#C4C7C5] font-semibold border border-slate-200 dark:border-white/10 tabular-nums whitespace-nowrap">
+                รอตรวจ {totalCount - checkedCount}
+              </span>
+            )}
+          </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          <span className="px-2.5 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 font-bold border border-emerald-200 dark:border-emerald-700/70">
-            ✓ ปกติ {normalCount}
-          </span>
-          {defectiveCount > 0 && (
-            <span className="px-2.5 py-0.5 rounded-full bg-rose-50 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300 font-bold border border-rose-200 dark:border-rose-700/70 flex items-center gap-1">
-              <AlertTriangle size={12} />
-              <span>มีปัญหา {defectiveCount}</span>
-            </span>
-          )}
+        {/* Live Readiness Progress Bar */}
+        <div className="w-full h-2 rounded-full bg-slate-100 dark:bg-[#282A2C] overflow-hidden">
+          <div
+            className={`h-full rounded-full transition-[width,background-color] duration-300 ease-out ${
+              readinessPct === 100
+                ? 'bg-emerald-500 dark:bg-[#81C995]'
+                : defectiveCount > 0
+                ? 'bg-amber-500 dark:bg-[#FDD663]'
+                : 'bg-blue-600 dark:bg-[#A8C7FA]'
+            }`}
+            style={{ width: `${readinessPct}%` }}
+          />
         </div>
       </div>
 
       {/* Group Selector Pills & Search Bar */}
       <div className="space-y-2">
         <div className="relative">
-          <Search size={15} className="absolute left-3.5 top-2.5 text-slate-400 dark:text-slate-400" />
+          <Search size={15} className="absolute left-3.5 top-2.5 text-slate-400 dark:text-[#8E918F]" />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="ค้นหาชื่ออุปกรณ์, รหัส, ตำแหน่ง..."
-            className="w-full pl-9 pr-3 py-2 rounded-xl bg-white dark:bg-slate-800/90 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 text-xs outline-none focus:border-blue-500 dark:focus:border-blue-400 focus:ring-1 focus:ring-blue-100 dark:focus:ring-blue-500/20 transition placeholder:text-slate-400 dark:placeholder:text-slate-500 font-sans shadow-xs"
+            className="w-full pl-9 pr-3 py-2 rounded-xl bg-white dark:bg-[#1E1F20] border border-slate-200 dark:border-white/10 text-slate-800 dark:text-[#E3E3E3] text-xs outline-none focus:border-blue-500 dark:focus:border-[#A8C7FA] focus:ring-1 focus:ring-blue-100 dark:focus:ring-[#A8C7FA]/25 transition placeholder:text-slate-400 dark:placeholder:text-[#8E918F] font-sans shadow-xs"
           />
         </div>
 
@@ -786,8 +725,8 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
               onClick={() => setSelectedGroup('all')}
               className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition cursor-pointer active:scale-95 ${
                 selectedGroup === 'all'
-                  ? 'bg-blue-600 text-white shadow-xs'
-                  : 'bg-white dark:bg-slate-800/90 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/80'
+                  ? 'bg-blue-600 dark:bg-[#A8C7FA] text-white dark:text-[#131314] shadow-xs'
+                  : 'bg-white dark:bg-[#1E1F20] text-slate-700 dark:text-[#C4C7C5] border border-slate-200 dark:border-white/10 hover:bg-slate-50 dark:hover:bg-[#282A2C]'
               }`}
             >
               ทั้งหมด ({allItems.length})
@@ -795,8 +734,9 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
             {groups.map((grp) => {
               const grpItems = allItems.filter((i) => i.groupName === grp);
               const grpCount = grpItems.length;
+              const grpNormal = grpItems.filter((i) => getItemWeekStatus(i) === 'normal').length;
               const grpChecked = grpItems.filter((i) => getItemWeekStatus(i) !== '').length;
-              const isGrpDone = grpCount > 0 && grpChecked >= grpCount;
+              const isGrpDone = grpCount > 0 && grpNormal >= grpCount;
 
               return (
                 <button
@@ -805,17 +745,17 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
                   onClick={() => setSelectedGroup(grp)}
                   className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition cursor-pointer active:scale-95 flex items-center gap-1 ${
                     selectedGroup === grp
-                      ? 'bg-blue-600 text-white shadow-xs'
+                      ? 'bg-blue-600 dark:bg-[#A8C7FA] text-white dark:text-[#131314] shadow-xs'
                       : isGrpDone
-                      ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700 font-bold'
-                      : 'bg-white dark:bg-slate-800/90 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/80'
+                      ? 'bg-emerald-500/12 dark:bg-emerald-500/15 text-emerald-700 dark:text-[#81C995] border border-emerald-200 dark:border-emerald-500/30 font-bold'
+                      : 'bg-white dark:bg-[#1E1F20] text-slate-700 dark:text-[#C4C7C5] border border-slate-200 dark:border-white/10 hover:bg-slate-50 dark:hover:bg-[#282A2C]'
                   }`}
                 >
                   <span>{grp}</span>
-                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${
+                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full tabular-nums ${
                     selectedGroup === grp
-                      ? 'bg-white/20 text-white'
-                      : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
+                      ? 'bg-white/20 dark:bg-black/15 text-white dark:text-[#131314]'
+                      : 'bg-slate-100 dark:bg-[#282A2C] text-slate-600 dark:text-[#C4C7C5]'
                   }`}>
                     {grpChecked}/{grpCount}
                   </span>
@@ -826,52 +766,37 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
         )}
       </div>
 
-      {/* 📷 Mode 3: Quick Section OCR Action Banner */}
-      <div className="flex flex-wrap items-center justify-between gap-2 p-3 bg-gradient-to-r from-blue-50/90 to-slate-50 dark:from-slate-800/90 dark:to-slate-800/90 dark:bg-slate-800/90 rounded-2xl border border-blue-200 dark:border-slate-700 shadow-xs mb-3">
+      {/* Unified Section Header Banner with Dynamic Pass-All / Cancel-All Action */}
+      <div className="flex flex-wrap items-center justify-between gap-2 p-3 bg-white dark:bg-[#1E1F20] rounded-2xl border border-slate-200 dark:border-white/10 shadow-xs mb-3">
         <div className="flex items-center gap-2 min-w-0">
-          <span className="w-2.5 h-2.5 rounded-full bg-[#1B6EF3] shrink-0" />
-          <span className="font-bold text-xs text-slate-800 dark:text-slate-100 truncate">
+          <span className="w-2.5 h-2.5 rounded-full bg-blue-600 dark:bg-[#A8C7FA] shrink-0" />
+          <span className="font-bold text-xs text-slate-800 dark:text-[#E3E3E3] truncate">
             {selectedGroup === 'all' ? `ตรวจเช็กทั้งหมด (${filteredItems.length} รายการ)` : `หมวด: ${selectedGroup}`}
           </span>
-          <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 font-bold border border-blue-200 dark:border-blue-800 shrink-0">
+          <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-50 dark:bg-[#A8C7FA]/15 text-blue-700 dark:text-[#A8C7FA] font-bold border border-blue-200 dark:border-[#A8C7FA]/25 shrink-0 whitespace-nowrap">
             สัปดาห์ที่ {selectedWeek}
           </span>
         </div>
 
-        <div className="flex items-center gap-2">
-          <input
-            type="file"
-            ref={quickOcrInputRef}
-            className="hidden"
-            accept="image/*"
-            onChange={handleQuickOcrFileSelect}
-          />
-          <button
-            type="button"
-            disabled={isQuickScanning}
-            onClick={() => quickOcrInputRef.current?.click()}
-            className="px-3.5 py-1.5 rounded-xl bg-[#1B6EF3] hover:bg-[#0B5ED7] disabled:opacity-60 text-white text-xs font-bold shadow-xs flex items-center gap-1.5 cursor-pointer active:scale-95 transition"
-            title="สแกนใบตรวจเช็กเฉพาะหมวดนี้ เพื่อเติมผลตรวจอัตโนมัติ 1-2 วินาที"
-          >
-            {isQuickScanning ? (
-              <>
-                <Loader2 size={13} className="animate-spin" />
-                <span>กำลังสแกนด่วน...</span>
-              </>
-            ) : (
-              <>
-                <Camera size={13} />
-                <span>📷 สแกนด่วนหมวดนี้</span>
-              </>
-            )}
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={handleTogglePassAll}
+          className={`px-3.5 py-1.5 rounded-xl text-white text-xs font-bold shadow-xs flex items-center gap-1.5 cursor-pointer active:scale-95 transition whitespace-nowrap shrink-0 ${
+            areAllPassed
+              ? 'bg-rose-600 hover:bg-rose-700'
+              : 'bg-emerald-600 hover:bg-emerald-700'
+          }`}
+          title={areAllPassed ? `ยกเลิกการตรวจทั้งหมด (สัปดาห์ที่ ${selectedWeek})` : `กดตรวจผ่านปกติทุกรายการประจำสัปดาห์ที่ ${selectedWeek}`}
+        >
+          {areAllPassed ? <X size={13} strokeWidth={2.5} /> : <Check size={13} strokeWidth={2.5} />}
+          <span>{areAllPassed ? `ยกเลิกตรวจ (W${selectedWeek})` : `ตรวจผ่านทั้งหมด (W${selectedWeek})`}</span>
+        </button>
       </div>
 
       {/* 📋 Clean Checklist Cards (CSS Column Layout for Seamless Desktop Masonry Flow Without Gaps) */}
       <div className="columns-1 md:columns-2 gap-3.5 md:gap-4 [column-fill:_balance]">
         {filteredItems.length === 0 ? (
-          <div className="w-full p-6 text-center bg-white dark:bg-slate-800/90 rounded-2xl border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-300 text-xs shadow-xs mb-4">
+          <div className="w-full p-6 text-center bg-white dark:bg-[#1E1F20] rounded-2xl border border-slate-200 dark:border-white/10 text-slate-500 dark:text-[#8E918F] text-xs shadow-xs mb-4">
             ไม่พบรายการอุปกรณ์ตรงตามคำค้นหา
           </div>
         ) : (
@@ -968,92 +893,102 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
               <div
                 key={item.itemKey}
                 style={{ breakInside: 'avoid' }}
-                className={`break-inside-avoid mb-3.5 md:mb-4 inline-block w-full align-top p-2.5 sm:p-3 rounded-2xl border transition-colors duration-150 space-y-2 card-perf ${
-                  isBad
-                    ? 'bg-rose-50/90 dark:bg-rose-950/35 border-rose-300 dark:border-rose-700/80 shadow-xs text-slate-900 dark:text-slate-100'
+                className={`break-inside-avoid mb-3.5 md:mb-4 inline-block w-full align-top p-3 sm:p-3.5 rounded-2xl border transition-colors duration-150 space-y-2.5 card-perf bg-white dark:bg-[#1E1F20] text-slate-900 dark:text-[#E3E3E3] shadow-xs ${
+                  isBad && isCountPartial
+                    ? 'border-slate-200 dark:border-white/10 border-l-4 border-l-amber-500 dark:border-l-[#FDD663]'
+                    : isBad
+                    ? 'border-slate-200 dark:border-white/10 border-l-4 border-l-rose-500 dark:border-l-[#F28B82]'
                     : isOk
-                    ? 'bg-emerald-50/85 dark:bg-emerald-950/35 border-emerald-300 dark:border-emerald-700/80 shadow-xs text-slate-900 dark:text-slate-100'
-                    : 'bg-white dark:bg-slate-800/90 border-slate-200 dark:border-slate-700 shadow-xs text-slate-900 dark:text-slate-100 hover:border-blue-200 dark:hover:border-blue-500/60'
+                    ? 'border-slate-200 dark:border-white/10 border-l-4 border-l-emerald-500 dark:border-l-[#81C995]'
+                    : 'border-slate-200 dark:border-white/10 hover:border-blue-300 dark:hover:border-white/25'
                 }`}
               >
-                {/* Minimal Header Row */}
+                {/* Clean Header Row (Left-to-right scan) */}
                 <div className="flex items-start justify-between gap-2.5">
-                  <div className="min-w-0 flex-1 space-y-0.5">
+                  <div className="min-w-0 flex-1 space-y-1">
                     <div className="flex items-center justify-between gap-1.5">
                       <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className="text-[10px] px-2 py-0.5 rounded-md bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 font-bold border border-blue-200 dark:border-blue-800/80">
+                        <span className="text-[10px] px-2 py-0.5 rounded-md bg-blue-50 dark:bg-[#282A2C] text-blue-700 dark:text-[#A8C7FA] font-bold border border-blue-200/80 dark:border-white/10">
                           {item.groupName}
                         </span>
                         {item.no && (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-blue-600 text-white font-mono font-bold">
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-slate-100 dark:bg-[#282A2C] text-slate-700 dark:text-[#E3E3E3] font-mono font-bold border border-slate-200 dark:border-white/10">
                             #{item.no}
                           </span>
                         )}
                         {item.code && (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-mono border border-slate-200 dark:border-slate-600">
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-slate-100 dark:bg-[#282A2C] text-slate-600 dark:text-[#C4C7C5] font-mono border border-slate-200 dark:border-white/10">
                             {item.code}
                           </span>
                         )}
                         {isType1 && (
-                          <span className="text-[10px] px-2 py-0.5 rounded-md bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 font-bold border border-blue-200 dark:border-blue-800/80 tabular-nums shrink-0 whitespace-nowrap">
-                            เป้าหมาย {targetTotalQty} {item.qty?.replace(/[0-9\s]/g, '') || 'ชิ้น'}
+                          <span className="text-[10px] px-2 py-0.5 rounded-md bg-slate-100 dark:bg-[#282A2C] text-slate-700 dark:text-[#C4C7C5] font-bold border border-slate-200 dark:border-white/10 tabular-nums shrink-0 whitespace-nowrap">
+                            เป้า {targetTotalQty} {item.qty?.replace(/[0-9\s]/g, '') || 'ชิ้น'}
                             {currentCount !== null && (
-                              <span className={`ml-1 font-mono ${isCountOk ? 'text-emerald-700 dark:text-emerald-400' : 'text-rose-700 dark:text-rose-400'}`}>
+                              <span
+                                className={`ml-1 font-mono ${
+                                  isCountOk
+                                    ? 'text-emerald-600 dark:text-[#81C995]'
+                                    : isCountPartial
+                                    ? 'text-amber-600 dark:text-[#FDD663]'
+                                    : 'text-rose-600 dark:text-[#F28B82]'
+                                }`}
+                              >
                                 ({currentCount}/{targetTotalQty})
                               </span>
                             )}
                           </span>
                         )}
                         {hasMultipleSubItems && (
-                          <span className="text-[10px] px-2 py-0.5 rounded-md bg-purple-50 dark:bg-purple-950/50 text-purple-700 dark:text-purple-300 font-bold border border-purple-200 dark:border-purple-800/70 tabular-nums shrink-0 whitespace-nowrap">
+                          <span className="text-[10px] px-2 py-0.5 rounded-md bg-purple-50 dark:bg-purple-500/15 text-purple-700 dark:text-purple-300 font-bold border border-purple-200 dark:border-purple-500/30 tabular-nums shrink-0 whitespace-nowrap">
                             {subItems.length} ชิ้นย่อย ({subStatuses.filter((s, i) => s === String(classification.subQuantities[i] || 1)).length}/{subItems.length} ปกติ)
                           </span>
                         )}
                       </div>
 
-                      {/* 3-Dots Edit Button [✏️] */}
+                      {/* 3-Dots Edit Button */}
                       <button
                         type="button"
                         onClick={() => handleOpenEditModal(item as any)}
-                        className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition cursor-pointer"
+                        className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-[#282A2C] text-slate-400 hover:text-blue-600 dark:hover:text-[#A8C7FA] transition cursor-pointer shrink-0"
                         title="แก้ไขรายการอุปกรณ์"
                       >
                         <MoreVertical size={15} />
                       </button>
                     </div>
 
-                    <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 leading-snug">
+                    <h3 className="text-sm font-bold text-slate-900 dark:text-[#E3E3E3] leading-snug">
                       {idx + 1}. {sanitizeItemName(item.name)}
                     </h3>
 
                     {item.spec && (
-                      <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-1 font-sans">{item.spec}</p>
+                      <p className="text-xs text-slate-500 dark:text-[#8E918F] line-clamp-1 font-sans">{item.spec}</p>
                     )}
 
-                    {/* Non-multi Single Item / Type 1 EXP Display (Hide No EXP if item already has an EXP value) */}
+                    {/* Non-multi Single Item / Type 1 EXP Display */}
                     {!hasMultipleSubItems && (() => {
                       const cleanExp = String(currentExp || '').trim();
                       const hasValidExp = Boolean(cleanExp && cleanExp !== '-' && !/^no\s*exp$/i.test(cleanExp));
                       const isIsoDateExp = /^\d{4}-\d{2}-\d{2}$/.test(cleanExp);
 
                       return (
-                        <div className="mt-1 flex items-center gap-2 pl-2">
+                        <div className="mt-1 flex items-center gap-2">
                           {!hasValidExp ? (
                             <div className="flex items-center gap-1.5">
-                              <span className="text-[10px] text-slate-500 dark:text-slate-300 font-bold bg-slate-100 dark:bg-slate-700/80 px-2.5 py-0.5 rounded border border-slate-200 dark:border-slate-600">
-                                ไม่มีวันหมดอายุ (No EXP)
+                              <span className="text-[10px] text-slate-500 dark:text-[#8E918F] font-semibold bg-slate-100 dark:bg-[#282A2C] px-2 py-0.5 rounded border border-slate-200 dark:border-white/10">
+                                ไม่มี EXP
                               </span>
                               <button
                                 type="button"
                                 onClick={() => onUpdateNote(item.itemKey, `EXP:${getDeviceTodayDateStr()}`)}
-                                className="text-[10px] text-blue-600 dark:text-blue-400 font-bold hover:underline cursor-pointer"
+                                className="text-[10px] text-blue-600 dark:text-[#A8C7FA] font-bold hover:underline cursor-pointer"
                               >
                                 + ใส่วันที่
                               </button>
                             </div>
                           ) : isIsoDateExp ? (
-                            <div className="flex items-center gap-1.5 border-l-2 border-rose-200 dark:border-rose-700 pl-2">
-                              <p className="text-xs text-rose-600 dark:text-rose-400 font-bold flex items-center gap-1 shrink-0">
+                            <div className="flex items-center gap-1.5">
+                              <p className="text-xs text-rose-600 dark:text-[#F28B82] font-bold flex items-center gap-1 shrink-0">
                                 <span>⏳ EXP:</span>
                               </p>
                               <div className="flex items-center gap-1.5">
@@ -1061,13 +996,13 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
                                   type="date"
                                   value={cleanExp}
                                   onChange={(e) => onUpdateNote(item.itemKey, `EXP:${e.target.value}`)}
-                                  className="text-[10px] bg-white dark:bg-slate-900 border border-rose-200 dark:border-rose-700 rounded px-1.5 py-0.5 text-rose-700 dark:text-rose-300 font-bold outline-none w-32 h-7"
+                                  className="text-[10px] bg-white dark:bg-[#282A2C] border border-slate-200 dark:border-white/10 rounded px-1.5 py-0.5 text-rose-700 dark:text-[#F28B82] font-bold outline-none w-32 h-7"
                                   title="แก้ไขวันหมดอายุ"
                                 />
                                 <button
                                   type="button"
                                   onClick={() => onUpdateNote(item.itemKey, 'EXP:-')}
-                                  className="p-1 rounded-md bg-slate-100 dark:bg-slate-700 hover:bg-rose-100 dark:hover:bg-rose-900/50 text-slate-500 dark:text-slate-300 hover:text-rose-600 dark:hover:text-rose-300 transition cursor-pointer"
+                                  className="p-1 rounded-md bg-slate-100 dark:bg-[#282A2C] hover:bg-rose-100 dark:hover:bg-rose-500/20 text-slate-500 dark:text-[#8E918F] hover:text-rose-600 dark:hover:text-[#F28B82] transition cursor-pointer"
                                   title="ล้างวันหมดอายุ"
                                 >
                                   <X size={11} />
@@ -1075,14 +1010,14 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
                               </div>
                             </div>
                           ) : (
-                            <div className="flex items-center gap-1.5 border-l-2 border-rose-200 dark:border-rose-700 pl-2">
-                              <span className="text-[11px] text-rose-700 dark:text-rose-300 font-bold bg-rose-50 dark:bg-rose-950/60 px-2.5 py-0.5 rounded border border-rose-200 dark:border-rose-700/80">
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-[11px] text-rose-700 dark:text-[#F28B82] font-bold bg-rose-500/10 dark:bg-rose-500/15 px-2 py-0.5 rounded border border-rose-200 dark:border-rose-500/30">
                                 ⏳ EXP: {cleanExp}
                               </span>
                               <button
                                 type="button"
                                 onClick={() => onUpdateNote(item.itemKey, `EXP:${getDeviceTodayDateStr()}`)}
-                                className="text-[10px] text-blue-600 dark:text-blue-400 font-bold hover:underline cursor-pointer"
+                                className="text-[10px] text-blue-600 dark:text-[#A8C7FA] font-bold hover:underline cursor-pointer"
                               >
                                 ปรับวันที่
                               </button>
@@ -1096,7 +1031,7 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
                   {item.img && (
                     <div
                       onClick={() => onZoomImage && onZoomImage(item.img!)}
-                      className="w-12 h-12 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 shrink-0 cursor-pointer hover:opacity-80 transition relative shadow-xs"
+                      className="w-12 h-12 rounded-xl overflow-hidden border border-slate-200 dark:border-white/10 shrink-0 cursor-pointer hover:opacity-80 transition relative shadow-xs"
                     >
                       <img src={item.img} alt={item.name} className="w-full h-full object-cover" />
                       <Maximize2
@@ -1112,8 +1047,8 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
                   const isExpanded = !!expandedMultiItems[item.itemKey];
                   const passedSubCount = subStatuses.filter((s, i) => s === String(classification.subQuantities[i] || 1)).length;
                   return (
-                    <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-700/80 transition-all duration-200 ease-in-out overflow-hidden transform-gpu">
-                      {/* Accordion Header Trigger + Master Quick Actions */}
+                    <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-white/10 transition-all duration-200 ease-in-out overflow-hidden transform-gpu">
+                      {/* Accordion Header Trigger */}
                       <div className="flex items-center justify-between gap-2 flex-wrap">
                         <button
                           type="button"
@@ -1123,14 +1058,14 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
                               [item.itemKey]: !prev[item.itemKey],
                             }))
                           }
-                          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-700/80 hover:bg-blue-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-100 hover:text-blue-700 dark:hover:text-blue-300 text-[11px] font-bold transition cursor-pointer border border-slate-200/80 dark:border-slate-600"
+                          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-[#282A2C] hover:bg-blue-50 dark:hover:bg-[#333537] text-slate-700 dark:text-[#E3E3E3] hover:text-blue-700 dark:hover:text-[#A8C7FA] text-[11px] font-bold transition cursor-pointer border border-slate-200/80 dark:border-white/10 whitespace-nowrap"
                         >
                           {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                           <span>
                             {isExpanded ? 'ซ่อน' : 'แสดง'}รายการย่อย ({passedSubCount}/{subItems.length} ชิ้น)
                           </span>
                         </button>
-                        <span className="text-[10px] font-medium text-slate-500 dark:text-slate-400">
+                        <span className="text-[10px] font-medium text-slate-500 dark:text-[#8E918F]">
                           สัปดาห์ที่ {selectedWeek}
                         </span>
                       </div>
@@ -1140,10 +1075,10 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
                         <button
                           type="button"
                           onClick={handleMasterAllOk}
-                          className={`flex-1 py-1.5 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer active:scale-95 ${
+                          className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer active:scale-95 whitespace-nowrap ${
                             isOk
-                              ? 'bg-emerald-600 text-white shadow-xs'
-                              : 'bg-slate-100 dark:bg-slate-700/80 text-slate-700 dark:text-slate-100 hover:bg-emerald-50 dark:hover:bg-emerald-950/60 hover:text-emerald-700 dark:hover:text-emerald-300 border border-slate-200/80 dark:border-slate-600'
+                              ? 'bg-emerald-600 dark:bg-emerald-500/20 text-white dark:text-[#81C995] border border-transparent dark:border-emerald-500/40 shadow-xs'
+                              : 'bg-slate-100 dark:bg-[#282A2C] text-slate-700 dark:text-[#C4C7C5] hover:bg-emerald-50 dark:hover:bg-emerald-500/15 hover:text-emerald-700 dark:hover:text-[#81C995] border border-slate-200/80 dark:border-white/10'
                           }`}
                         >
                           <Check size={14} strokeWidth={2.5} />
@@ -1153,10 +1088,10 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
                         <button
                           type="button"
                           onClick={handleMasterAllBad}
-                          className={`flex-1 py-1.5 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer active:scale-95 ${
+                          className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer active:scale-95 whitespace-nowrap ${
                             isBad
-                              ? 'bg-rose-600 text-white shadow-xs'
-                              : 'bg-slate-100 dark:bg-slate-700/80 text-slate-700 dark:text-slate-100 hover:bg-rose-50 dark:hover:bg-rose-950/60 hover:text-rose-700 dark:hover:text-rose-300 border border-slate-200/80 dark:border-slate-600'
+                              ? 'bg-rose-600 dark:bg-rose-500/20 text-white dark:text-[#F28B82] border border-transparent dark:border-rose-500/40 shadow-xs'
+                              : 'bg-slate-100 dark:bg-[#282A2C] text-slate-700 dark:text-[#C4C7C5] hover:bg-rose-50 dark:hover:bg-rose-500/15 hover:text-rose-700 dark:hover:text-[#F28B82] border border-slate-200/80 dark:border-white/10'
                           }`}
                         >
                           <X size={14} strokeWidth={2.5} />
@@ -1187,25 +1122,24 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
                             return (
                               <div
                                 key={idx}
-                                className={`px-2 py-1.5 rounded-xl border flex items-center justify-between gap-2 transition ${
+                                className={`px-2.5 py-2 rounded-xl border flex items-center justify-between gap-2 transition bg-slate-50 dark:bg-[#282A2C] ${
                                   isSubBad
-                                    ? 'bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-700/80'
+                                    ? 'border-rose-300 dark:border-rose-500/40'
                                     : isSubOk
-                                    ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-700/80'
-                                    : 'bg-slate-50 dark:bg-slate-900/60 border-slate-200 dark:border-slate-700'
+                                    ? 'border-emerald-300 dark:border-emerald-500/40'
+                                    : 'border-slate-200 dark:border-white/10'
                                 }`}
                               >
-                                {/* Left: Sub-item name/label & EXP only when missing or valid date */}
                                 <div className="flex items-center gap-2 min-w-0 flex-1">
-                                  <span className="font-bold text-xs text-slate-800 dark:text-slate-100 truncate" title={subLabel}>
+                                  <span className="font-bold text-xs text-slate-800 dark:text-[#E3E3E3] truncate" title={subLabel}>
                                     {subLabel}
                                   </span>
                                   {hasSubExp ? (
-                                    <span className="text-[10px] text-rose-600 dark:text-rose-400 font-bold hidden sm:inline truncate">
+                                    <span className="text-[10px] text-rose-600 dark:text-[#F28B82] font-bold hidden sm:inline truncate">
                                       EXP: {matchedSubExp}
                                     </span>
                                   ) : (
-                                    <span className="text-[10px] text-slate-400 dark:text-slate-500 hidden sm:inline truncate">
+                                    <span className="text-[10px] text-slate-400 dark:text-[#8E918F] hidden sm:inline truncate">
                                       ไม่มี EXP
                                     </span>
                                   )}
@@ -1218,10 +1152,10 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
                                       const subInfo = getItemSubItemsInfo(item);
                                       handleToggleSubItem(idx, String(subInfo.quantities[idx] || 1));
                                     }}
-                                    className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-0.5 cursor-pointer transition active:scale-95 ${
+                                    className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-0.5 cursor-pointer transition active:scale-95 whitespace-nowrap ${
                                       isSubOk
-                                        ? 'bg-emerald-600 text-white shadow-2xs'
-                                        : 'bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-100 hover:bg-emerald-100 dark:hover:bg-emerald-950/60'
+                                        ? 'bg-emerald-600 dark:bg-emerald-500/25 text-white dark:text-[#81C995] border border-transparent dark:border-emerald-500/40 shadow-2xs'
+                                        : 'bg-white dark:bg-[#1E1F20] border border-slate-300 dark:border-white/10 text-slate-700 dark:text-[#C4C7C5] hover:bg-emerald-50 dark:hover:bg-emerald-500/15'
                                     }`}
                                     title={`ตรวจแล้ว ปกติ (${subTarget})`}
                                   >
@@ -1231,10 +1165,10 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
                                   <button
                                     type="button"
                                     onClick={() => handleToggleSubItem(idx, '0')}
-                                    className={`px-2 py-1 rounded-lg text-xs font-bold flex items-center gap-0.5 cursor-pointer transition active:scale-95 ${
+                                    className={`px-2 py-1 rounded-lg text-xs font-bold flex items-center gap-0.5 cursor-pointer transition active:scale-95 whitespace-nowrap ${
                                       isSubBad
-                                        ? 'bg-rose-600 text-white shadow-2xs'
-                                        : 'bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-100 hover:bg-rose-100 dark:hover:bg-rose-950/60'
+                                        ? 'bg-rose-600 dark:bg-rose-500/25 text-white dark:text-[#F28B82] border border-transparent dark:border-rose-500/40 shadow-2xs'
+                                        : 'bg-white dark:bg-[#1E1F20] border border-slate-300 dark:border-white/10 text-slate-700 dark:text-[#C4C7C5] hover:bg-rose-50 dark:hover:bg-rose-500/15'
                                     }`}
                                     title="ตรวจแล้ว มีปัญหา/ขาด (0)"
                                   >
@@ -1250,98 +1184,126 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
                     </div>
                   );
                 })() : isType1 ? (
-                  /* Type 1 Quantity Check Section (Tape 4 เส้น, Syringe blow cuff 2 อัน, Sterile water 3 ขวด) */
-                  <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-700/80">
-                    <div className="flex items-center justify-between text-[11px] text-slate-600 dark:text-slate-300 font-bold">
-                      <span>จำนวนที่ตรวจนับได้:</span>
-                      <span className="text-[10px] text-slate-500 dark:text-slate-400 font-normal">
-                        เป้าหมาย {targetTotalQty} {item.qty?.replace(/[0-9\s]/g, '') || 'ชิ้น'}
+                  /* Type 1 Quantity Check Section (Clean Balanced Layout with Unlocked -/+ Stepper & Incomplete Status) */
+                  <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-white/10">
+                    <div className="flex items-center justify-between gap-2 text-[11px]">
+                      <span className="font-bold text-slate-600 dark:text-[#C4C7C5]">
+                        ตรวจนับได้ ({item.qty?.replace(/[0-9\s]/g, '') || 'ชิ้น'}):
                       </span>
+                      {isCountOk ? (
+                        <span className="px-2 py-0.5 rounded-md bg-emerald-500/12 dark:bg-emerald-500/15 text-emerald-700 dark:text-[#81C995] font-bold border border-emerald-200 dark:border-emerald-500/30 whitespace-nowrap">
+                          ครบ (ปกติ)
+                        </span>
+                      ) : isCountPartial ? (
+                        <span className="px-2 py-0.5 rounded-md bg-amber-500/15 dark:bg-amber-500/20 text-amber-700 dark:text-[#FDD663] font-bold border border-amber-300 dark:border-amber-500/35 whitespace-nowrap">
+                          ไม่ครบ / ขาดจำนวน ({currentCount}/{targetTotalQty})
+                        </span>
+                      ) : isCountZero ? (
+                        <span className="px-2 py-0.5 rounded-md bg-rose-500/12 dark:bg-rose-500/20 text-rose-700 dark:text-[#F28B82] font-bold border border-rose-200 dark:border-rose-500/35 whitespace-nowrap">
+                          หมด / ขาดจำนวน (0/{targetTotalQty})
+                        </span>
+                      ) : (
+                        <span className="text-[10px] text-slate-400 dark:text-[#8E918F] whitespace-nowrap">
+                          เป้าหมาย {targetTotalQty} {item.qty?.replace(/[0-9\s]/g, '') || 'ชิ้น'}
+                        </span>
+                      )}
                     </div>
 
-                    <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
-                      {/* Stepper Count Selector */}
-                      <div className="flex items-center bg-slate-100 dark:bg-slate-900/70 rounded-xl p-1 border border-slate-200 dark:border-slate-700 shrink-0">
+                    <div className="flex items-center justify-between gap-2 flex-wrap sm:flex-nowrap">
+                      {/* Unlocked Stepper Count Selector (- down to 0) */}
+                      <div className="flex items-center bg-slate-100 dark:bg-[#282A2C] rounded-xl p-1 border border-slate-200 dark:border-white/10 shrink-0">
                         <button
                           type="button"
-                          onClick={() => handleSetCount((currentCount ?? targetTotalQty) - 1)}
-                          className="w-8 h-8 rounded-lg bg-white dark:bg-slate-800 shadow-2xs hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center justify-center font-bold text-slate-700 dark:text-slate-100 active:scale-90 transition cursor-pointer text-base"
+                          disabled={currentCount === 0}
+                          onClick={() => handleSetCount(Math.max(0, (currentCount ?? targetTotalQty) - 1))}
+                          className="w-8 h-8 rounded-lg bg-white dark:bg-[#1E1F20] shadow-2xs hover:bg-slate-50 dark:hover:bg-[#333537] disabled:opacity-35 disabled:cursor-not-allowed flex items-center justify-center font-bold text-slate-700 dark:text-[#E3E3E3] active:scale-90 transition cursor-pointer text-base"
                           title="ลดจำนวน (-1)"
                         >
                           -
                         </button>
-                        <div className="px-3 text-center min-w-[50px]">
-                          <span className={`text-base font-bold ${isCountOk ? 'text-emerald-600 dark:text-emerald-400' : isCountZero ? 'text-rose-600 dark:text-rose-400' : 'text-slate-900 dark:text-slate-100'}`}>
+                        <div className="px-2.5 text-center min-w-[48px] tabular-nums whitespace-nowrap">
+                          <span
+                            className={`text-base font-bold ${
+                              isCountOk
+                                ? 'text-emerald-600 dark:text-[#81C995]'
+                                : isCountPartial
+                                ? 'text-amber-600 dark:text-[#FDD663]'
+                                : isCountZero
+                                ? 'text-rose-600 dark:text-[#F28B82]'
+                                : 'text-slate-900 dark:text-[#E3E3E3]'
+                            }`}
+                          >
                             {currentCount !== null ? currentCount : '-'}
                           </span>
-                          <span className="text-[10px] text-slate-400 font-bold">/{targetTotalQty}</span>
+                          <span className="text-[10px] text-slate-400 dark:text-[#8E918F] font-bold">/{targetTotalQty}</span>
                         </div>
                         <button
                           type="button"
                           onClick={() => handleSetCount((currentCount ?? 0) + 1)}
-                          className="w-8 h-8 rounded-lg bg-white dark:bg-slate-800 shadow-2xs hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center justify-center font-bold text-slate-700 dark:text-slate-100 active:scale-90 transition cursor-pointer text-base"
+                          className="w-8 h-8 rounded-lg bg-white dark:bg-[#1E1F20] shadow-2xs hover:bg-slate-50 dark:hover:bg-[#333537] flex items-center justify-center font-bold text-slate-700 dark:text-[#E3E3E3] active:scale-90 transition cursor-pointer text-base"
                           title="เพิ่มจำนวน (+1)"
                         >
                           +
                         </button>
                       </div>
 
-                      {/* Quick: ครบทั้งหมด */}
-                      <button
-                        type="button"
-                        onClick={() => handleSetCount(targetTotalQty)}
-                        className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer active:scale-95 ${
-                          isCountOk
-                            ? 'bg-emerald-600 text-white shadow-xs'
-                            : 'bg-slate-100 dark:bg-slate-700/80 text-slate-700 dark:text-slate-100 hover:bg-emerald-50 dark:hover:bg-emerald-950/60 hover:text-emerald-700 dark:hover:text-emerald-300 border border-slate-200 dark:border-slate-600'
-                        }`}
-                      >
-                        <Check size={14} strokeWidth={2.5} />
-                        <span>ครบ {targetTotalQty} {item.qty?.replace(/[0-9\s]/g, '') || 'ชิ้น'} (ปกติ)</span>
-                      </button>
+                      {/* Balanced Action Buttons (Right-aligned, whitespace-nowrap prevents broken wrapping) */}
+                      <div className="flex items-center gap-1.5 flex-1 justify-end min-w-0">
+                        <button
+                          type="button"
+                          onClick={() => handleSetCount(targetTotalQty)}
+                          className={`flex-1 py-2 px-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1 transition cursor-pointer active:scale-95 whitespace-nowrap ${
+                            isCountOk
+                              ? 'bg-emerald-600 dark:bg-emerald-500/20 text-white dark:text-[#81C995] border border-transparent dark:border-emerald-500/40 shadow-xs'
+                              : 'bg-slate-100 dark:bg-[#282A2C] text-slate-700 dark:text-[#C4C7C5] hover:bg-emerald-50 dark:hover:bg-emerald-500/15 hover:text-emerald-700 dark:hover:text-[#81C995] border border-slate-200 dark:border-white/10'
+                          }`}
+                        >
+                          <Check size={14} strokeWidth={2.5} className="shrink-0" />
+                          <span>ครบ {targetTotalQty} {item.qty?.replace(/[0-9\s]/g, '') || 'ชิ้น'}</span>
+                        </button>
 
-                      {/* Quick: มีปัญหา / 0 */}
-                      <button
-                        type="button"
-                        onClick={() => handleSetCount(0)}
-                        className={`py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1 transition cursor-pointer active:scale-95 shrink-0 ${
-                          isCountZero
-                            ? 'bg-rose-600 text-white shadow-xs'
-                            : 'bg-slate-100 dark:bg-slate-700/80 text-slate-700 dark:text-slate-100 hover:bg-rose-50 dark:hover:bg-rose-950/60 hover:text-rose-700 dark:hover:text-rose-300 border border-slate-200 dark:border-slate-600'
-                        }`}
-                      >
-                        <X size={14} strokeWidth={2.5} />
-                        <span>มีปัญหา (0)</span>
-                      </button>
+                        <button
+                          type="button"
+                          onClick={() => handleSetCount(0)}
+                          className={`py-2 px-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1 transition cursor-pointer active:scale-95 shrink-0 whitespace-nowrap ${
+                            isCountZero
+                              ? 'bg-rose-600 dark:bg-rose-500/20 text-white dark:text-[#F28B82] border border-transparent dark:border-rose-500/40 shadow-xs'
+                              : 'bg-slate-100 dark:bg-[#282A2C] text-slate-700 dark:text-[#C4C7C5] hover:bg-rose-50 dark:hover:bg-rose-500/15 hover:text-rose-700 dark:hover:text-[#F28B82] border border-slate-200 dark:border-white/10'
+                          }`}
+                        >
+                          <X size={14} strokeWidth={2.5} className="shrink-0" />
+                          <span>ขาด (0)</span>
+                        </button>
+                      </div>
                     </div>
                   </div>
                 ) : (
                   /* Standard Touch Check Buttons for Single Items */
-                  <div className="space-y-1.5 pt-1.5 border-t border-slate-100 dark:border-slate-700/80">
+                  <div className="space-y-1.5 pt-2 border-t border-slate-100 dark:border-white/10">
                     <div className="flex items-center gap-2">
                       <button
                         type="button"
                         onClick={() => onToggleCheck(item.itemKey, 'ปกติ', item.name, selectedWeek)}
-                        className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer active:scale-95 ${
+                        className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer active:scale-95 whitespace-nowrap ${
                           isOk
-                            ? 'bg-emerald-500 text-white shadow-xs'
-                            : 'bg-slate-100 dark:bg-slate-700/80 text-slate-700 dark:text-slate-100 hover:bg-emerald-50 dark:hover:bg-emerald-950/60 hover:text-emerald-700 dark:hover:text-emerald-300 border border-slate-200/80 dark:border-slate-600'
+                            ? 'bg-emerald-600 dark:bg-emerald-500/20 text-white dark:text-[#81C995] border border-transparent dark:border-emerald-500/40 shadow-xs'
+                            : 'bg-slate-100 dark:bg-[#282A2C] text-slate-700 dark:text-[#C4C7C5] hover:bg-emerald-50 dark:hover:bg-emerald-500/15 hover:text-emerald-700 dark:hover:text-[#81C995] border border-slate-200/80 dark:border-white/10'
                         }`}
                       >
-                        <Check size={16} strokeWidth={2.5} />
+                        <Check size={15} strokeWidth={2.5} className="shrink-0" />
                         <span>ปกติ (พร้อมใช้)</span>
                       </button>
 
                       <button
                         type="button"
                         onClick={() => onToggleCheck(item.itemKey, 'ผิดปกติ', item.name, selectedWeek)}
-                        className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer active:scale-95 ${
+                        className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer active:scale-95 whitespace-nowrap ${
                           isBad
-                            ? 'bg-rose-500 text-white shadow-xs'
-                            : 'bg-slate-100 dark:bg-slate-700/80 text-slate-700 dark:text-slate-100 hover:bg-rose-50 dark:hover:bg-rose-950/60 hover:text-rose-700 dark:hover:text-rose-300 border border-slate-200/80 dark:border-slate-600'
+                            ? 'bg-rose-600 dark:bg-rose-500/20 text-white dark:text-[#F28B82] border border-transparent dark:border-rose-500/40 shadow-xs'
+                            : 'bg-slate-100 dark:bg-[#282A2C] text-slate-700 dark:text-[#C4C7C5] hover:bg-rose-50 dark:hover:bg-rose-500/15 hover:text-rose-700 dark:hover:text-[#F28B82] border border-slate-200/80 dark:border-white/10'
                         }`}
                       >
-                        <X size={16} strokeWidth={2.5} />
+                        <X size={15} strokeWidth={2.5} className="shrink-0" />
                         <span>มีปัญหา</span>
                       </button>
                     </div>
@@ -1497,7 +1459,7 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
               <div>
                 <h3 className="text-base font-bold text-slate-900 dark:text-white">
                   {pendingBulkAction === 'clear_all'
-                    ? `ลบรายการทั้งหมดใน${type === 'bag' ? 'กระเป๋า' : 'รถฉุกเฉิน'}?`
+                    ? `ลบรายการทั้งหมดใน${type === 'bag' ? 'กระเป๋า' : type === 'ambulance' ? 'รถพยาบาลฉุกเฉิน' : 'รถฉุกเฉิน'}?`
                     : pendingBulkAction === 'clear_checks'
                     ? `ล้างผลตรวจสัปดาห์ที่ ${selectedWeek}?`
                     : 'ตรวจผ่านปกติครบ 5 สัปดาห์?'}
