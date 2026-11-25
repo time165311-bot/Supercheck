@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import {
   auth,
   clearChannelDrugsInFirebase,
+  fetchChannelDataFromFirebase,
   fetchChannelDrugsFromFirebase,
   fetchChannelEquipmentFromFirebase,
   InventoryStateFlags,
@@ -13,15 +14,27 @@ import {
   subscribeInspectionHistory,
 } from '../services/firebase';
 import {
+  filterDrugsByTombstones,
+  filterEquipmentMapByTombstones,
+  filterListsMapByTombstones,
   getChannelListsKey,
+  getDeletedItemIds,
   getInitialEquipment,
   getInitialLists,
   getStored,
+  setDeletedItemIds,
   setStored,
   STORAGE_KEYS,
 } from '../services/storage';
 import { getChannelStorageKeys } from '../utils/helpers';
+import { DEFAULT_LISTS, ROOMS } from '../constants/initialData';
 import { INITIAL_DRUGS_DATA } from '../constants/initialDrugs';
+import {
+  buildResolvedListsMap,
+  isValidInventoryItem,
+  normalizeEquipmentMap,
+  normalizeEquipmentRoomId,
+} from '../utils/inventoryStats';
 import {
   DrugItem,
   EquipmentItem,
@@ -78,8 +91,10 @@ export interface UseChannelSyncParams {
   setEquipment: (eq: Record<string, EquipmentItem[]>) => void;
   setLists: (
     lists:
-      | Record<'bag' | 'cart', ListConfig>
-      | ((prev: Record<'bag' | 'cart', ListConfig>) => Record<'bag' | 'cart', ListConfig>)
+      | Record<'bag' | 'cart' | 'ambulance' | string, ListConfig>
+      | ((
+          prev: Record<'bag' | 'cart' | 'ambulance' | string, ListConfig>
+        ) => Record<'bag' | 'cart' | 'ambulance' | string, ListConfig>)
   ) => void;
   setHistoryRecords: React.Dispatch<React.SetStateAction<InspectionHistoryRecord[]>>;
 }
@@ -147,9 +162,12 @@ export function useChannelSync(params: UseChannelSyncParams) {
     const groupEquipmentByRoom = (items: EquipmentItem[]): Record<string, EquipmentItem[]> => {
       const roomEq: Record<string, EquipmentItem[]> = {};
       items.forEach((item) => {
-        if ((item.type === 'room' || (!item.type && item.roomId)) && item.roomId) {
-          if (!roomEq[item.roomId]) roomEq[item.roomId] = [];
-          roomEq[item.roomId].push(item);
+        if ((item.type === 'room' || (!item.type && item.roomId)) && item.roomId && isValidInventoryItem(item)) {
+          const normalizedRoomId = normalizeEquipmentRoomId(item.roomId, ROOMS) || item.roomId;
+          if (!roomEq[normalizedRoomId]) roomEq[normalizedRoomId] = [];
+          roomEq[normalizedRoomId].push(
+            item.roomId === normalizedRoomId ? item : { ...item, roomId: normalizedRoomId }
+          );
         }
       });
       return roomEq;
@@ -174,6 +192,16 @@ export function useChannelSync(params: UseChannelSyncParams) {
 
         if (cancelled) return;
 
+        const remoteChannelDoc = canUseCloud
+          ? await fetchChannelDataFromFirebase(channelId).catch(() => null)
+          : null;
+        if (cancelled) return;
+        const mergedTombstones = setDeletedItemIds(channelId, [
+          ...getDeletedItemIds(channelId),
+          ...(Array.isArray(remoteChannelDoc?.deletedItemIds) ? remoteChannelDoc.deletedItemIds : []),
+        ]);
+        const tombstoneSet = new Set(mergedTombstones);
+
         // 1. Channel-Isolated Equipment Loading
         const fbEquipment = canUseCloud
           ? await fetchChannelEquipmentFromFirebase(channelId)
@@ -195,16 +223,23 @@ export function useChannelSync(params: UseChannelSyncParams) {
           setStored(chKeys.EQ, {});
           if (isMaster) setStored(STORAGE_KEYS.EQ, {});
         } else if (fbRoomItems.length > 0) {
-          const grouped = groupEquipmentByRoom(fbRoomItems);
+          const grouped = normalizeEquipmentMap(
+            filterEquipmentMapByTombstones(groupEquipmentByRoom(fbRoomItems), tombstoneSet),
+            ROOMS
+          );
           setEquipment(grouped);
           setStored(chKeys.EQ, grouped);
           if (isMaster) setStored(STORAGE_KEYS.EQ, grouped);
         } else if (hasLocalEq && localEqRaw) {
-          setEquipment(localEqRaw);
-          setStored(chKeys.EQ, localEqRaw);
+          const filteredLocalEq = normalizeEquipmentMap(
+            filterEquipmentMapByTombstones(localEqRaw, tombstoneSet),
+            ROOMS
+          );
+          setEquipment(filteredLocalEq);
+          setStored(chKeys.EQ, filteredLocalEq);
           if (canUseCloud) {
             const toSync: EquipmentItem[] = [];
-            Object.entries(localEqRaw).forEach(([rId, arr]) => {
+            Object.entries(filteredLocalEq).forEach(([rId, arr]) => {
               (arr || []).forEach((it, idx) => {
                 toSync.push({
                   ...it,
@@ -219,7 +254,10 @@ export function useChannelSync(params: UseChannelSyncParams) {
             }
           }
         } else if (isMaster) {
-          const seededEq = getInitialEquipment();
+          const seededEq = normalizeEquipmentMap(
+            filterEquipmentMapByTombstones(getInitialEquipment(), tombstoneSet),
+            ROOMS
+          );
           setEquipment(seededEq);
           setStored(chKeys.EQ, seededEq);
           if (canUseCloud) {
@@ -243,48 +281,60 @@ export function useChannelSync(params: UseChannelSyncParams) {
           setStored(chKeys.EQ, {});
         }
 
-        // Master emergency bag/cart hydration
-        if (isMaster) {
-          const fbBagItems = fbEquipment.filter((i) => i.type === 'bag');
-          const fbCartItems = fbEquipment.filter((i) => i.type === 'cart');
-          const localMasterLists = getStored<Record<'bag' | 'cart', ListConfig> | null>(
-            getChannelListsKey('channel_master'),
+        // Safe Emergency Bag / Cart / Ambulance hydration (merges partial Firestore items without overwriting full lists)
+        const fbBagItems = fbEquipment.filter((i) => i.type === 'bag');
+        const fbCartItems = fbEquipment.filter((i) => i.type === 'cart');
+        const fbAmbulanceItems = fbEquipment.filter((i) => i.type === 'ambulance');
+        const localChannelLists =
+          getStored<Record<'bag' | 'cart' | 'ambulance' | string, ListConfig> | null>(
+            getChannelListsKey(channelId),
             null
-          );
+          ) ||
+          (isMaster
+            ? getStored<Record<'bag' | 'cart' | 'ambulance' | string, ListConfig> | null>(
+                STORAGE_KEYS.CUSTOM_LISTS,
+                null
+              )
+            : null);
 
-          if (fbBagItems.length > 0 || fbCartItems.length > 0 || flags.bagCleared || flags.cartCleared) {
-            const bagGroups: Record<string, EquipmentItem[]> = {};
-            const cartGroups: Record<string, EquipmentItem[]> = {};
-            if (!flags.bagCleared) {
-              fbBagItems.forEach((it) => {
-                const cat = it.category || 'ทั่วไป';
-                if (!bagGroups[cat]) bagGroups[cat] = [];
-                bagGroups[cat].push(it);
-              });
-            }
-            if (!flags.cartCleared) {
-              fbCartItems.forEach((it) => {
-                const cat = it.category || 'ทั่วไป';
-                if (!cartGroups[cat]) cartGroups[cat] = [];
-                cartGroups[cat].push(it);
-              });
-            }
-            const resolvedBagGroups =
-              Object.keys(bagGroups).length > 0 || flags.bagCleared
-                ? bagGroups
-                : localMasterLists?.bag?.groups || getInitialLists().bag.groups;
-            const resolvedCartGroups =
-              Object.keys(cartGroups).length > 0 || flags.cartCleared
-                ? cartGroups
-                : localMasterLists?.cart?.groups || getInitialLists().cart.groups;
-            setLists({
-              bag: { title: 'กระเป๋าฉุกเฉิน', sheet: 'กระเป๋า Emergency', groups: resolvedBagGroups },
-              cart: { title: 'รถฉุกเฉิน', sheet: 'รถ Emergency', groups: resolvedCartGroups },
-            });
+        if (isMaster || remoteChannelDoc?.lists || fbBagItems.length > 0 || fbCartItems.length > 0 || fbAmbulanceItems.length > 0 || flags.bagCleared || flags.cartCleared || flags.ambulanceCleared) {
+          const resolvedLists = buildResolvedListsMap({
+            isMaster,
+            flags,
+            remoteLists: remoteChannelDoc?.lists || null,
+            localLists: localChannelLists,
+            defaultLists: DEFAULT_LISTS as Record<string, ListConfig>,
+            fbEquipment: [...fbBagItems, ...fbCartItems, ...fbAmbulanceItems],
+            tombstoneSet,
+          });
+          setLists(resolvedLists);
+          setStored(getChannelListsKey(channelId), resolvedLists);
+          if (isMaster) {
+            setStored(STORAGE_KEYS.CUSTOM_LISTS, resolvedLists);
           }
         }
 
         // 2. Channel-Isolated Drugs Loading
+        const normalizeDrugsList = (arr: DrugItem[]): DrugItem[] => {
+          const seenDrugIds = new Set<string>();
+          return (arr || [])
+            .filter((d) => {
+              if (!isValidInventoryItem(d)) return false;
+              if (d.id) {
+                if (seenDrugIds.has(d.id)) return false;
+                seenDrugIds.add(d.id);
+              }
+              return true;
+            })
+            .map((d) => ({
+              ...d,
+              category:
+                d.category === 'monthly' || d.category === 'quarterly' || d.category === 'adhoc'
+                  ? d.category
+                  : 'monthly',
+            }));
+        };
+
         if (flags.drugsCleared) {
           setDrugs([]);
           setStored(chKeys.DRUGS, []);
@@ -298,19 +348,21 @@ export function useChannelSync(params: UseChannelSyncParams) {
             : [];
           if (cancelled) return;
           if (fbDrugs && fbDrugs.length > 0) {
-            setDrugs(fbDrugs);
-            setStored(chKeys.DRUGS, fbDrugs);
-            if (isMaster) setStored(STORAGE_KEYS.DRUGS, fbDrugs);
+            const filteredFbDrugs = normalizeDrugsList(filterDrugsByTombstones(fbDrugs, tombstoneSet));
+            setDrugs(filteredFbDrugs);
+            setStored(chKeys.DRUGS, filteredFbDrugs);
+            if (isMaster) setStored(STORAGE_KEYS.DRUGS, filteredFbDrugs);
           } else {
             const localChDrugs = getStored<DrugItem[] | null>(chKeys.DRUGS, null);
             const legacyMasterDrugs = isMaster ? getStored<DrugItem[] | null>(STORAGE_KEYS.DRUGS, null) : null;
-            const resolvedDrugs = Array.isArray(localChDrugs)
+            const rawResolvedDrugs = Array.isArray(localChDrugs)
               ? localChDrugs
               : Array.isArray(legacyMasterDrugs) && legacyMasterDrugs.length > 0
               ? legacyMasterDrugs
               : isMaster
               ? INITIAL_DRUGS_DATA
               : [];
+            const resolvedDrugs = normalizeDrugsList(filterDrugsByTombstones(rawResolvedDrugs, tombstoneSet));
             setDrugs(resolvedDrugs);
             setStored(chKeys.DRUGS, resolvedDrugs);
             if (canUseCloud && resolvedDrugs.length > 0) {
@@ -322,16 +374,26 @@ export function useChannelSync(params: UseChannelSyncParams) {
         if (cancelled) return;
         console.warn('Channel data fallback active:', err);
         const flags = getLocalClearedFlags(channelId);
+        const tombstoneSet = new Set(getDeletedItemIds(channelId));
         const localEq = flags.equipmentCleared
           ? {}
-          : getStored<Record<string, EquipmentItem[]> | null>(chKeys.EQ, null) ||
-            (isMaster ? getStored<Record<string, EquipmentItem[]> | null>(STORAGE_KEYS.EQ, null) || getInitialEquipment() : {});
+          : normalizeEquipmentMap(
+              filterEquipmentMapByTombstones(
+                getStored<Record<string, EquipmentItem[]> | null>(chKeys.EQ, null) ||
+                  (isMaster ? getStored<Record<string, EquipmentItem[]> | null>(STORAGE_KEYS.EQ, null) || getInitialEquipment() : {}),
+                tombstoneSet
+              ),
+              ROOMS
+            );
         setEquipment(localEq);
 
         const localDrugs = flags.drugsCleared
           ? []
-          : getStored<DrugItem[] | null>(chKeys.DRUGS, null) ||
-            (isMaster ? getStored<DrugItem[] | null>(STORAGE_KEYS.DRUGS, null) || INITIAL_DRUGS_DATA : []);
+          : filterDrugsByTombstones(
+              getStored<DrugItem[] | null>(chKeys.DRUGS, null) ||
+                (isMaster ? getStored<DrugItem[] | null>(STORAGE_KEYS.DRUGS, null) || INITIAL_DRUGS_DATA : []),
+              tombstoneSet
+            );
         setDrugs(localDrugs);
       } finally {
         if (!cancelled) setIsLoadingData(false);

@@ -50,6 +50,134 @@ export function getChannelWeekDatesKey(channelId: string): string {
   return `server_db_${channelId}_week_dates`;
 }
 
+export function getChannelDeletedItemsKey(channelId: string): string {
+  return `server_db_${channelId || 'channel_master'}_deleted_items`;
+}
+
+export function getDeletedItemIds(channelId: string = 'channel_master'): string[] {
+  const list = getStored<string[]>(getChannelDeletedItemsKey(channelId), []);
+  return Array.isArray(list) ? list.filter((x) => typeof x === 'string' && x.trim().length > 0) : [];
+}
+
+export function setDeletedItemIds(channelId: string = 'channel_master', ids: string[]): string[] {
+  const deduped = Array.from(
+    new Set((ids || []).map((x) => String(x || '').trim()).filter(Boolean))
+  ).slice(-500);
+  setStored(getChannelDeletedItemsKey(channelId), deduped);
+  return deduped;
+}
+
+export function makeItemTombstoneTokens(
+  categoryOrRoom: string,
+  item: { id?: string; name?: string; code?: string; category?: string; groupName?: string } | null | undefined,
+  fallbackKey?: string
+): string[] {
+  const tokens: string[] = [];
+  const cat = String(categoryOrRoom || '').trim().toLowerCase();
+  if (item?.id) tokens.push(`id:${String(item.id).trim()}`);
+  if (fallbackKey) tokens.push(`key:${String(fallbackKey).trim()}`);
+  const groupOrRoom = String(item?.category || item?.groupName || '').trim().toLowerCase();
+  const cleanName = String(item?.name || '').trim().toLowerCase();
+  if (cat && cleanName) {
+    tokens.push(`sig:${cat}|${groupOrRoom}|${cleanName}`);
+    if (!groupOrRoom) {
+      tokens.push(`name:${cat}|${cleanName}`);
+    }
+  }
+  if (item?.code && String(item.code).trim() && !String(item.code).startsWith('NEW-')) {
+    tokens.push(`code:${cat}|${String(item.code).trim().toLowerCase()}`);
+  }
+  return Array.from(new Set(tokens));
+}
+
+export function addDeletedItemIds(channelId: string = 'channel_master', newTokens: string[]): string[] {
+  if (!newTokens || newTokens.length === 0) return getDeletedItemIds(channelId);
+  const existing = getDeletedItemIds(channelId);
+  return setDeletedItemIds(channelId, [...existing, ...newTokens]);
+}
+
+export function removeDeletedItemIds(channelId: string = 'channel_master', tokensToRemove: string[]): string[] {
+  if (!tokensToRemove || tokensToRemove.length === 0) return getDeletedItemIds(channelId);
+  const removeSet = new Set(tokensToRemove.map((t) => String(t || '').trim()).filter(Boolean));
+  const filtered = getDeletedItemIds(channelId).filter((t) => !removeSet.has(t));
+  return setDeletedItemIds(channelId, filtered);
+}
+
+export function isItemTombstoned(
+  categoryOrRoom: string,
+  item: { id?: string; name?: string; code?: string; category?: string; groupName?: string } | null | undefined,
+  tombstones: Set<string> | string[],
+  fallbackKey?: string
+): boolean {
+  const set = tombstones instanceof Set ? tombstones : new Set(tombstones || []);
+  if (set.size === 0 || !item) return false;
+  const cat = String(categoryOrRoom || '').trim().toLowerCase();
+  if (item.id && (set.has(`id:${String(item.id).trim()}`) || set.has(String(item.id).trim()))) return true;
+  if (fallbackKey && (set.has(`key:${String(fallbackKey).trim()}`) || set.has(String(fallbackKey).trim()))) return true;
+  const groupOrRoom = String(item.category || item.groupName || '').trim().toLowerCase();
+  const cleanName = String(item.name || '').trim().toLowerCase();
+  if (cat && cleanName) {
+    if (set.has(`sig:${cat}|${groupOrRoom}|${cleanName}`)) return true;
+    if (set.has(`name:${cat}|${cleanName}`)) return true;
+  }
+  if (item.code && String(item.code).trim() && !String(item.code).startsWith('NEW-')) {
+    if (set.has(`code:${cat}|${String(item.code).trim().toLowerCase()}`)) return true;
+  }
+  return false;
+}
+
+export function filterEquipmentMapByTombstones(
+  eqMap: Record<string, EquipmentItem[]>,
+  tombstones: Set<string> | string[]
+): Record<string, EquipmentItem[]> {
+  const set = tombstones instanceof Set ? tombstones : new Set(tombstones || []);
+  if (!eqMap || typeof eqMap !== 'object') return {};
+  if (set.size === 0) return eqMap;
+  const out: Record<string, EquipmentItem[]> = {};
+  Object.entries(eqMap).forEach(([roomId, items]) => {
+    out[roomId] = (items || []).filter((it, idx) => {
+      const fb = it?.id || `${roomId}_${idx}`;
+      return !isItemTombstoned(roomId, { ...it, category: roomId }, set, fb);
+    });
+  });
+  return out;
+}
+
+export function filterListsMapByTombstones(
+  listsMap: Record<string, ListConfig>,
+  tombstones: Set<string> | string[]
+): Record<string, ListConfig> {
+  const set = tombstones instanceof Set ? tombstones : new Set(tombstones || []);
+  if (!listsMap || typeof listsMap !== 'object') return listsMap;
+  if (set.size === 0) return listsMap;
+  const out: Record<string, ListConfig> = {};
+  Object.entries(listsMap).forEach(([catKey, cfg]) => {
+    if (!cfg || !cfg.groups) {
+      out[catKey] = cfg;
+      return;
+    }
+    const nextGroups: Record<string, EquipmentItem[]> = {};
+    Object.entries(cfg.groups).forEach(([gName, items]) => {
+      nextGroups[gName] = (items || []).filter((it, idx) => {
+        const fb = it?.id || `${catKey}_${gName}_${idx}`;
+        return !isItemTombstoned(catKey, { ...it, category: it.category || gName }, set, fb);
+      });
+    });
+    out[catKey] = { ...cfg, groups: nextGroups };
+  });
+  return out;
+}
+
+export function filterDrugsByTombstones(
+  drugs: DrugItem[],
+  tombstones: Set<string> | string[]
+): DrugItem[] {
+  const set = tombstones instanceof Set ? tombstones : new Set(tombstones || []);
+  if (!Array.isArray(drugs)) return [];
+  if (set.size === 0) return drugs;
+  return drugs.filter((d) => !isItemTombstoned('drug', d as any, set, d?.id));
+}
+
 export interface ChannelCyclePeriods {
   bagMonth?: string;
   cartMonth?: string;
@@ -150,16 +278,18 @@ export function setStoredString(key: string, value: string): void {
   }
 }
 
-// Initialise Equipment dataset (Guarantees local master persistence & master data replacement)
+// Initialise Equipment dataset (Guarantees local master persistence & tombstones respected)
 export function getInitialEquipment(): Record<string, EquipmentItem[]> {
+  const tombstones = new Set(getDeletedItemIds('channel_master'));
   const stored = getStored<Record<string, EquipmentItem[]> | null>(STORAGE_KEYS.EQ, null);
   if (stored && typeof stored === 'object' && Object.keys(stored).length > 0) {
-    return stored;
+    return filterEquipmentMapByTombstones(stored, tombstones);
   }
 
   if (INITIAL_MASTER_DATA && INITIAL_MASTER_DATA.equipment && typeof INITIAL_MASTER_DATA.equipment === 'object') {
-    setStored(STORAGE_KEYS.EQ, INITIAL_MASTER_DATA.equipment);
-    return INITIAL_MASTER_DATA.equipment;
+    const filtered = filterEquipmentMapByTombstones(INITIAL_MASTER_DATA.equipment, tombstones);
+    setStored(STORAGE_KEYS.EQ, filtered);
+    return filtered;
   }
 
   const SEED_NAMES = [
@@ -221,13 +351,23 @@ export function getInitialEquipment(): Record<string, EquipmentItem[]> {
     }
   });
 
-  setStored(STORAGE_KEYS.EQ, eq);
-  return eq;
+  const filteredEq = filterEquipmentMapByTombstones(eq, tombstones);
+  setStored(STORAGE_KEYS.EQ, filteredEq);
+  return filteredEq;
 }
 
-// Initialise Lists (Bag & Cart) - Preserves user modifications and custom groups 100%
-export function getInitialLists(): Record<'bag' | 'cart', ListConfig> {
-  const stored = getStored<Record<'bag' | 'cart', ListConfig> | null>(STORAGE_KEYS.CUSTOM_LISTS, null);
+// Initialise Lists (Bag, Cart & Ambulance) - Preserves user modifications, custom groups & deleted tombstones 100%
+export function getInitialLists(): Record<'bag' | 'cart' | string, ListConfig> {
+  const tombstones = new Set(getDeletedItemIds('channel_master'));
+  const ensureAmbulance = (map: Record<string, ListConfig>): Record<string, ListConfig> => {
+    if (map.ambulance && map.ambulance.groups) return map;
+    return {
+      ...map,
+      ambulance: (INITIAL_MASTER_DATA?.lists as any)?.ambulance || DEFAULT_LISTS.ambulance,
+    };
+  };
+
+  const stored = getStored<Record<string, ListConfig> | null>(STORAGE_KEYS.CUSTOM_LISTS, null);
   if (
     stored &&
     typeof stored === 'object' &&
@@ -235,9 +375,9 @@ export function getInitialLists(): Record<'bag' | 'cart', ListConfig> {
     stored.cart &&
     stored.bag.groups &&
     stored.cart.groups &&
-    (Object.keys(stored.bag.groups).length > 0 || Object.keys(stored.cart.groups).length > 0)
+    (Object.keys(stored.bag.groups).length > 0 || Object.keys(stored.cart.groups).length > 0 || Boolean(stored.ambulance))
   ) {
-    return stored;
+    return filterListsMapByTombstones(ensureAmbulance(stored), tombstones);
   }
 
   if (
@@ -247,28 +387,33 @@ export function getInitialLists(): Record<'bag' | 'cart', ListConfig> {
     INITIAL_MASTER_DATA.lists.bag &&
     INITIAL_MASTER_DATA.lists.cart
   ) {
-    setStored(STORAGE_KEYS.CUSTOM_LISTS, INITIAL_MASTER_DATA.lists);
-    return INITIAL_MASTER_DATA.lists;
+    const filtered = filterListsMapByTombstones(ensureAmbulance(INITIAL_MASTER_DATA.lists as any), tombstones);
+    setStored(STORAGE_KEYS.CUSTOM_LISTS, filtered);
+    return filtered;
   }
 
-  setStored(STORAGE_KEYS.CUSTOM_LISTS, DEFAULT_LISTS);
-  return DEFAULT_LISTS;
+  const filteredDefault = filterListsMapByTombstones(DEFAULT_LISTS as any, tombstones);
+  setStored(STORAGE_KEYS.CUSTOM_LISTS, filteredDefault);
+  return filteredDefault;
 }
 
 // Initialise Drugs dataset
 export function getInitialDrugs(): DrugItem[] {
+  const tombstones = new Set(getDeletedItemIds('channel_master'));
   const stored = getStored<DrugItem[] | null>(STORAGE_KEYS.DRUGS, null);
   if (stored && Array.isArray(stored) && stored.length > 0) {
-    return stored;
+    return filterDrugsByTombstones(stored, tombstones);
   }
 
   if (INITIAL_MASTER_DATA && Array.isArray(INITIAL_MASTER_DATA.drugs) && INITIAL_MASTER_DATA.drugs.length > 0) {
-    setStored(STORAGE_KEYS.DRUGS, INITIAL_MASTER_DATA.drugs);
-    return INITIAL_MASTER_DATA.drugs;
+    const filtered = filterDrugsByTombstones(INITIAL_MASTER_DATA.drugs, tombstones);
+    setStored(STORAGE_KEYS.DRUGS, filtered);
+    return filtered;
   }
 
-  setStored(STORAGE_KEYS.DRUGS, INITIAL_DRUGS_DATA);
-  return INITIAL_DRUGS_DATA;
+  const filteredDefault = filterDrugsByTombstones(INITIAL_DRUGS_DATA, tombstones);
+  setStored(STORAGE_KEYS.DRUGS, filteredDefault);
+  return filteredDefault;
 }
 
 // Full System Backup & Restore Schema

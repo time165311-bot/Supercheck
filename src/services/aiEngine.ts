@@ -283,11 +283,11 @@ export function addBatchItemsToChannel(
 }
 
 /**
- * Clears all items in a category ('bag' | 'cart') for the specified channel
+ * Clears all items in a category ('bag' | 'cart' | 'ambulance') for the specified channel
  */
 export function clearChannelCategory(
   channelId: string,
-  targetType: 'bag' | 'cart'
+  targetType: 'bag' | 'cart' | 'ambulance'
 ): { nextChannelData: ChannelData; clearedCount: number } {
   const activeId = channelId || 'channel_master';
   const key = getChannelDbKey(activeId);
@@ -296,14 +296,25 @@ export function clearChannelCategory(
     lists: {
       bag: { title: 'กระเป๋าฉุกเฉิน', sheet: 'กระเป๋า Emergency', groups: {} },
       cart: { title: 'รถฉุกเฉิน', sheet: 'รถ Emergency', groups: {} },
+      ambulance: { title: 'รถพยาบาลฉุกเฉิน', sheet: 'รถ Ambulance', groups: {} },
     },
     globalChecks: {},
     emergencyWeekDates: {},
   };
 
   const currentList = currentChannelData.lists?.[targetType] || {
-    title: targetType === 'bag' ? 'กระเป๋าฉุกเฉิน' : 'รถฉุกเฉิน',
-    sheet: targetType === 'bag' ? 'กระเป๋า Emergency' : 'รถ Emergency',
+    title:
+      targetType === 'bag'
+        ? 'กระเป๋าฉุกเฉิน'
+        : targetType === 'ambulance'
+        ? 'รถพยาบาลฉุกเฉิน'
+        : 'รถฉุกเฉิน',
+    sheet:
+      targetType === 'bag'
+        ? 'กระเป๋า Emergency'
+        : targetType === 'ambulance'
+        ? 'รถ Ambulance'
+        : 'รถ Emergency',
     groups: {},
   };
 

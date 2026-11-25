@@ -118,6 +118,7 @@ export interface AuraLiveContextSummary {
   damagedEquipment: Array<{ name: string; location: string; note?: string }>;
   bagCheckedRatio: string;
   cartCheckedRatio: string;
+  ambulanceCheckedRatio: string;
   summaryText: string;
   inventory: AuraCompactInventoryItem[];
 }
@@ -206,11 +207,13 @@ export function buildAuraLiveContext(
     });
   });
 
-  const calcRatio = (cat: 'bag' | 'cart') => {
+  const calcRatio = (cat: 'bag' | 'cart' | 'ambulance') => {
     const groups = lists?.[cat]?.groups || {};
     const checks = globalChecks?.[cat] || {};
     let total = 0;
     let passed = 0;
+    const catLabel =
+      cat === 'bag' ? 'กระเป๋าฉุกเฉิน' : cat === 'ambulance' ? 'รถพยาบาลฉุกเฉิน' : 'รถฉุกเฉิน';
     Object.entries(groups).forEach(([gName, items]) => {
       (items || []).forEach((it, idx) => {
         if (isJunkEq(it.name, it.id)) return;
@@ -223,13 +226,13 @@ export function buildAuraLiveContext(
           quantity: it.unitText || it.qty || 1,
           minQuantity: 1,
           expiryDate: chk?.exp || it.exp || '-',
-          location: cat === 'bag' ? 'กระเป๋าฉุกเฉิน' : 'รถฉุกเฉิน',
+          location: catLabel,
         });
         if (chk?.result === 'ปกติ') passed++;
         if (chk?.result === 'ผิดปกติ') {
           damagedEquipment.push({
             name: it.name,
-            location: cat === 'bag' ? 'กระเป๋าฉุกเฉิน' : 'รถฉุกเฉิน',
+            location: catLabel,
             note: chk?.note || it.note,
           });
         }
@@ -240,11 +243,12 @@ export function buildAuraLiveContext(
 
   const bagCheckedRatio = calcRatio('bag');
   const cartCheckedRatio = calcRatio('cart');
+  const ambulanceCheckedRatio = calcRatio('ambulance');
 
   const lines = [
     `คลังยา: ${(drugs || []).length} รายการ (ใกล้/หมดอายุ ≤30 วัน: ${expiringSoonOrExpired.length}, ต่ำกว่า Min Stock: ${lowStock.length})`,
     `ครุภัณฑ์ห้อง OR: ${totalEquipment} รายการ (ชำรุด/ผิดปกติ: ${damagedEquipment.length})`,
-    `กระเป๋าฉุกเฉินตรวจปกติ: ${bagCheckedRatio} | รถฉุกเฉินตรวจปกติ: ${cartCheckedRatio}`,
+    `กระเป๋าฉุกเฉินตรวจปกติ: ${bagCheckedRatio} | รถฉุกเฉินตรวจปกติ: ${cartCheckedRatio} | รถพยาบาลฉุกเฉิน: ${ambulanceCheckedRatio}`,
   ];
 
   if (expiringSoonOrExpired.length > 0) {
@@ -280,6 +284,7 @@ export function buildAuraLiveContext(
     damagedEquipment: damagedEquipment.slice(0, 15),
     bagCheckedRatio,
     cartCheckedRatio,
+    ambulanceCheckedRatio,
     summaryText: lines.join('\n'),
     inventory: compactInventory.slice(0, 60),
   };

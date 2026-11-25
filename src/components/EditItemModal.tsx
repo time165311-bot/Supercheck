@@ -898,23 +898,27 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
 
           {/* Sticky Action Footer (Mobile Keyboard Friendly) */}
           <div className="sticky bottom-0 bg-white dark:bg-[#181A20] z-[100] border-t border-slate-100 dark:border-white/5 px-5 py-3 shadow-md flex items-center justify-between gap-2 flex-wrap shrink-0">
-            {!isAddMode && onDelete && item?.id ? (
+            {!isAddMode && onDelete && item ? (
               confirmDelete ? (
                 <div className="flex items-center gap-1.5">
                   <button
                     type="button"
                     onClick={() => {
                       setConfirmDelete(false);
-                      onDelete(item.id!);
+                      const resolvedKey =
+                        item.id ||
+                        (item as any).itemKey ||
+                        `${type || 'item'}_${item.category || (item as any).groupName || item.roomId || ''}_${item.name}`;
+                      onDelete(resolvedKey);
                     }}
-                    className="px-3 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs cursor-pointer transition"
+                    className="px-3 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs md:text-sm cursor-pointer transition"
                   >
                     ยืนยันลบถาวร
                   </button>
                   <button
                     type="button"
                     onClick={() => setConfirmDelete(false)}
-                    className="px-2.5 py-2 rounded-xl bg-slate-100 dark:bg-white/10 text-slate-600 dark:text-slate-300 font-bold text-xs cursor-pointer transition"
+                    className="px-2.5 py-2 rounded-xl bg-slate-100 dark:bg-white/10 text-slate-600 dark:text-slate-300 font-bold text-xs md:text-sm cursor-pointer transition"
                   >
                     ยกเลิกลบ
                   </button>
@@ -923,7 +927,7 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
                 <button
                   type="button"
                   onClick={() => setConfirmDelete(true)}
-                  className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-500/20 font-bold transition cursor-pointer"
+                  className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-500/20 text-xs md:text-sm font-bold transition cursor-pointer"
                 >
                   <Trash2 size={15} />
                   <span>ลบรายการ</span>
@@ -937,13 +941,13 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
               <button
                 type="button"
                 onClick={onClose}
-                className="px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-white/10 text-slate-700 dark:text-white font-bold transition cursor-pointer hover:bg-slate-200 dark:hover:bg-white/20"
+                className="px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-white/10 text-slate-700 dark:text-white text-xs md:text-sm font-bold transition cursor-pointer hover:bg-slate-200 dark:hover:bg-white/20"
               >
                 ยกเลิก
               </button>
               <button
                 type="submit"
-                className="flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold transition shadow-md cursor-pointer active:scale-95"
+                className="flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs md:text-sm font-bold transition shadow-md cursor-pointer active:scale-95"
               >
                 {isAddMode ? <Plus size={15} className="stroke-[2.5]" /> : <Save size={15} />}
                 <span>{isAddMode ? 'บันทึกรายการ' : 'บันทึกการแก้ไข'}</span>

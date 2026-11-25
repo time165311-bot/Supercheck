@@ -119,10 +119,11 @@ interface AuraAssistantProps {
   onDeleteItem?: (type: 'bag' | 'cart' | 'ambulance' | string, itemKey: string) => void | Promise<void>;
   onNavigate?: (
     view: 'home' | 'drug_check' | 'room_check' | 'bag_check' | 'cart_check' | 'ambulance_check' | 'eq_overview' | 'users',
-    category?: 'medicine' | 'equipment' | 'bag' | 'cart'
+    category?: 'medicine' | 'equipment' | 'bag' | 'cart' | 'ambulance',
+    roomId?: string
   ) => void;
   onBulkAutoCheck?: (params: {
-    categories: ('bag' | 'cart')[];
+    categories: ('bag' | 'cart' | 'ambulance')[];
     weeks: number[];
   }) => Promise<{
     success: boolean;
@@ -130,12 +131,12 @@ interface AuraAssistantProps {
     weeks: number[];
     datesFormatted: Record<number, string>;
     totalItemsChecked: number;
-    primaryCategory?: 'bag' | 'cart';
+    primaryCategory?: 'bag' | 'cart' | 'ambulance';
     primaryWeek?: number;
   }>;
   onAutoFillChecks?: (params: {
     items: any[];
-    targetCategory?: 'bag' | 'cart' | 'drug';
+    targetCategory?: 'bag' | 'cart' | 'ambulance' | 'drug';
     week?: number;
     onlyDiffs?: boolean;
     syncSheets?: boolean;
@@ -164,14 +165,47 @@ interface AuraAssistantProps {
     error?: string;
     snapshot?: AuraDataSnapshot;
   }>;
+  onDeleteSpecificItems?: (
+    targets: Array<{
+      targetType: 'drug' | 'bag' | 'cart' | 'ambulance' | 'room';
+      itemId: string;
+      roomId?: string;
+      name?: string;
+      groupName?: string;
+    }>
+  ) => Promise<{
+    success: boolean;
+    deletedCount: number;
+    deletedLabels: string[];
+    snapshot: AuraDataSnapshot;
+  }>;
+  onAddNewItem?: (arg: {
+    category: 'equipment' | 'drug' | 'bag' | 'cart' | 'ambulance';
+    name: string;
+    groupOrRoom?: string;
+    qty?: string;
+    unit?: string;
+    expDate?: string;
+    spec?: string;
+    status?: string;
+    note?: string;
+  }) => Promise<{
+    success: boolean;
+    addedLabel: string;
+    categoryLabel: string;
+    snapshot: AuraDataSnapshot;
+  }>;
+  onOpenSheetsDrawer?: () => void;
   onUpdateInventoryItem?: (params: {
-    targetType: 'drug' | 'bag' | 'cart' | 'room';
+    targetType: 'drug' | 'bag' | 'cart' | 'ambulance' | 'room';
     itemId: string;
     roomId?: string;
     newExp?: string;
     lotNumber?: string;
     newQty?: string | number;
-    newStatus?: 'ปกติ' | 'ผิดปกติ' | 'ไม่ปกติ';
+    newStatus?: 'ปกติ' | 'ผิดปกติ' | 'ไม่ปกติ' | 'ชำรุด' | 'ส่งคืน' | 'เก็บสำรอง';
+    newName?: string;
+    moveToRoomOrGroup?: string;
     note?: string;
   }) => Promise<{ success: boolean; updatedName: string }>;
   onAttachEquipmentPhotos?: (params: {
@@ -255,15 +289,15 @@ interface PendingAttachmentItem {
 interface ActionMeta {
   type: 'navigate' | 'open_file_picker' | 'open_report' | 'send_command';
   label: string;
-  view?: 'home' | 'drug_check' | 'room_check' | 'bag_check' | 'cart_check' | 'eq_overview' | 'users';
-  category?: 'medicine' | 'equipment' | 'bag' | 'cart';
-  reportCategory?: 'bag' | 'cart' | 'eq' | 'drug';
+  view?: 'home' | 'drug_check' | 'room_check' | 'bag_check' | 'cart_check' | 'ambulance_check' | 'eq_overview' | 'users';
+  category?: 'medicine' | 'equipment' | 'bag' | 'cart' | 'ambulance';
+  reportCategory?: 'bag' | 'cart' | 'ambulance' | 'eq' | 'drug';
   reportWeek?: number;
   command?: string;
 }
 
 interface LabelScanCandidate {
-  targetType: 'drug' | 'bag' | 'cart' | 'room';
+  targetType: 'drug' | 'bag' | 'cart' | 'ambulance' | 'room';
   itemId: string;
   roomId?: string;
   displayName: string;
@@ -311,7 +345,7 @@ interface ChatMessage {
   autoFillApplied?: boolean;
   restockApplied?: boolean;
   diffMode?: 'diff_only' | 'all';
-  targetCategory?: 'bag' | 'cart' | 'drug';
+  targetCategory?: 'bag' | 'cart' | 'ambulance' | 'drug';
   targetLocation?: string;
   targetName?: string;
   isConfirmationCard?: boolean;
@@ -320,8 +354,16 @@ interface ChatMessage {
     description: string;
     targetCat: string;
     status: 'pending' | 'confirmed' | 'cancelled';
-    actionKind?: 'clear_inventory' | 'delete_all_equipment';
+    actionKind?: 'clear_inventory' | 'delete_all_equipment' | 'delete_specific_items';
     itemCount?: number;
+    specificTargets?: Array<{
+      targetType: 'drug' | 'bag' | 'cart' | 'ambulance' | 'room';
+      itemId: string;
+      roomId?: string;
+      name: string;
+      locationLabel: string;
+      groupName?: string;
+    }>;
   };
   handoverText?: string;
   undoSnapshot?: AuraDataSnapshot;
@@ -359,6 +401,9 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
   onRestoreSnapshot,
   onDirectClearInventory,
   onDeleteAllEquipment,
+  onDeleteSpecificItems,
+  onAddNewItem,
+  onOpenSheetsDrawer,
   onUpdateInventoryItem,
   onAttachEquipmentPhotos,
   onBulkImportEquipment,
@@ -632,8 +677,16 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
     description: string,
     targetCat: string,
     options?: {
-      actionKind?: 'clear_inventory' | 'delete_all_equipment';
+      actionKind?: 'clear_inventory' | 'delete_all_equipment' | 'delete_specific_items';
       itemCount?: number;
+      specificTargets?: Array<{
+        targetType: 'drug' | 'bag' | 'cart' | 'ambulance' | 'room';
+        itemId: string;
+        roomId?: string;
+        name: string;
+        locationLabel: string;
+        groupName?: string;
+      }>;
     }
   ) => {
     const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -651,12 +704,15 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
           status: 'pending',
           actionKind: options?.actionKind || 'clear_inventory',
           itemCount: options?.itemCount,
+          specificTargets: options?.specificTargets,
         },
       },
     ]);
     notifyUnreadIfClosed();
     speakText(
-      options?.actionKind === 'delete_all_equipment'
+      options?.actionKind === 'delete_specific_items'
+        ? `น้องออร่าพบ ${options.specificTargets?.length ?? 1} รายการที่ตรงกับคำสั่งค่ะ กดยืนยันเพื่อลบได้เลยนะคะ`
+        : options?.actionKind === 'delete_all_equipment'
         ? `น้องออร่าขอทวนคำสั่งก่อนลบจริงนะคะ ต้องการลบครุภัณฑ์ทั้งหมด ${options.itemCount ?? 0} รายการออกจากฐานข้อมูลใช่ไหมคะ?`
         : `น้องออร่าขอทวนคำสั่งก่อนทำจริงนะคะ พี่พยาบาลต้องการล้างข้อมูลในหมวด ${targetCat} ใช่ไหมคะ?`
     );
@@ -1337,9 +1393,11 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
 
   const buildUnifiedCatalog = () => {
     const entries: Array<{
-      targetType: 'drug' | 'bag' | 'cart' | 'room';
+      targetType: 'drug' | 'bag' | 'cart' | 'ambulance' | 'room';
       itemId: string;
       roomId?: string;
+      groupName?: string;
+      no?: string;
       name: string;
       spec: string;
       qtyText: string;
@@ -1367,8 +1425,10 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
       });
     });
 
-    (['bag', 'cart'] as const).forEach((cat) => {
+    (['bag', 'cart', 'ambulance'] as const).forEach((cat) => {
       const catChecks = globalChecks?.[cat] || {};
+      const catLabel =
+        cat === 'bag' ? 'กระเป๋าฉุกเฉิน' : cat === 'ambulance' ? 'รถพยาบาลฉุกเฉิน' : 'รถฉุกเฉิน';
       const groups = lists?.[cat]?.groups || {};
       Object.entries(groups).forEach(([gName, gItems]: [string, any]) => {
         (gItems || []).forEach((it: any, idx: number) => {
@@ -1378,14 +1438,17 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
           entries.push({
             targetType: cat,
             itemId: itemKey,
+            groupName: gName,
+            no: String(it.no || idx + 1),
             name: it.name,
             spec: it.spec || '',
             qtyText: String(it.unitText || it.qty || '1'),
             unit: '',
             exp: chk.exp || it.exp || '-',
             note: chk.note || it.note || '',
-            locationLabel: `${cat === 'bag' ? 'กระเป๋าฉุกเฉิน' : 'รถฉุกเฉิน'} (${gName})`,
+            locationLabel: `${catLabel} (${gName})`,
             status: chk.result || 'รอตรวจ',
+            codes: [it.code, it.id, it.no ? String(it.no) : ''].filter(Boolean),
           });
         });
       });
@@ -1401,6 +1464,7 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
           targetType: 'room',
           itemId: itemKey,
           roomId,
+          no: String(eq.orderNumber ?? eq.no ?? idx + 1),
           name: eq.name,
           spec: eq.spec || '',
           qtyText: String(eq.unitText || eq.qty || '1'),
@@ -1409,6 +1473,7 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
           note: chk.note || eq.note || '',
           locationLabel: `ห้องผ่าตัด ${roomId.toUpperCase()}`,
           status: chk.result || 'รอตรวจ',
+          codes: [eq.code, eq.sap, eq.orderNumber, eq.no, eq.id].filter(Boolean),
         });
       });
     });
@@ -1833,8 +1898,9 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
       });
     });
 
-    (['bag', 'cart'] as const).forEach((cat) => {
-      const catLabel = cat === 'bag' ? 'กระเป๋าฉุกเฉิน' : 'รถฉุกเฉิน';
+    (['bag', 'cart', 'ambulance'] as const).forEach((cat) => {
+      const catLabel =
+        cat === 'bag' ? 'กระเป๋าฉุกเฉิน' : cat === 'ambulance' ? 'รถพยาบาลฉุกเฉิน' : 'รถฉุกเฉิน';
       const catChecks = globalChecks?.[cat] || {};
       Object.entries(lists?.[cat]?.groups || {}).forEach(([gName, gItems]: [string, any]) => {
         (gItems || []).forEach((it: any, idx: number) => {
@@ -1848,10 +1914,11 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
       });
     });
 
-    // 2. รายการยังไม่ครบ / รอตรวจเช็กในกระเป๋า & รถฉุกเฉิน
+    // 2. รายการยังไม่ครบ / รอตรวจเช็กในกระเป๋า, รถฉุกเฉิน & รถพยาบาลฉุกเฉิน
     const uncheckedSummary: string[] = [];
-    (['bag', 'cart'] as const).forEach((cat) => {
-      const catLabel = cat === 'bag' ? 'กระเป๋าฉุกเฉิน' : 'รถฉุกเฉิน';
+    (['bag', 'cart', 'ambulance'] as const).forEach((cat) => {
+      const catLabel =
+        cat === 'bag' ? 'กระเป๋าฉุกเฉิน' : cat === 'ambulance' ? 'รถพยาบาลฉุกเฉิน' : 'รถฉุกเฉิน';
       const catChecks = globalChecks?.[cat] || {};
       let total = 0;
       let checkedOk = 0;
@@ -1911,7 +1978,7 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
       `1) 🔧 อุปกรณ์ชำรุด / ผิดปกติ (${defectiveItems.length} รายการ):`,
       defectiveItems.length > 0 ? defectiveItems.join('\n') : '• ไม่มีรายการชำรุด ✅',
       ``,
-      `2) 🎒 สถานะกระเป๋า & รถฉุกเฉิน:`,
+      `2) 🎒 สถานะกระเป๋า รถฉุกเฉิน & รถพยาบาล:`,
       uncheckedSummary.length > 0 ? uncheckedSummary.join('\n') : '• ไม่มีข้อมูลรายการ',
       ``,
       `3) ⚠️ ยาหมดอายุ / ใกล้หมดอายุ ≤ 30 วัน (${expiringDrugs.length} รายการ):`,
@@ -1941,7 +2008,7 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
 
   /**
    * Pure LLM Brain Engine: Sends 100% of user text/voice/multi-attachments directly
-   * to /api/ai/chat with full inventory context (drugs, equipment, bags, carts) — ZERO regex/rule interceptors.
+   * to /api/ai/chat with full inventory context (drugs, equipment, bags, carts, ambulances) — ZERO regex/rule interceptors.
    */
   const buildFullChatInventoryContext = () => {
     const compactDrugs = (drugs || []).map((d: any) => ({
@@ -1983,8 +2050,10 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
       }
     });
 
-    const buildEmergencyList = (cat: 'bag' | 'cart') => {
+    const buildEmergencyList = (cat: 'bag' | 'cart' | 'ambulance') => {
       const catChecks = globalChecks?.[cat] || {};
+      const catLabel =
+        cat === 'bag' ? 'กระเป๋าฉุกเฉิน' : cat === 'ambulance' ? 'รถพยาบาลฉุกเฉิน' : 'รถฉุกเฉิน';
       const rows: any[] = [];
       Object.entries(lists?.[cat]?.groups || {}).forEach(([gName, gItems]: [string, any]) => {
         (gItems || []).forEach((it: any, idx: number) => {
@@ -1993,11 +2062,13 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
           const chk = catChecks[itemKey] || {};
           rows.push({
             id: itemKey,
+            no: String(it.no || idx + 1),
             name: String(it.name || ''),
             spec: String(it.spec || ''),
             qty: String(it.unitText || it.qty || '1'),
             exp: String(chk.exp || it.exp || '-'),
-            location: `${cat === 'bag' ? 'กระเป๋าฉุกเฉิน' : 'รถฉุกเฉิน'} (${gName})`,
+            location: `${catLabel} (${gName})`,
+            groupName: gName,
             status: String(chk.result || 'รอตรวจ'),
             note: String(chk.note || it.note || '').slice(0, 120),
           });
@@ -2008,6 +2079,7 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
 
     const bags = buildEmergencyList('bag');
     const carts = buildEmergencyList('cart');
+    const ambulances = buildEmergencyList('ambulance');
 
     return {
       ...buildAuraLiveContext(drugs, equipment, lists, globalChecks),
@@ -2015,6 +2087,7 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
       equipment: compactEquipment,
       bags,
       carts,
+      ambulances,
       currentView,
       grandTotal: stats?.grandTotal ?? 0,
       grandDefective: stats?.grandDefective ?? 0,
@@ -3399,16 +3472,186 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
             currentChoices || ['💊 ตรวจสอบยาใกล้หมดอายุ', '🚗 ตรวจเช็กรถฉุกเฉิน'],
             { handoverText }
           );
-        } else if (name === 'updateInventoryItem') {
-          const rawItemName = `${args?.itemName || ''} ${args?.sizeOrSpec || ''}`.trim();
+        } else if (name === 'delete_specific_items') {
+          const queries: string[] = Array.isArray(args?.itemQueries)
+            ? args.itemQueries.map((q: any) => String(q || '').trim()).filter(Boolean)
+            : args?.itemName
+            ? [String(args.itemName).trim()]
+            : [];
+          const rawCat = String(args?.category || 'all').toLowerCase().trim();
+          const rawRoomOrGroup = String(args?.roomOrGroup || '').toLowerCase().trim();
+          const normalizedTargetType =
+            rawCat === 'equipment' || rawCat === 'room' || /ครุ|or/.test(rawCat)
+              ? 'room'
+              : rawCat === 'drugs' || rawCat === 'drug' || /ยา/.test(rawCat)
+              ? 'drug'
+              : rawCat === 'bag' || /เป๋า|bag/.test(rawCat)
+              ? 'bag'
+              : rawCat === 'cart' || /รถฉุกเฉิน|cart/.test(rawCat)
+              ? 'cart'
+              : rawCat === 'ambulance' || /พยาบาล|amb/.test(rawCat)
+              ? 'ambulance'
+              : 'all';
+
           const catalog = buildUnifiedCatalog();
-          const filteredCatalog =
-            args?.targetCategory && args.targetCategory !== 'all'
-              ? catalog.filter((c) => c.targetType === args.targetCategory)
+          let scoped =
+            normalizedTargetType !== 'all'
+              ? catalog.filter((c) => c.targetType === normalizedTargetType)
               : catalog;
+          if (rawRoomOrGroup) {
+            const roomFiltered = scoped.filter(
+              (c) =>
+                c.roomId?.toLowerCase() === rawRoomOrGroup ||
+                c.groupName?.toLowerCase().includes(rawRoomOrGroup) ||
+                c.locationLabel.toLowerCase().includes(rawRoomOrGroup)
+            );
+            if (roomFiltered.length > 0) scoped = roomFiltered;
+          }
+
+          const collectedTargets: Array<{
+            targetType: 'drug' | 'bag' | 'cart' | 'ambulance' | 'room';
+            itemId: string;
+            roomId?: string;
+            name: string;
+            locationLabel: string;
+            groupName?: string;
+          }> = [];
+          const seenKeys = new Set<string>();
+
+          queries.forEach((qStr) => {
+            const cleanedQ = qStr.trim();
+            const qLower = cleanedQ.toLowerCase();
+            // 1. Exact/substring/prefix match (handles e.g. "11. T-piece / Tube" or code/no)
+            const directHits = scoped.filter((c) => {
+              const nameLower = c.name.toLowerCase();
+              const strippedName = nameLower.replace(/^\d+[\.\)\-\s]+/, '').trim();
+              const strippedQ = qLower.replace(/^\d+[\.\)\-\s]+/, '').trim();
+              if (nameLower === qLower || nameLower.includes(qLower)) return true;
+              if (strippedQ && (strippedName === strippedQ || strippedName.includes(strippedQ))) return true;
+              if (c.codes?.some((cd) => cd.toLowerCase() === qLower)) return true;
+              return false;
+            });
+
+            const picks =
+              directHits.length > 0
+                ? directHits
+                : findBestMedicalMatches(cleanedQ, scoped, (c) => c.name, (c) => c.spec).slice(0, 3);
+
+            picks.forEach((p) => {
+              const dedupKey = `${p.targetType}:${p.roomId || ''}:${p.itemId}`;
+              if (!seenKeys.has(dedupKey)) {
+                seenKeys.add(dedupKey);
+                collectedTargets.push({
+                  targetType: p.targetType,
+                  itemId: p.itemId,
+                  roomId: p.roomId,
+                  name: p.name,
+                  locationLabel: p.locationLabel,
+                  groupName: p.groupName,
+                });
+              }
+            });
+          });
+
+          if (collectedTargets.length === 0) {
+            addMessage(
+              'ai',
+              `❌ น้องออร่าไม่พบรายการที่ตรงกับ "${queries.join(', ')}" ในระบบค่ะ กรุณาตรวจสอบชื่อรายการหรือหมวดหมู่แล้วลองระบุใหม่อีกครั้งนะคะ ✨`
+            );
+          } else {
+            addConfirmationCard(
+              `ยืนยันการลบ ${collectedTargets.length} รายการเจาะจง`,
+              `⚠️ น้องออร่าพบรายการที่ตรงกับคำสั่ง **${collectedTargets.length} รายการ** กรุณาตรวจสอบรายการด้านล่างแล้วกดยืนยันเพื่อลบออกจากระบบและ Cloud ถาวรนะคะ:`,
+              collectedTargets[0].locationLabel,
+              {
+                actionKind: 'delete_specific_items',
+                itemCount: collectedTargets.length,
+                specificTargets: collectedTargets,
+              }
+            );
+          }
+        } else if (name === 'add_new_item') {
+          const rawCat = String(args?.category || 'bag').toLowerCase().trim();
+          const resolvedCat: 'equipment' | 'drug' | 'bag' | 'cart' | 'ambulance' =
+            rawCat === 'equipment' || rawCat === 'room' || /ครุ/.test(rawCat)
+              ? 'equipment'
+              : rawCat === 'drug' || rawCat === 'drugs' || /ยา/.test(rawCat)
+              ? 'drug'
+              : rawCat === 'ambulance' || /พยาบาล|amb/.test(rawCat)
+              ? 'ambulance'
+              : rawCat === 'cart' || /รถฉุกเฉิน/.test(rawCat)
+              ? 'cart'
+              : 'bag';
+          const itemName = String(args?.name || '').trim();
+          if (!itemName) {
+            addMessage('ai', '⚠️ รบกวนระบุชื่อรายการที่ต้องการเพิ่มให้ชัดเจนด้วยนะคะ ✨');
+          } else if (onAddNewItem) {
+            setDbActionStatus('กำลังเพิ่มรายการใหม่...');
+            try {
+              const addRes = await onAddNewItem({
+                category: resolvedCat,
+                name: itemName,
+                groupOrRoom: args?.groupOrRoom,
+                qty: args?.qty,
+                unit: args?.unit,
+                expDate: args?.expDate,
+                spec: args?.spec,
+                status: args?.status,
+                note: args?.note,
+              });
+              if (addRes.success) {
+                addMessage(
+                  'ai',
+                  `✅ เพิ่มรายการ **${addRes.addedLabel}** ลงในหมวด **${addRes.categoryLabel}** และบันทึกลง Cloud เรียบร้อยแล้วค่ะ ✨🌸`,
+                  true,
+                  undefined,
+                  undefined,
+                  currentChoices || ['📋 สรุปส่งเวร (Shift Handover)'],
+                  { undoSnapshot: addRes.snapshot, sources: groundingSources }
+                );
+              } else {
+                addMessage('ai', `❌ ไม่สามารถเพิ่ม "${itemName}" ได้ กรุณาลองใหม่อีกครั้งนะคะ`);
+              }
+            } finally {
+              setDbActionStatus(null);
+            }
+          }
+        } else if (
+          name === 'update_specific_item' ||
+          name === 'updateInventoryItem' ||
+          name === 'update_item_status'
+        ) {
+          const rawItemName = `${args?.itemName || ''} ${args?.sizeOrSpec || ''}`.trim();
+          const rawRoomOrLoc = String(args?.roomOrLocation || '').trim().toLowerCase();
+          const rawTargetCat = String(args?.targetCategory || '').trim().toLowerCase();
+          const mappedTargetType =
+            rawTargetCat === 'equipment' || rawTargetCat === 'room'
+              ? 'room'
+              : rawTargetCat === 'drugs' || rawTargetCat === 'drug'
+              ? 'drug'
+              : rawTargetCat === 'bag' || rawTargetCat === 'cart' || rawTargetCat === 'ambulance'
+              ? rawTargetCat
+              : '';
+
+          const catalog = buildUnifiedCatalog();
+          let scopedCatalog =
+            mappedTargetType
+              ? catalog.filter((c) => c.targetType === mappedTargetType)
+              : catalog;
+          if (rawRoomOrLoc) {
+            const locFiltered = scopedCatalog.filter(
+              (c) =>
+                c.targetType === rawRoomOrLoc ||
+                (c.roomId && c.roomId.toLowerCase() === rawRoomOrLoc) ||
+                c.groupName?.toLowerCase().includes(rawRoomOrLoc) ||
+                c.locationLabel.toLowerCase().includes(rawRoomOrLoc)
+            );
+            if (locFiltered.length > 0) scopedCatalog = locFiltered;
+          }
+
           const matched = findBestMedicalMatches(
             rawItemName,
-            filteredCatalog.length > 0 ? filteredCatalog : catalog,
+            scopedCatalog.length > 0 ? scopedCatalog : catalog,
             (c) => c.name,
             (c) => c.spec
           );
@@ -3426,7 +3669,7 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
               return arr.findIndex((o) => o.itemId === m.itemId) === i;
             });
 
-            if (!queryHasNumber && distinctSizedCandidates.length > 1) {
+            if (!queryHasNumber && distinctSizedCandidates.length > 1 && !args?.roomOrLocation) {
               const sizeChoices = distinctSizedCandidates
                 .slice(0, 3)
                 .map((c) => `${c.name}${c.spec ? ` ${c.spec}` : ''}`);
@@ -3448,6 +3691,19 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
               const snap = onCaptureSnapshot?.(`ก่อนแก้ไข ${target.name}`);
               setDbActionStatus('กำลังดำเนินการ...');
               try {
+                const rawStatusStr = String(args?.newStatus || args?.status || '').trim();
+                const resolvedStatus = rawStatusStr
+                  ? rawStatusStr.includes('ชำรุด')
+                    ? ('ชำรุด' as const)
+                    : rawStatusStr.includes('ส่งคืน')
+                    ? ('ส่งคืน' as const)
+                    : rawStatusStr.includes('สำรอง')
+                    ? ('เก็บสำรอง' as const)
+                    : rawStatusStr.includes('ผิด') || rawStatusStr.includes('ไม่')
+                    ? ('ผิดปกติ' as const)
+                    : ('ปกติ' as const)
+                  : undefined;
+
                 const normalizedExp = args?.newExp ? normalizeExpDate(String(args.newExp)).expDate : undefined;
                 const updRes = await onUpdateInventoryItem({
                   targetType: target.targetType,
@@ -3456,15 +3712,20 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
                   newExp: normalizedExp && normalizedExp !== '-' ? normalizedExp : undefined,
                   lotNumber: args?.lotNumber,
                   newQty: args?.newQty,
-                  newStatus: args?.newStatus,
+                  newStatus: resolvedStatus,
+                  newName: args?.newName,
+                  moveToRoomOrGroup: args?.moveToRoomOrGroup,
                   note: args?.note,
                 });
                 if (updRes.success) {
                   const changes: string[] = [];
+                  if (args?.newName) changes.push(`ชื่อใหม่: ${args.newName}`);
                   if (args?.newQty !== undefined) changes.push(`จำนวน: ${args.newQty}`);
                   if (normalizedExp) changes.push(`EXP: ${normalizedExp}`);
                   if (args?.lotNumber) changes.push(`Lot: ${args.lotNumber}`);
-                  if (args?.newStatus) changes.push(`สถานะ: ${args.newStatus}`);
+                  if (resolvedStatus) changes.push(`สถานะ: ${resolvedStatus}`);
+                  if (args?.moveToRoomOrGroup) changes.push(`ย้ายไป: ${args.moveToRoomOrGroup}`);
+                  if (args?.note) changes.push(`หมายเหตุ: ${args.note}`);
                   addMessage(
                     'ai',
                     `✅ อัปเดตข้อมูล **${updRes.updatedName}** (${target.locationLabel}) เรียบร้อยแล้วค่ะ!\n• รายละเอียดที่แก้: ${changes.join(' | ') || 'บันทึกข้อมูลแล้ว'}`,
@@ -3472,7 +3733,7 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
                     undefined,
                     undefined,
                     currentChoices || ['📋 สรุปส่งเวร (Shift Handover)', '💊 เช็กสต็อกยา'],
-                    { undoSnapshot: snap }
+                    { undoSnapshot: snap, sources: groundingSources }
                   );
                 } else {
                   addMessage('ai', `❌ ไม่สามารถอัปเดต "${target.name}" ได้ กรุณาลองใหม่อีกครั้งนะคะ`);
@@ -3483,26 +3744,24 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
             }
           }
         } else if (name === 'resetChecklist') {
-          const targetCat =
-            args?.target && args.target.includes('cart')
-              ? 'cart'
-              : args?.target && args.target.includes('bag')
-              ? 'bag'
-              : 'both';
-          const snap = onCaptureSnapshot?.(`ก่อนรีเซ็ตตาราง ${targetCat}`);
+          const targetArg = String(args?.target || '').toLowerCase();
+          const catsToReset: ('bag' | 'cart' | 'ambulance')[] =
+            targetArg.includes('ambulance') || targetArg.includes('พยาบาล')
+              ? ['ambulance']
+              : targetArg.includes('cart')
+              ? ['cart']
+              : targetArg.includes('bag')
+              ? ['bag']
+              : ['bag', 'cart', 'ambulance'];
+          const snap = onCaptureSnapshot?.(`ก่อนรีเซ็ตตาราง ${targetArg || 'all'}`);
           setDbActionStatus('กำลังดำเนินการ...');
           try {
-            if (targetCat === 'both' || targetCat === 'cart') {
-              clearChannelCategory(activeChannelId, 'cart');
-            }
-            if (targetCat === 'both' || targetCat === 'bag') {
-              clearChannelCategory(activeChannelId, 'bag');
-            }
+            catsToReset.forEach((c) => clearChannelCategory(activeChannelId, c));
             reRenderData();
             addMessage(
               'ai',
               data.text ||
-                'น้องออร่าได้รีเซ็ตและเคลียร์ตารางการตรวจเช็คให้เรียบร้อยแล้วค่ะ! พร้อมสำหรับการตรวจเช็คเวรใหม่นะคะ ✨🌸',
+                'น้องออร่าได้รีเซ็ตและเคลียร์ตารางการตรวจเช็กให้เรียบร้อยแล้วค่ะ! พร้อมสำหรับการตรวจเช็คเวรใหม่นะคะ ✨🌸',
               false,
               undefined,
               undefined,
@@ -3512,16 +3771,46 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
           } finally {
             setDbActionStatus(null);
           }
-        } else if (name === 'navigateToPage') {
-          const page = args?.page || 'home';
+        } else if (name === 'navigate_or_export' || name === 'navigateToPage') {
+          const navAction = String(args?.action || 'navigate').toLowerCase();
+          if (navAction === 'open_google_sheets') {
+            onOpenSheetsDrawer?.();
+            handleClose();
+            addMessage(
+              'ai',
+              '📊 เปิดหน้าต่างตั้งค่าเชื่อมต่อ **Google Sheets** ให้เรียบร้อยแล้วค่ะ ✨🌸'
+            );
+            return;
+          }
+          if (navAction === 'open_report_preview') {
+            const pStr = String(args?.page || '');
+            const rCat =
+              pStr.includes('drug')
+                ? 'drug'
+                : pStr.includes('ambulance')
+                ? 'ambulance'
+                : pStr.includes('cart')
+                ? 'cart'
+                : pStr.includes('room') || pStr.includes('eq')
+                ? 'eq'
+                : 'bag';
+            onOpenReportModal?.(rCat);
+            handleClose();
+            addMessage('ai', '📄 เปิดหน้าตัวอย่างรายงาน PDF (A4) ให้เรียบร้อยแล้วค่ะ ✨🌸');
+            return;
+          }
+
+          const page = (args?.page || 'home') as any;
+          const roomId = args?.roomId ? String(args.roomId).trim().toLowerCase() : undefined;
           if (onNavigate) {
-            onNavigate(page as any);
+            onNavigate(page, undefined, roomId);
           }
           const pageTitles: Record<string, string> = {
             bag_check: 'กระเป๋าฉุกเฉิน (Emergency Bag)',
             cart_check: 'รถฉุกเฉิน (Crash Cart)',
+            ambulance_check: 'รถพยาบาลฉุกเฉิน (Ambulance)',
             drug_check: 'คลังยาวิสัญญี',
-            room_check: 'ห้องผ่าตัด OR',
+            room_check: roomId ? `ครุภัณฑ์ห้อง ${roomId.toUpperCase()}` : 'ห้องผ่าตัด OR',
             eq_overview: 'ภาพรวมครุภัณฑ์',
             home: 'หน้าหลัก',
           };
@@ -3549,64 +3838,6 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
               },
             }
           );
-        } else if (name === 'update_item_status') {
-          const rawItemName = String(args?.itemName || '').trim();
-          const rawRoomOrLoc = String(args?.roomOrLocation || '').trim().toLowerCase();
-          const targetStatus: 'ปกติ' | 'ผิดปกติ' =
-            String(args?.status || '').includes('ผิด') || String(args?.status || '').includes('ชำรุด')
-              ? 'ผิดปกติ'
-              : 'ปกติ';
-
-          const catalog = buildUnifiedCatalog();
-          const scopedCatalog = rawRoomOrLoc
-            ? catalog.filter(
-                (c) =>
-                  c.targetType === rawRoomOrLoc ||
-                  (c.roomId && c.roomId.toLowerCase() === rawRoomOrLoc) ||
-                  c.locationLabel.toLowerCase().includes(rawRoomOrLoc)
-              )
-            : catalog;
-          const matched = findBestMedicalMatches(
-            rawItemName,
-            scopedCatalog.length > 0 ? scopedCatalog : catalog,
-            (c) => c.name,
-            (c) => c.spec
-          );
-
-          if (matched.length === 0) {
-            addMessage(
-              'ai',
-              `❌ น้องออร่าไม่พบอุปกรณ์ "${rawItemName}"${rawRoomOrLoc ? ` ใน ${rawRoomOrLoc.toUpperCase()}` : ''} ค่ะ รบกวนระบุชื่ออุปกรณ์หรือห้องผ่าตัดให้ชัดเจนขึ้นนะคะ ✨`
-            );
-          } else if (onUpdateInventoryItem) {
-            const target = matched[0];
-            const snap = onCaptureSnapshot?.(`ก่อนเปลี่ยนสถานะ ${target.name}`);
-            setDbActionStatus('กำลังอัปเดตสถานะครุภัณฑ์...');
-            try {
-              const updRes = await onUpdateInventoryItem({
-                targetType: target.targetType,
-                itemId: target.itemId,
-                roomId: target.roomId,
-                newStatus: targetStatus,
-                note: args?.note,
-              });
-              if (updRes.success) {
-                addMessage(
-                  'ai',
-                  `${targetStatus === 'ผิดปกติ' ? '⚠️' : '✅'} อัปเดตสถานะ **${updRes.updatedName}** (${target.locationLabel}) เป็น **${targetStatus}** เรียบร้อยแล้วค่ะ!${args?.note ? `\n• หมายเหตุ: ${args.note}` : ''}`,
-                  true,
-                  undefined,
-                  undefined,
-                  currentChoices || ['📋 สรุปส่งเวร (Shift Handover)', '🏥 เปิดภาพรวมครุภัณฑ์'],
-                  { undoSnapshot: snap, sources: groundingSources }
-                );
-              } else {
-                addMessage('ai', `❌ ไม่สามารถอัปเดตสถานะของ "${target.name}" ได้ กรุณาลองใหม่อีกครั้งนะคะ`);
-              }
-            } finally {
-              setDbActionStatus(null);
-            }
-          }
         } else if (name === 'create_restock_requisition') {
           const targetCategory = String(args?.targetCategory || 'drug');
           const reqItems = Array.isArray(args?.items) ? args.items : [];
@@ -3640,6 +3871,7 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
             }
           }
         } else if (
+          name === 'delete_all_items' ||
           name === 'delete_all_equipment' ||
           name === 'clear_category_items' ||
           name === 'clearTargetInventory'
@@ -3667,10 +3899,20 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
               }
             );
           } else {
+            const normalizedCatLabel =
+              /amb|รถพยาบาล/i.test(targetCat)
+                ? 'รถพยาบาลฉุกเฉิน'
+                : /bag|เป๋า/i.test(targetCat)
+                ? 'กระเป๋าฉุกเฉิน'
+                : /cart|รถฉุกเฉิน/i.test(targetCat)
+                ? 'รถฉุกเฉิน'
+                : /drug|ยา/i.test(targetCat)
+                ? 'คลังยา'
+                : targetCat;
             addConfirmationCard(
-              `ยืนยันล้างข้อมูลหมวด "${targetCat}"`,
-              `⚠️ น้องออร่าได้รับคำสั่งให้ล้างรายการทั้งหมดในหมวด **[${targetCat}]** ค่ะ\n\nเพื่อความปลอดภัยของข้อมูลในวอร์ด น้องออร่าขอทวนคำสั่งก่อนทำจริงนะคะ พี่พยาบาลต้องการดำเนินการลบข้อมูลในหมวดนี้ใช่ไหมคะ?`,
-              targetCat
+              `ยืนยันล้างข้อมูลหมวด "${normalizedCatLabel}"`,
+              `⚠️ น้องออร่าได้รับคำสั่งให้ล้างรายการทั้งหมดในหมวด **[${normalizedCatLabel}]** ค่ะ\n\nเพื่อความปลอดภัยของข้อมูลในวอร์ด น้องออร่าขอทวนคำสั่งก่อนทำจริงนะคะ พี่พยาบาลต้องการดำเนินการลบข้อมูลในหมวดนี้ใช่ไหมคะ?`,
+              normalizedCatLabel
             );
           }
         } else if (data.text) {
@@ -3912,7 +4154,7 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
 
       {isOpen && (
         <div
-          className="fixed left-0 right-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/75"
+          className="fixed left-0 right-0 z-50 flex items-end md:items-stretch justify-center md:justify-end p-0 bg-black/70 backdrop-blur-[1px]"
           style={
             viewportMetrics
               ? { top: `${viewportMetrics.offsetTop}px`, height: `${viewportMetrics.height}px` }
@@ -3921,20 +4163,20 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
           onClick={handleClose}
         >
           <div
-            className={`w-full sm:max-w-md h-[92dvh] max-h-dvh sm:h-[600px] sm:max-h-[90dvh] flex flex-col rounded-t-[2rem] sm:rounded-[2rem] shadow-xl border transition-[transform,opacity] duration-200 origin-bottom-left overflow-hidden overscroll-contain ${
+            className={`w-full md:w-[460px] lg:w-[480px] md:max-w-none h-[92dvh] md:h-full max-h-dvh flex flex-col rounded-t-[2rem] md:rounded-none md:rounded-l-3xl shadow-2xl border transition-[transform,opacity] duration-200 origin-bottom md:origin-right overflow-hidden overscroll-contain ${
               isAnimating ? 'scale-100 opacity-100' : 'scale-95 opacity-0'
             } ${isDarkMode ? 'bg-[#0E0E10] border-[#26272B] text-[#E3E3E3]' : 'bg-white border-slate-200 text-slate-900'}`}
             onClick={(e) => e.stopPropagation()}
           >
             {/* Header - Minimalist Gemini Style */}
-            <div className={`flex items-center justify-between px-5 py-3.5 border-b rounded-t-[2rem] shrink-0 transition-colors ${
+            <div className={`flex items-center justify-between px-5 py-3.5 border-b rounded-t-[2rem] md:rounded-none md:rounded-tl-3xl shrink-0 transition-colors ${
               isDarkMode ? 'bg-[#0E0E10] border-[#222327] text-[#E3E3E3]' : 'bg-blue-50 border-slate-200'
             }`}>
               <div className="flex items-center gap-3 min-w-0">
                 <div className="w-9 h-9 rounded-2xl bg-gradient-to-tr from-blue-600 via-indigo-500 to-teal-400 text-white shadow-sm flex items-center justify-center shrink-0">
                   <Sparkles size={18} />
                 </div>
-                <h3 className={`text-sm font-bold truncate ${isDarkMode ? 'text-[#E3E3E3]' : 'text-slate-900'}`}>
+                <h3 className={`text-sm md:text-base font-bold truncate ${isDarkMode ? 'text-[#E3E3E3]' : 'text-slate-900'}`}>
                   น้องออร่า
                 </h3>
               </div>
@@ -3991,7 +4233,7 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
                     {m.sender === 'user' ? <span className="text-[10px] font-bold">YOU</span> : <Sparkles size={15} />}
                   </div>
                   <div
-                    className={`max-w-[85%] p-3.5 rounded-2xl text-xs leading-relaxed shadow-xs whitespace-pre-line ${
+                    className={`max-w-[85%] p-3.5 rounded-2xl text-xs md:text-sm leading-relaxed shadow-xs whitespace-pre-line ${
                       m.isCard
                         ? (isDarkMode ? 'bg-[#1E1F20] border border-[#2C2D31] text-[#E3E3E3] font-medium' : 'bg-white border-2 border-blue-100 shadow-lg font-medium')
                         : m.sender === 'user'
@@ -4561,10 +4803,27 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
                     )}
                     {m.isConfirmationCard && m.confirmationData && (
                       <div className="mt-3 p-3.5 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 shadow-sm space-y-2.5 animate-in zoom-in-95">
-                        <div className="flex items-center gap-2 text-xs font-bold text-rose-700 dark:text-rose-300">
+                        <div className="flex items-center gap-2 text-xs md:text-sm font-bold text-rose-700 dark:text-rose-300">
                           <AlertTriangle className="w-4 h-4 text-rose-500 shrink-0" />
                           <span>{m.confirmationData.title}</span>
                         </div>
+                        {m.confirmationData.actionKind === 'delete_specific_items' &&
+                          m.confirmationData.specificTargets &&
+                          m.confirmationData.specificTargets.length > 0 && (
+                            <ul className="space-y-1 rounded-xl bg-white/80 dark:bg-black/25 border border-rose-200/70 dark:border-rose-900/50 p-2.5 text-xs md:text-sm text-rose-900 dark:text-rose-100 max-h-40 overflow-y-auto">
+                              {m.confirmationData.specificTargets.map((t, tIdx) => (
+                                <li key={`${t.itemId}_${tIdx}`} className="flex items-start gap-1.5 leading-snug">
+                                  <span className="text-rose-500 font-bold shrink-0">•</span>
+                                  <span>
+                                    <strong className="font-bold">{t.name}</strong>{' '}
+                                    <span className="text-rose-700/80 dark:text-rose-300/80">
+                                      — {t.locationLabel}
+                                    </span>
+                                  </span>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
                         {m.confirmationData.status === 'pending' ? (
                           <div className="flex gap-2 pt-1">
                             <button
@@ -4573,11 +4832,52 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
                               onClick={async () => {
                                 if (dbActionStatus) return;
                                 const targetCat = m.confirmationData?.targetCat || '';
-                                const isDeleteAllEq = m.confirmationData?.actionKind === 'delete_all_equipment';
+                                const actionKind = m.confirmationData?.actionKind;
+                                const isDeleteSpecific = actionKind === 'delete_specific_items';
+                                const isDeleteAllEq = actionKind === 'delete_all_equipment';
                                 setDbActionStatus(
-                                  isDeleteAllEq ? 'กำลังลบครุภัณฑ์ทั้งหมดออกจากฐานข้อมูล...' : 'กำลังดำเนินการ...'
+                                  isDeleteSpecific
+                                    ? 'กำลังลบรายการที่เลือกออกจากฐานข้อมูล...'
+                                    : isDeleteAllEq
+                                    ? 'กำลังลบครุภัณฑ์ทั้งหมดออกจากฐานข้อมูล...'
+                                    : 'กำลังดำเนินการ...'
                                 );
                                 try {
+                                  if (
+                                    isDeleteSpecific &&
+                                    m.confirmationData?.specificTargets &&
+                                    onDeleteSpecificItems
+                                  ) {
+                                    const delRes = await onDeleteSpecificItems(
+                                      m.confirmationData.specificTargets
+                                    );
+                                    setMessages((prev) => {
+                                      const next = [...prev];
+                                      next[idx] = {
+                                        ...next[idx],
+                                        confirmationData: { ...next[idx].confirmationData!, status: 'confirmed' },
+                                      };
+                                      return next;
+                                    });
+                                    if (delRes.success && delRes.deletedCount > 0) {
+                                      addMessage(
+                                        'ai',
+                                        `🗑️ ลบรายการที่เลือกเรียบร้อยแล้ว **${delRes.deletedCount} รายการ** (อัปเดตฐานข้อมูลและ Cloud แล้วค่ะ ✨🌸):\n${delRes.deletedLabels.map((lbl) => `• ${lbl}`).join('\n')}`,
+                                        false,
+                                        undefined,
+                                        undefined,
+                                        ['📋 สรุปส่งเวร (Shift Handover)'],
+                                        { undoSnapshot: delRes.snapshot }
+                                      );
+                                    } else {
+                                      addMessage(
+                                        'ai',
+                                        '⚠️ ไม่พบรายการดังกล่าวในคลังแล้ว (อาจถูกลบไปก่อนหน้านี้ค่ะ)'
+                                      );
+                                    }
+                                    return;
+                                  }
+
                                   if (isDeleteAllEq && onDeleteAllEquipment) {
                                     const delRes = await onDeleteAllEquipment();
                                     setMessages((prev) => {
@@ -4632,7 +4932,7 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
                                   setDbActionStatus(null);
                                 }
                               }}
-                              className="flex-1 py-2 px-3 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-md active:scale-95 transition cursor-pointer disabled:opacity-50"
+                              className="flex-1 py-2 px-3 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs md:text-sm shadow-md active:scale-95 transition cursor-pointer disabled:opacity-50"
                             >
                               {m.confirmationData.actionKind === 'delete_all_equipment'
                                 ? 'ยืนยันลบทั้งหมด'
@@ -4652,7 +4952,7 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
                                 });
                                 addMessage('ai', 'ยกเลิกการลบข้อมูลเรียบร้อยค่ะ ข้อมูลทุกอย่างยังอยู่ครบถ้วนเหมือนเดิมนะคะ 💕✨');
                               }}
-                              className="flex-1 py-2 px-3 rounded-xl bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 font-bold text-xs transition cursor-pointer"
+                              className="flex-1 py-2 px-3 rounded-xl bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 font-bold text-xs md:text-sm transition cursor-pointer"
                             >
                               ยกเลิก
                             </button>
@@ -4763,7 +5063,7 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
                               type="button"
                               disabled={isLoading || Boolean(dbActionStatus)}
                               onClick={() => processCommand(choice)}
-                              className="w-full text-left px-3 py-2 rounded-xl bg-blue-50/90 hover:bg-blue-100 active:bg-blue-200/80 dark:bg-[#131314] dark:hover:bg-[#282A2C] text-blue-700 dark:text-[#E3E3E3] border border-blue-200 dark:border-[#2F3136] text-xs font-semibold shadow-xs transition-all duration-150 flex items-center justify-between group cursor-pointer disabled:opacity-50"
+                              className="w-full text-left px-3 py-2 rounded-xl bg-blue-50/90 hover:bg-blue-100 active:bg-blue-200/80 dark:bg-[#131314] dark:hover:bg-[#282A2C] text-blue-700 dark:text-[#E3E3E3] border border-blue-200 dark:border-[#2F3136] text-xs md:text-sm font-semibold shadow-xs transition-all duration-150 flex items-center justify-between group cursor-pointer disabled:opacity-50"
                             >
                               <span className="truncate">{choice}</span>
                               <span className="text-blue-500 dark:text-[#A8C7FA] group-hover:translate-x-1 transition-transform text-[11px] ml-1 shrink-0">➔</span>
@@ -4833,7 +5133,7 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
             {renderPendingUploadRecoveryCard()}
 
             {/* Input Form */}
-            <div className={`p-4 border-t rounded-b-[2rem] transition-colors ${
+            <div className={`p-4 border-t rounded-b-[2rem] md:rounded-none md:rounded-bl-3xl transition-colors ${
               isDarkMode ? 'bg-[#131314] border-[#222327]' : 'bg-slate-50/50 border-slate-100'
             }`}>
               {/* 📎 Multi-Image / PDF Pending Attachments Preview Strip */}
@@ -5040,7 +5340,7 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
                       ? 'พิมพ์คำสั่งสำหรับรูป/ไฟล์ที่แนบ (เช่น แอดเข้าครุภัณฑ์ตามเลข)...'
                       : 'พิมพ์คุยกับน้องออร่า...'
                   }
-                  className={`flex-1 min-w-0 px-4 py-2.5 rounded-full text-xs font-sans border outline-none transition ${
+                  className={`flex-1 min-w-0 px-4 py-2.5 rounded-full text-xs md:text-sm font-sans border outline-none transition ${
                     isDarkMode
                       ? 'bg-[#1E1F20] border-[#2F3136] text-[#E3E3E3] focus:border-[#A8C7FA]/60 placeholder-[#8E918F]'
                       : 'bg-white border-slate-200 text-slate-900 focus:border-[#1B6EF3] shadow-inner'

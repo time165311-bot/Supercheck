@@ -130,7 +130,7 @@ export interface InspectionHistoryRecord {
   date: string;
   time?: string;
   who: string;
-  type: 'eq' | 'bag' | 'cart' | 'drug';
+  type: 'eq' | 'bag' | 'cart' | 'ambulance' | 'drug';
   title: string;
   rows: Array<{
     no?: string | number;
@@ -316,7 +316,7 @@ export interface AuraDataSnapshot {
   channelId: string;
   drugs?: DrugItem[];
   equipment?: Record<string, EquipmentItem[]>;
-  lists?: Record<'bag' | 'cart', ListConfig>;
+  lists?: Record<'bag' | 'cart' | 'ambulance' | string, ListConfig>;
   globalChecks?: Record<string, Record<string, CheckItemState>>;
   emergencyWeekDates?: Record<string, Record<number, string>>;
   clearedFlags?: {
@@ -324,5 +324,6 @@ export interface AuraDataSnapshot {
     equipmentCleared?: boolean;
     bagCleared?: boolean;
     cartCleared?: boolean;
+    ambulanceCleared?: boolean;
   };
 }

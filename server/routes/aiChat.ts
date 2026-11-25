@@ -111,8 +111,10 @@ export function extractDrugsCatalog(rawContext: any) {
     });
 }
 
-export function extractEmergencyCatalog(rawContext: any, key: 'bags' | 'carts') {
+export function extractEmergencyCatalog(rawContext: any, key: 'bags' | 'carts' | 'ambulances') {
   if (!rawContext || typeof rawContext !== 'object' || !Array.isArray(rawContext[key])) return [];
+  const defaultLoc =
+    key === 'bags' ? 'กระเป๋าฉุกเฉิน' : key === 'ambulances' ? 'รถพยาบาลฉุกเฉิน' : 'รถฉุกเฉิน';
   return rawContext[key]
     .filter((it: any) => it && typeof it === 'object' && String(it.name || '').trim())
     .map((it: any) => {
@@ -123,9 +125,11 @@ export function extractEmergencyCatalog(rawContext: any, key: 'bags' | 'carts') 
         name: String(it.name || '').trim(),
         qty: it.qty ?? it.quantity ?? '1',
         exp: String(it.exp || it.expiryDate || '-'),
-        loc: String(it.location || (key === 'bags' ? 'กระเป๋าฉุกเฉิน' : 'รถฉุกเฉิน')),
+        loc: String(it.location || defaultLoc),
         status: String(it.status || 'รอตรวจ'),
       };
+      if (it.no) entry.no = String(it.no);
+      if (it.groupName) entry.groupName = String(it.groupName);
       if (spec) entry.spec = spec;
       if (note) entry.note = note;
       return entry;
@@ -161,6 +165,7 @@ export function compactInventoryForPrompt(rawContext: any): Record<string, any> 
   if (rawContext.totalEquipment !== undefined) compact.totalEquipment = rawContext.totalEquipment;
   if (rawContext.bagCheckedRatio) compact.bagCheckedRatio = rawContext.bagCheckedRatio;
   if (rawContext.cartCheckedRatio) compact.cartCheckedRatio = rawContext.cartCheckedRatio;
+  if (rawContext.ambulanceCheckedRatio) compact.ambulanceCheckedRatio = rawContext.ambulanceCheckedRatio;
   if (rawContext.grandTotal !== undefined) compact.grandTotal = rawContext.grandTotal;
   if (rawContext.grandDefective !== undefined) compact.grandDefective = rawContext.grandDefective;
   if (rawContext.summaryText) compact.summaryText = String(rawContext.summaryText).slice(0, 1000);
@@ -256,7 +261,7 @@ function isClinicalWebQuery(msg: string): boolean {
 
 function isLikelyActionCommand(msg: string): boolean {
   const q = (msg || '').toLowerCase();
-  return /(ล้าง|เคลียร์|ลบ|เอาออก|รีเซ็ต|reset|clear|delete|remove|wipe|empty|เริ่มใหม่|ไปหน้า|เปิดหน้า|เปิดคลัง|เปลี่ยนหน้า|เทียบใบ|ตรวจกระดาษ|สรุปส่งเวร|shift\s*handover|อัปเดต|แก้ไข|แก้จำนวน|ปรับสถานะ|แจ้งชำรุด|ชำรุด|สร้างใบเบิก|ขอเบิก|เบิกเพิ่ม|นำทาง|navigate|เพิ่มรายการ|บันทึกข้อมูล|เช็กครบ|ติ๊กครบ)/i.test(q);
+  return /(ล้าง|เคลียร์|ลบ|สั่งลบ|เอา.*ออก|เอาออก|รีเซ็ต|reset|clear|delete|remove|wipe|empty|เริ่มใหม่|ไปหน้า|เปิดหน้า|เปิดคลัง|เปลี่ยนหน้า|เทียบใบ|ตรวจกระดาษ|สรุปส่งเวร|shift\s*handover|อัปเดต|แก้ไข|แก้จำนวน|แก้ชื่อ|ปรับสถานะ|แจ้งชำรุด|ชำรุด|ซ่อม|สร้างใบเบิก|ขอเบิก|เบิกเพิ่ม|นำทาง|navigate|เพิ่มรายการ|เพิ่ม|บันทึกข้อมูล|เช็กครบ|ติ๊กครบ|ย้าย|เปลี่ยนห้อง|ส่งออก|รายงาน|pdf|sheet|excel|รถพยาบาล|ambulance)/i.test(q);
 }
 
 const textChatResponseSchema = {
@@ -470,6 +475,9 @@ export function createAiChatRouter(): express.Router {
       const cartsCatalog = isBulkImportMode ? [] : extractEmergencyCatalog(resolvedContext, 'carts');
       const cartsCatalogStr =
         cartsCatalog.length > 0 ? JSON.stringify(cartsCatalog).slice(0, 16000) : '';
+      const ambulancesCatalog = isBulkImportMode ? [] : extractEmergencyCatalog(resolvedContext, 'ambulances');
+      const ambulancesCatalogStr =
+        ambulancesCatalog.length > 0 ? JSON.stringify(ambulancesCatalog).slice(0, 16000) : '';
 
       const todayIso = new Date().toISOString().split('T')[0];
 
@@ -559,27 +567,29 @@ ${equipmentCatalogStr ? `[รายการครุภัณฑ์ปัจจ
 - ตอบคำถามได้ลึกซึ้ง ฉลาด สุภาพ เป็นมิตร น่ารัก (มี ✨🌸🎀) และใช้ภาษาที่พยาบาลวิสัญญีอ่านเข้าใจง่ายทันทีหน้างาน
 - หากผู้ใช้แนบรูปภาพหรือไฟล์ PDF (เช่น ใบตรวจเช็ก, ฉลากยา, เอกสารวิชาการ, ตารางเวชภัณฑ์) ให้วิเคราะห์เนื้อหาในไฟล์แนบร่วมกับข้อความคำสั่งของผู้ใช้เพื่อเลือกโหมดการทำงานที่ถูกต้องที่สุด
 
-[กฎเหล็กห้ามมโนผลลัพธ์ (ANTI-HALLUCINATION RULE — บังคับใช้เด็ดขาด 100%)]
-- ห้ามตอบยืนยันว่า "ดำเนินการเรียบร้อยแล้ว", "บันทึกแล้ว", "แก้ไขแล้ว", "ลบเรียบร้อยแล้ว" หรือแสร้งว่าดำเนินการกับฐานข้อมูลสำเร็จแล้วเด็ดขาด หากในรอบนี้คุณไม่ได้เรียกใช้ Function Calling (Tool) จริงๆ!
-- หากผู้ใช้สั่งลบ/ล้างครุภัณฑ์ทั้งหมด (เช่น "ลบของในครุออกให้หมด", "ลบครุภัณฑ์ทั้งหมด", "เคลียร์ครุ") ต้องเรียกใช้ Tool \`delete_all_equipment\` ทันที ห้ามตอบเป็นข้อความว่าลบเสร็จแล้วโดยไม่เรียก Tool เด็ดขาด!
-- หากคำสั่งของผู้ใช้เป็นงานที่ยังไม่มี Tool รองรับ ให้ตอบตามตรงอย่างสุภาพว่ายังทำรายการนั้นผ่านแชทไม่ได้ในขณะนี้ พร้อมแนะนำปุ่มหรือขั้นตอนให้ผู้ใช้ไปกดทำในหน้าเว็บแทน ห้ามโกหกหรือสร้างความเข้าใจผิดว่าทำสำเร็จแล้ว!
+[กฎเหล็กห้ามมโนผลลัพธ์ & แยกคำสั่งลบเจาะจง vs ลบทั้งหมด (STRICT ANTI-HALLUCINATION — 100%)]
+- ห้ามตอบยืนยันว่า "ดำเนินการเรียบร้อยแล้ว", "บันทึกแล้ว", "แก้ไขแล้ว", "เพิ่มแล้ว", "ลบเรียบร้อยแล้ว" หรือแสร้งว่าดำเนินการกับฐานข้อมูลสำเร็จแล้วเด็ดขาด หากในรอบนี้คุณไม่ได้เรียกใช้ Function Calling (Tool) จริงๆ!
+- การลบรายรายการเจาะจง (เช่น "ลบ 11. T-piece / Tube ในเป๋าให้หน่อย", "ลบ Ambu bag ในรถพยาบาล", "ลบเครื่อง suction ห้อง OR2", "ลบยา Morphine"): ต้องเรียกใช้ Tool \`delete_specific_items\` เท่านั้น! **ห้ามเรียก \`delete_all_items\` สำหรับการลบเฉพาะบางรายการเด็ดขาด!**
+- การลบ/ล้างทั้งหมดทั้งหมวดหมู่ (เช่น "ลบของในครุออกให้หมด", "เคลียร์กระเป๋าทั้งหมด", "ลบรถพยาบาลทั้งหมด"): ใช้ Tool \`delete_all_items\` เท่านั้น (เฉพาะเมื่อผู้ใช้สั่งล้างทั้งหมดชัดเจนเท่านั้น!)
+- หากคำสั่งของผู้ใช้เป็นงานที่ยังไม่มี Tool รองรับ ให้ตอบตามตรงอย่างสุภาพว่ายังทำรายการนั้นผ่านแชทไม่ได้ในขณะนี้ พร้อมแนะนำปุ่มหรือขั้นตอนให้ผู้ใช้ไปกดทำในหน้าเว็บแทน
 
 [รูปแบบการจัดหน้าคำตอบ (Formatting Rules — บังคับใช้ทุกครั้ง)]
 - ห้ามเขียนคำตอบยาวติดกันเป็นย่อหน้าเดียว!
-- ต้องเว้นบรรทัดว่าง (\\n\\n) คั่นระหว่างแต่ละหัวข้อ/หมวดหมู่ให้ชัดเจนเสมอ (เช่น 💊 คลังยา & สารน้ำ, 🎒 กระเป๋าฉุกเฉิน, 🚑 รถฉุกเฉิน, 🏥 ครุภัณฑ์ห้องผ่าตัด)
-- ทุกรายการย่อยภายใต้หมวดหมู่ต้องขึ้นบรรทัดใหม่ด้วยสัญลักษณ์ "• " นำหน้า พร้อมเว้นจังหวะให้อ่านง่ายสบายตาบนหน้าจอมือถือ
+- ต้องเว้นบรรทัดว่าง (\\n\\n) คั่นระหว่างแต่ละหัวข้อ/หมวดหมู่ให้ชัดเจนเสมอ (เช่น 💊 คลังยา & สารน้ำ, 🎒 กระเป๋าฉุกเฉิน, 🚨 รถฉุกเฉิน, 🚑 รถพยาบาลฉุกเฉิน, 🏥 ครุภัณฑ์ห้องผ่าตัด)
+- ทุกรายการย่อยภายใต้หมวดหมู่ต้องขึ้นบรรทัดใหม่ด้วยสัญลักษณ์ "• " นำหน้า พร้อมเว้นจังหวะให้อ่านง่ายสบายตา
 
 [การทำความเข้าใจเจตนาและแก้ไขคำสะกดผิด (Intent Recognition & Typo Normalization)]
 - วิเคราะห์ความต้องการที่แท้จริงของผู้ใช้จากภาษาพูดธรรมชาติ แม้พิมพ์ผิด พิมพ์ตก หรือปนภาษาอังกฤษ-ไทย:
   1. ห้ามตีความคำศัพท์ภาษาอังกฤษหรือชื่อยาที่ขึ้นต้นด้วย "Add..." (เช่น "Addrenaline", "Addrenalineเหลือเท่สไร") ว่าเป็นคำสั่งเพิ่มรายการ (Add) เด็ดขาด — ให้เข้าใจว่าคือยา Adrenaline (Epinephrine) และผู้ใช้กำลังถามสต็อกคงเหลือ!
-  2. เมื่อผู้ใช้ถามภาพรวม เช่น "เช็กของใกล้หมด", "ของใกล้หมด", "มียาอะไรใกล้หมดอายุ", "เช็กของขาด" ให้ตรวจสอบข้อมูลทั้งหมดในคลัง (drugs, bags, carts, equipment) เพื่อสรุปทุกรายการที่มีจำนวนคงเหลือต่ำกว่าหรือเท่ากับเกณฑ์ขั้นต่ำ (remaining <= minStock) และรายการที่หมดอายุหรือใกล้หมดอายุ (ภายใน 30-90 วันเทียบกับ ${todayIso}) พร้อมระบุจำนวนคงเหลือ หน่วย วันหมดอายุ (EXP) และตำแหน่งที่เก็บให้ครบถ้วน แยกหมวดด้วย \\n\\n และ •
-  3. ทุกครั้งที่ตอบคำถามเกี่ยวกับสต็อก ยา เวชภัณฑ์ หรืออุปกรณ์ ให้ตรวจค้นจากข้อมูลจริงใน JSON ด้านล่าง (drugs, bags, carts, equipment) โดยเทียบชื่อพ้องและตรวจสอบขนาด/เกจ (No., G, ml) ให้ตรง 100% แล้วตอบจำนวนคงเหลือ หน่วย วันหมดอายุ (EXP) และตำแหน่งจัดเก็บให้ชัดเจน
+  2. เมื่อผู้ใช้ถามภาพรวม เช่น "เช็กของใกล้หมด", "ของใกล้หมด", "มียาอะไรใกล้หมดอายุ", "เช็กของขาด" ให้ตรวจสอบข้อมูลทั้งหมดในคลัง (drugs, bags, carts, ambulances, equipment) เพื่อสรุปทุกรายการที่มีจำนวนคงเหลือต่ำกว่าหรือเท่ากับเกณฑ์ขั้นต่ำ (remaining <= minStock) และรายการที่หมดอายุหรือใกล้หมดอายุ (ภายใน 30-90 วันเทียบกับ ${todayIso}) พร้อมระบุจำนวนคงเหลือ หน่วย วันหมดอายุ (EXP) และตำแหน่งที่เก็บให้ครบถ้วน แยกหมวดด้วย \\n\\n และ •
+  3. ทุกครั้งที่ตอบคำถามเกี่ยวกับสต็อก ยา เวชภัณฑ์ หรืออุปกรณ์ ให้ตรวจค้นจากข้อมูลจริงใน JSON ด้านล่าง (drugs, bags, carts, ambulances, equipment) โดยเทียบชื่อพ้องและตรวจสอบขนาด/เกจ (No., G, ml) ให้ตรง 100% แล้วตอบจำนวนคงเหลือ หน่วย วันหมดอายุ (EXP) และตำแหน่งจัดเก็บให้ชัดเจน
 
 [บริบทวอร์ดและสถานะคลัง — วอร์ด: ${activeWard}]${liveScreenInfo}${liveAlertInfo}
 ${compactLiveContextStr}
 ${drugsCatalogStr ? `\n[คลังยาทั้งหมด (drugs — ${drugsCatalog.length} รายการ)]\n${drugsCatalogStr}` : ''}
 ${bagsCatalogStr ? `\n[กระเป๋าฉุกเฉิน (bags — ${bagsCatalog.length} รายการ)]\n${bagsCatalogStr}` : ''}
 ${cartsCatalogStr ? `\n[รถฉุกเฉิน (carts — ${cartsCatalog.length} รายการ)]\n${cartsCatalogStr}` : ''}
+${ambulancesCatalogStr ? `\n[รถพยาบาลฉุกเฉิน (ambulances — ${ambulancesCatalog.length} รายการ)]\n${ambulancesCatalogStr}` : ''}
 ${equipmentCatalogStr ? `\n[รายการครุภัณฑ์ปัจจุบันในระบบ (context.equipment — ${equipmentCatalog.length} รายการ)]\n${equipmentCatalogStr}` : ''}
 
 [การแยกโหมดการทำงานเมื่อผู้ใช้แนบรูปภาพ (Strict Mode Separation by User Intent)]
@@ -622,75 +632,145 @@ ${equipmentCatalogStr ? `\n[รายการครุภัณฑ์ปัจ�
 - ทุกครั้งที่มีตัวเลขขนาด ไซส์ เกจ หรือความจุ (เช่น No. 7.0, 7.5, 8.0, 18G, 20G, 22G, 3 ml, 10 ml, 500 ml, 1000 ml) ต้องตรวจสอบให้ตรงกัน 100% ห้ามจับคู่หรือแก้ไขข้ามขนาดเด็ดขาด!
 - หากผู้ใช้สั่งแก้ไขรายการที่มีหลายขนาดโดยไม่ได้ระบุขนาดชัดเจน ห้ามเดาขนาด ให้ถามยืนยันขนาดก่อนเสมอ
 
-[เจตนาและ Function Calling — เรียกใช้เฉพาะเมื่อผู้ใช้สั่งให้ระบบดำเนินการจริงเท่านั้น]
-  * สั่งลบหรือล้างครุภัณฑ์ทั้งหมด (เช่น "ลบของในครุออกให้หมด", "ลบครุทั้งหมด", "เคลียร์ครุภัณฑ์ทุกห้อง") -> เรียกใช้ delete_all_equipment ทันที (ห้ามตอบว่าลบแล้วโดยไม่เรียก Tool!)
-  * สั่งล้างตาราง/เริ่มตรวจเช็คใหม่ หรือล้างหมวดอื่น (เช่น "ล้างตาราง", "เริ่มตรวจเช็คใหม่", "เคลียร์คลังยา", "เคลียร์รถฉุกเฉิน") -> เรียกใช้ resetChecklist หรือ clearTargetInventory
-  * สั่งเปลี่ยนหน้าจอ (เช่น "ไปหน้ารถฉุกเฉิน", "เปิดคลังยา", "ไป OR") -> เรียกใช้ navigateToPage หรือ navigate_app
-  * สั่งเทียบใบกระดาษ (เช่น "ตรวจเทียบใบกระดาษกับหน้าเว็บ") -> เรียกใช้ auditPaperChecklist
-  * สั่งสรุปส่งเวร (เช่น "สรุปส่งเวร", "shift handover") -> เรียกใช้ generateShiftHandover
-  * สั่งแก้ข้อมูลจริงในระบบ (เช่น "แก้จำนวน Adrenaline เป็น 10", "อัปเดต EXP", "แจ้งเครื่องช่วยหายใจ OR1 ชำรุด") -> เรียกใช้ updateInventoryItem, update_item_status หรือ update_equipment_or_drug_status
-  * สั่งทำใบเบิก (เช่น "สร้างใบเบิกยา", "เบิกเพิ่มเข้าคลัง") -> เรียกใช้ create_restock_requisition
+[เจตนาและ Function Calling — เรียกใช้ Universal Action Tools เฉพาะเมื่อผู้ใช้สั่งดำเนินการจริงเท่านั้น]
+  * สั่งลบเฉพาะรายการ (เช่น "ลบ 11. T-piece / Tube ในเป๋า", "ลบ Laryngoscope ในรถพยาบาล", "ลบเครื่อง suction ห้อง OR1", "ลบยา Morphine") -> เรียกใช้ delete_specific_items ทันที! (ห้ามเรียก delete_all_items เด็ดขาด!)
+  * สั่งแก้ไขข้อมูล เปลี่ยนจำนวน เปลี่ยนชื่อ อัปเดตวันหมดอายุ แจ้งชำรุด ปรับสถานะ หรือย้ายห้อง/หมวดหมู่ -> เรียกใช้ update_specific_item ทันที!
+  * สั่งเพิ่มรายการใหม่เข้าคลังยา, กระเป๋าฉุกเฉิน, รถฉุกเฉิน, รถพยาบาล หรือครุภัณฑ์ห้อง OR -> เรียกใช้ add_new_item ทันที!
+  * สั่งเปลี่ยนหน้าจอ เปิดห้อง เปิดรายงาน PDF หรือเปิดเมนู Google Sheets -> เรียกใช้ navigate_or_export ทันที!
+  * สั่งลบทั้งหมดทั้งหมวดหมู่ (เช่น "ลบของในครุออกให้หมด", "ลบกระเป๋าทั้งหมด", "ล้างคลังยาทั้งหมด") -> เรียกใช้ delete_all_items เท่านั้น!
+  * สั่งล้างตารางผลตรวจเช็กรายสัปดาห์ (เช่น "ล้างตาราง", "เริ่มตรวจเช็คใหม่") -> เรียกใช้ resetChecklist
+  * สั่งเทียบใบกระดาษ -> เรียกใช้ auditPaperChecklist
+  * สั่งสรุปส่งเวร -> เรียกใช้ generateShiftHandover
+  * สั่งทำใบเบิก -> เรียกใช้ create_restock_requisition
   * คำสั่งที่ยังไม่มี Tool รองรับ -> ห้ามตอบว่าทำสำเร็จแล้วเด็ดขาด! ให้แจ้งตามตรงว่ายังทำผ่านแชทไม่ได้ พร้อมแนะนำปุ่ม/วิธีทำในหน้าเว็บแทน
   * คำถามสอบถามข้อมูล สต็อก คงเหลือ วันหมดอายุ ตำแหน่งจัดเก็บ คำนวณยา หรือทักทายทั่วไป -> ตอบโดยตรงจากข้อมูล JSON ด้านบนเป็น JSON ตาม Schema {"reply": "...", "choices": ["...", "...", "..."], "action": ...} (ไม่ต้องเรียก Function Call!)`;
 
       const auraFunctionDeclarations = [
         {
-          name: 'delete_all_equipment',
-          description: 'ล้างหรือลบรายการครุภัณฑ์ทั้งหมดใน Channel ปัจจุบันออกจากฐานข้อมูล เช่น "ลบของในครุออกให้หมด", "ลบครุภัณฑ์ทั้งหมด", "เคลียร์ครุ" (ระบบจะแสดงการ์ดยืนยันการลบก่อนลบจริงเสมอ)',
+          name: 'delete_specific_items',
+          description:
+            'ลบเฉพาะรายการที่ผู้ใช้ระบุชื่อหรือหมายเลข (เช่น "ลบ 11. T-piece / Tube ในเป๋า", "ลบ Ambu bag รถพยาบาล", "ลบ Monitor ห้อง OR1", "ลบยา Diazepam") ห้ามใช้ลบทั้งหมวดหมู่',
           parameters: {
             type: Type.OBJECT,
             properties: {
-              scope: {
+              category: {
                 type: Type.STRING,
-                description: 'ขอบเขตที่ต้องการลบ เช่น "all_equipment"',
+                description: 'หมวดเป้าหมาย: equipment (ครุภัณฑ์ OR), drug (คลังยา), bag (กระเป๋าฉุกเฉิน), cart (รถฉุกเฉิน), ambulance (รถพยาบาลฉุกเฉิน) หรือ all ถ้าไม่แน่ใจ',
+              },
+              itemQueries: {
+                type: Type.ARRAY,
+                description: 'ชื่อรายการ รหัส หรือเลขลำดับที่ต้องการลบ (เช่น ["11. T-piece / Tube"] หรือ ["T-piece / Tube"])',
+                items: { type: Type.STRING },
+              },
+              roomOrGroup: {
+                type: Type.STRING,
+                description: 'ห้อง OR หรือชื่อกลุ่มถ้ามีระบุ เช่น OR1, ห้องพักฟื้น, บนรถพยาบาล',
+              },
+            },
+            required: ['itemQueries'],
+          },
+        },
+        {
+          name: 'update_specific_item',
+          description:
+            'แก้ไข/อัปเดตรายการใน 5 หมวดหมู่ (equipment, drug, bag, cart, ambulance): เปลี่ยนจำนวน, วันหมดอายุ (EXP), Lot, สถานะ (ปกติ/ชำรุด/ผิดปกติ/ส่งคืน), หมายเหตุ, แก้ชื่อใหม่ หรือย้ายห้อง/หมวดหมู่',
+          parameters: {
+            type: Type.OBJECT,
+            properties: {
+              itemName: { type: Type.STRING, description: 'ชื่อรายการเดิมหรือเลขลำดับ เช่น Adrenaline, ET tube No. 7.5, Patient Monitor' },
+              targetCategory: {
+                type: Type.STRING,
+                description: 'หมวดหมู่เป้าหมายถ้าทราบ: equipment, drug, bag, cart, ambulance',
+              },
+              roomOrLocation: { type: Type.STRING, description: 'ห้องหรือกลุ่มเดิม เช่น or1, or2, pacu, bag, cart, ambulance' },
+              sizeOrSpec: { type: Type.STRING, description: 'ขนาด เบอร์ หรือเกจ เช่น No. 7.5, 18G, 10 ml' },
+              newQty: { type: Type.STRING, description: 'จำนวนใหม่ที่ต้องการตั้งค่า' },
+              newExp: { type: Type.STRING, description: 'วันหมดอายุใหม่ในรูปแบบ YYYY-MM-DD หรือ -' },
+              lotNumber: { type: Type.STRING, description: 'หมายเลข Lot ที่ต้องการบันทึก' },
+              newStatus: { type: Type.STRING, description: 'สถานะใหม่: ปกติ, ผิดปกติ, ชำรุด, ส่งคืน, เก็บสำรอง' },
+              newName: { type: Type.STRING, description: 'ชื่อใหม่กรณีสั่งเปลี่ยนชื่อรายการ' },
+              moveToRoomOrGroup: { type: Type.STRING, description: 'ห้อง OR หรือกลุ่มใหม่กรณีสั่งย้ายห้อง/ย้ายกลุ่ม เช่น or2, pacu, airway' },
+              note: { type: Type.STRING, description: 'หมายเหตุหรืออาการชำรุดเพิ่มเติม' },
+            },
+            required: ['itemName'],
+          },
+        },
+        {
+          name: 'add_new_item',
+          description:
+            'เพิ่มรายการใหม่เข้าคลังยา, กระเป๋าฉุกเฉิน, รถฉุกเฉิน, รถพยาบาลฉุกเฉิน หรือครุภัณฑ์ห้องผ่าตัด',
+          parameters: {
+            type: Type.OBJECT,
+            properties: {
+              category: {
+                type: Type.STRING,
+                description: 'หมวดเป้าหมาย: equipment, drug, bag, cart, ambulance',
+              },
+              name: { type: Type.STRING, description: 'ชื่อรายการยา/อุปกรณ์/ครุภัณฑ์ที่ต้องการเพิ่ม' },
+              groupOrRoom: {
+                type: Type.STRING,
+                description: 'ชื่อห้อง OR (เช่น or1, or2, pacu) หรือกลุ่มอุปกรณ์ (เช่น Airway, ยาฉุกเฉิน)',
+              },
+              qty: { type: Type.STRING, description: 'จำนวน เช่น 1, 5 หลอด, 2 ชุด' },
+              unit: { type: Type.STRING, description: 'หน่วย เช่น ชิ้น, หลอด, เครื่อง, ชุด (สำหรับคลังยา)' },
+              expDate: { type: Type.STRING, description: 'วันหมดอายุ YYYY-MM-DD หรือ -' },
+              spec: { type: Type.STRING, description: 'สเปก รุ่น ขนาด หรือรายละเอียดเพิ่มเติม' },
+              status: { type: Type.STRING, description: 'สถานะเริ่มต้น เช่น ปกติ' },
+              note: { type: Type.STRING, description: 'หมายเหตุ' },
+            },
+            required: ['category', 'name'],
+          },
+        },
+        {
+          name: 'navigate_or_export',
+          description:
+            'นำทางไปยังหน้าจอต่างๆ ในระบบ เปิดดูห้องตรวจเช็กครุภัณฑ์ เปิดพรีวิวส่งออกรายงาน PDF หรือเปิดหน้าต่าง Google Sheets',
+          parameters: {
+            type: Type.OBJECT,
+            properties: {
+              action: {
+                type: Type.STRING,
+                description: 'navigate, open_report_preview หรือ open_google_sheets',
+              },
+              page: {
+                type: Type.STRING,
+                description: 'home, drug_check, room_check, bag_check, ambulance_check, cart_check, eq_overview',
+              },
+              roomId: {
+                type: Type.STRING,
+                description: 'รหัสห้อง OR กรณีต้องการเปิดห้องเฉพาะ เช่น or1, or2, or3, pacu, mn1, store',
+              },
+            },
+            required: ['action'],
+          },
+        },
+        {
+          name: 'delete_all_items',
+          description:
+            'ใช้เฉพาะกรณีผู้ใช้สั่งลบ/ล้างข้อมูลทั้งหมดทั้งหมวดหมู่เท่านั้น (เช่น "ลบของในครุออกให้หมด", "เคลียร์กระเป๋าทั้งหมด", "ลบคลังยาทั้งหมด", "ล้างรถพยาบาลทั้งหมด") ห้ามใช้ลบรายการเดี่ยว!',
+          parameters: {
+            type: Type.OBJECT,
+            properties: {
+              targetCategory: {
+                type: Type.STRING,
+                description: 'หมวดหมู่ที่ต้องการลบทั้งหมด: equipment, drugs, bag, cart, ambulance',
               },
               reason: {
                 type: Type.STRING,
                 description: 'สรุปคำสั่งจากผู้ใช้',
               },
             },
-          },
-        },
-        {
-          name: 'resetChecklist',
-          description: 'ล้างข้อมูลการตรวจเช็คทั้งหมด เคลียร์ตาราง รีเซ็ต หรือเริ่มการตรวจเช็คใหม่ เช่น "ล้างของ", "เริ่มใหม่", "เคลียร์ตาราง"',
-          parameters: {
-            type: Type.OBJECT,
-            properties: {
-              target: { type: Type.STRING, description: 'เป้าหมายที่ต้องการล้าง เช่น all, bag, cart, drugs' },
-            },
-          },
-        },
-        {
-          name: 'clearTargetInventory',
-          description: 'ล้างข้อมูลหรือลบรายการทั้งหมดในหมวดหมู่/สถานที่ที่ระบุ เช่น ลบครุภัณฑ์ทั้งหมด, เคลียร์รายการในคลังยา, ลบสต็อกรถฉุกเฉิน',
-          parameters: {
-            type: Type.OBJECT,
-            properties: {
-              targetCategory: {
-                type: Type.STRING,
-                description: 'หมวดหมู่หรือปลายทางที่ต้องการลบ ได้แก่ "ครุภัณฑ์", "คลังยา", "รถฉุกเฉิน", "กระเป๋า"',
-              },
-              confirmAll: {
-                type: Type.BOOLEAN,
-                description: 'ส่งค่า true หากผู้ใช้ระบุชัดเจนว่าต้องการลบทั้งหมด/ลบออกให้หมด',
-              },
-            },
             required: ['targetCategory'],
           },
         },
         {
-          name: 'navigateToPage',
-          description: 'นำทางไปยังหน้าจอที่ผู้ใช้ต้องการ เช่น หน้ารถฉุกเฉิน, หน้ากระเป๋า, คลังยา, ห้องผ่าตัด, หน้าแรก',
+          name: 'resetChecklist',
+          description: 'ล้างค่าผลการตรวจเช็กรายสัปดาห์ (W1-W5) ให้กลับเป็นรอตรวจ โดยไม่ลบรายการอุปกรณ์ เช่น "ล้างตาราง", "เริ่มตรวจใหม่"',
           parameters: {
             type: Type.OBJECT,
             properties: {
-              page: {
-                type: Type.STRING,
-                description: 'รหัสหน้าที่ต้องการไป: bag_check, cart_check, drug_check, room_check, eq_overview, home',
-              },
+              target: { type: Type.STRING, description: 'เป้าหมายที่ต้องการล้างผลตรวจ เช่น all, bag, cart, ambulance, drugs' },
             },
-            required: ['page'],
           },
         },
         {
@@ -699,7 +779,7 @@ ${equipmentCatalogStr ? `\n[รายการครุภัณฑ์ปัจ�
           parameters: {
             type: Type.OBJECT,
             properties: {
-              category: { type: Type.STRING, description: 'หมวดหมู่ เช่น bag, cart, drug' },
+              category: { type: Type.STRING, description: 'หมวดหมู่ เช่น bag, cart, ambulance, drug' },
             },
           },
         },
@@ -714,43 +794,12 @@ ${equipmentCatalogStr ? `\n[รายการครุภัณฑ์ปัจ�
           },
         },
         {
-          name: 'updateInventoryItem',
-          description: 'อัปเดตจำนวนคงเหลือ วันหมดอายุ (EXP) หรือสถานะ (ปกติ/ผิดปกติ/ไม่ปกติ) ของยาหรืออุปกรณ์ รองรับชื่อพ้องและต้องระบุขนาดให้ตรงกันเสมอ',
-          parameters: {
-            type: Type.OBJECT,
-            properties: {
-              itemName: { type: Type.STRING, description: 'ชื่อยาหรืออุปกรณ์ (เช่น Midazolam, Epinephrine, ET tube No. 7.5, Angiocath 18G)' },
-              sizeOrSpec: { type: Type.STRING, description: 'ขนาด เบอร์ หรือเกจ ที่ระบุ (เช่น No. 7.5, 18G, 10 ml)' },
-              targetCategory: { type: Type.STRING, description: 'ตำแหน่งเป้าหมายถ้าทราบ: drug, bag, cart, room' },
-              newQty: { type: Type.STRING, description: 'จำนวนใหม่ที่ต้องการตั้งค่า' },
-              newExp: { type: Type.STRING, description: 'วันหมดอายุใหม่ในรูปแบบ YYYY-MM-DD' },
-              newStatus: { type: Type.STRING, description: 'สถานะใหม่: ปกติ หรือ ผิดปกติ' },
-              note: { type: Type.STRING, description: 'หมายเหตุหรือ Lot Number เพิ่มเติม' },
-            },
-            required: ['itemName'],
-          },
-        },
-        {
-          name: 'update_item_status',
-          description: 'ปรับสถานะการใช้งานหรือแจ้งชำรุดอุปกรณ์การแพทย์/ครุภัณฑ์ (เช่น แจ้งเครื่องช่วยหายใจ OR1 ชำรุด หรือปรับเป็นปกติ)',
-          parameters: {
-            type: Type.OBJECT,
-            properties: {
-              itemName: { type: Type.STRING, description: 'ชื่ออุปกรณ์หรือครุภัณฑ์' },
-              status: { type: Type.STRING, description: 'สถานะ: ปกติ หรือ ผิดปกติ' },
-              roomOrLocation: { type: Type.STRING, description: 'ห้องผ่าตัดหรือตำแหน่ง เช่น or1, bag, cart' },
-              note: { type: Type.STRING, description: 'รายละเอียดอาการเสียหรือหมายเหตุ' },
-            },
-            required: ['itemName', 'status'],
-          },
-        },
-        {
           name: 'create_restock_requisition',
           description: 'สร้างใบขอเบิกยา/เวชภัณฑ์เพิ่มเข้าคลังหรือรถฉุกเฉินเมื่อสต็อกต่ำกว่าเกณฑ์หรือหมดอายุ',
           parameters: {
             type: Type.OBJECT,
             properties: {
-              targetCategory: { type: Type.STRING, description: 'ปลายทาง: drug, bag, cart' },
+              targetCategory: { type: Type.STRING, description: 'ปลายทาง: drug, bag, cart, ambulance' },
               items: {
                 type: Type.ARRAY,
                 description: 'รายการยาหรืออุปกรณ์ที่ต้องการเบิกเพิ่ม',
@@ -801,34 +850,6 @@ ${equipmentCatalogStr ? `\n[รายการครุภัณฑ์ปัจ�
               totalItems: { type: Type.INTEGER },
               notes: { type: Type.STRING },
             },
-          },
-        },
-        {
-          name: 'update_equipment_or_drug_status',
-          description: 'ปรับเปลี่ยนสถานะของครุภัณฑ์หรือยา เช่น แจ้งชำรุด, ส่งคืน, ปกติ, ตรวจผ่าน, เก็บสำรอง',
-          parameters: {
-            type: Type.OBJECT,
-            properties: {
-              targetType: { type: Type.STRING, description: 'equipment, drug, bag, cart' },
-              itemId: { type: Type.STRING },
-              itemName: { type: Type.STRING },
-              status: { type: Type.STRING, description: 'ปกติ, ชำรุด, ส่งคืน, เก็บสำรอง' },
-              roomOrLocation: { type: Type.STRING },
-              note: { type: Type.STRING },
-            },
-            required: ['targetType', 'status'],
-          },
-        },
-        {
-          name: 'navigate_app',
-          description: 'นำทางไปยังหน้าจอต่างๆ ในระบบ เช่น หน้าหลัก, คลังยา, กระเป๋าฉุกเฉิน, รถฉุกเฉิน, ห้องผ่าตัด, สรุปรายงาน',
-          parameters: {
-            type: Type.OBJECT,
-            properties: {
-              targetView: { type: Type.STRING, description: 'home, drug, bag, cart, room, eq_overview, report_preview' },
-              roomId: { type: Type.STRING },
-            },
-            required: ['targetView'],
           },
         },
       ];
@@ -1234,27 +1255,36 @@ ${equipmentCatalogStr ? `\n[รายการครุภัณฑ์ปัจ�
       if (primaryCall) {
         const fnName = primaryCall.name;
         const fnArgs = (primaryCall.args as any) || {};
-        if (fnName === 'delete_all_equipment' || fnName === 'clear_category_items' || fnName === 'clearTargetInventory') {
+        if (fnName === 'delete_specific_items') {
+          suggestedChoices = ['📋 สรุปส่งเวร (Shift Handover)', '💼 เปิดกระเป๋าฉุกเฉิน', '🚑 เปิดรถพยาบาลฉุกเฉิน'];
+        } else if (fnName === 'delete_all_items' || fnName === 'delete_all_equipment' || fnName === 'clear_category_items' || fnName === 'clearTargetInventory') {
           suggestedChoices = ['🏥 เปิดภาพรวมครุภัณฑ์', '📋 สรุปส่งเวร (Shift Handover)', '💊 เช็กสต็อกคลังยาวิสัญญี'];
+        } else if (fnName === 'add_new_item') {
+          suggestedChoices = ['📋 สรุปส่งเวร (Shift Handover)', '🏥 เปิดภาพรวมครุภัณฑ์', '💼 เปิดกระเป๋าฉุกเฉิน'];
         } else if (fnName === 'resetChecklist') {
-          suggestedChoices = ['🚗 ตรวจเช็กรถฉุกเฉิน', '💼 ตรวจเช็กกระเป๋าฉุกเฉิน', '💊 เช็กสต็อกคลังยาวิสัญญี'];
-        } else if (fnName === 'navigateToPage') {
-          const page = fnArgs.page || '';
+          suggestedChoices = ['🚨 ตรวจเช็กรถฉุกเฉิน', '💼 ตรวจเช็กกระเป๋าฉุกเฉิน', '🚑 ตรวจเช็กรถพยาบาลฉุกเฉิน'];
+        } else if (fnName === 'navigate_or_export' || fnName === 'navigateToPage' || fnName === 'navigate_app') {
+          const page = String(fnArgs.page || fnArgs.targetView || '');
           if (page.includes('cart')) {
             suggestedChoices = ['📸 สแกนใบตรวจเช็กรถ', '✅ เช็กครบทุกรายการในรถ', '💊 ตรวจยาวิสัญญี'];
+          } else if (page.includes('ambulance')) {
+            suggestedChoices = ['✅ เช็กครบรถพยาบาล', '💼 ไปหน้ากระเป๋าฉุกเฉิน', '📋 สรุปส่งเวร (Shift Handover)'];
           } else if (page.includes('bag')) {
-            suggestedChoices = ['📸 สแกนใบตรวจเช็กกระเป๋า', '✅ เช็กครบทุกรายการในกระเป๋า', '🚗 ไปหน้ารถฉุกเฉิน'];
+            suggestedChoices = ['📸 สแกนใบตรวจเช็กกระเป๋า', '✅ เช็กครบทุกรายการในกระเป๋า', '🚨 ไปหน้ารถฉุกเฉิน'];
           } else if (page.includes('drug')) {
             suggestedChoices = ['⚠️ สรุปยาใกล้หมดอายุ', '📦 เช็กสต็อก Adrenaline', '📋 สรุปส่งเวร (Shift Handover)'];
           } else {
-            suggestedChoices = ['📋 สรุปส่งเวร (Shift Handover)', '🚗 ตรวจเช็กรถฉุกเฉิน', '💼 ตรวจเช็กกระเป๋าฉุกเฉิน'];
+            suggestedChoices = ['📋 สรุปส่งเวร (Shift Handover)', '🚨 ตรวจเช็กรถฉุกเฉิน', '💼 ตรวจเช็กกระเป๋าฉุกเฉิน'];
+          }
+          if (fnName === 'navigate_app' || fnName === 'navigate_or_export') {
+            replyText = replyText || `กำลังดำเนินการเปิดหน้าที่ต้องการให้แล้วค่ะ ✨🌸`;
           }
         } else if (fnName === 'auditPaperChecklist') {
-          suggestedChoices = ['📸 ถ่ายรูปหรือแนบภาพใบตรวจเช็ค', '🚗 ไปหน้ารถฉุกเฉิน', '💼 ไปหน้ากระเป๋าฉุกเฉิน'];
+          suggestedChoices = ['📸 ถ่ายรูปหรือแนบภาพใบตรวจเช็ค', '🚨 ไปหน้ารถฉุกเฉิน', '💼 ไปหน้ากระเป๋าฉุกเฉิน'];
         } else if (fnName === 'generateShiftHandover') {
-          suggestedChoices = ['⚠️ สรุปยาใกล้หมดอายุ', '🚗 ไปหน้ารถฉุกเฉิน', '💼 ไปหน้ากระเป๋าฉุกเฉิน'];
-        } else if (fnName === 'updateInventoryItem' || fnName === 'update_item_status') {
-          suggestedChoices = ['📋 สรุปส่งเวร (Shift Handover)', '💊 ตรวจสอบคลังยา', '🚗 ไปหน้ารถฉุกเฉิน'];
+          suggestedChoices = ['⚠️ สรุปยาใกล้หมดอายุ', '🚨 ไปหน้ารถฉุกเฉิน', '💼 ไปหน้ากระเป๋าฉุกเฉิน'];
+        } else if (fnName === 'update_specific_item' || fnName === 'updateInventoryItem' || fnName === 'update_item_status' || fnName === 'update_equipment_or_drug_status') {
+          suggestedChoices = ['📋 สรุปส่งเวร (Shift Handover)', '💊 ตรวจสอบคลังยา', '🏥 เปิดภาพรวมครุภัณฑ์'];
         } else if (fnName === 'create_restock_requisition') {
           suggestedChoices = ['💊 เปิดหน้าคลังยา', '📋 สรุปส่งเวร (Shift Handover)', '⚠️ สรุปยาใกล้หมดอายุ'];
         } else if (fnName === 'attach_photos_by_number') {
@@ -1267,19 +1297,13 @@ ${equipmentCatalogStr ? `\n[รายการครุภัณฑ์ปัจ�
         } else if (fnName === 'import_equipment_from_table') {
           replyText = replyText || 'น้องออร่าเตรียมนำเข้าครุภัณฑ์จากตารางให้แล้วค่ะ ✨🌸';
           suggestedChoices = ['📋 ตรวจสอบรายการ', '🏥 เปิดดูหน้าครุภัณฑ์'];
-        } else if (fnName === 'update_equipment_or_drug_status') {
-          replyText = replyText || `อัปเดตสถานะ ${fnArgs.itemName || fnArgs.itemId || 'รายการ'} เป็น "${fnArgs.status}" เรียบร้อยแล้วค่ะ ✨🌸`;
-          suggestedChoices = ['📋 สรุปส่งเวร (Shift Handover)', '🏥 เปิดดูหน้าครุภัณฑ์'];
-        } else if (fnName === 'navigate_app') {
-          replyText = replyText || `กำลังนำทางไปยัง ${fnArgs.targetView || 'หน้าที่ต้องการ'} ค่ะ ✨🌸`;
-          suggestedChoices = ['📋 สรุปส่งเวร (Shift Handover)', '🏥 เปิดดูหน้าครุภัณฑ์'];
         }
       } else if (!parsedAction) {
-        const looksLikeFakeExecution = /(ดำเนินการ.*เรียบร้อย|ลบ.*เรียบร้อย|ลบ.*ทั้งหมดแล้ว|บันทึก.*เรียบร้อยแล้ว|อัปเดต.*เรียบร้อยแล้ว)/i.test(replyText);
+        const looksLikeFakeExecution = /(ดำเนินการ.*เรียบร้อย|ลบ.*เรียบร้อย|ลบ.*ทั้งหมดแล้ว|บันทึก.*เรียบร้อยแล้ว|อัปเดต.*เรียบร้อยแล้ว|เพิ่ม.*เรียบร้อยแล้ว|ย้าย.*เรียบร้อยแล้ว)/i.test(replyText);
         if (looksLikeFakeExecution && isLikelyActionCommand(promptText)) {
           replyText =
-            'ขออภัยค่ะ คำสั่งนี้ยังไม่ได้ถูกดำเนินการกับฐานข้อมูลจริงผ่านแชทอัตโนมัติในรอบนี้ ✨\n\nรบกวนพี่พยาบาลระบุคำสั่งให้ชัดเจนขึ้น (เช่น "ลบครุภัณฑ์ทั้งหมด") หรือดำเนินการผ่านปุ่มจัดการในหน้าเว็บโดยตรงได้เลยนะคะ';
-          suggestedChoices = ['🏥 เปิดภาพรวมครุภัณฑ์', '🗑️ ลบครุภัณฑ์ทั้งหมด', '📋 สรุปส่งเวร (Shift Handover)'];
+            'ขออภัยค่ะ คำสั่งนี้ยังไม่ได้ถูกดำเนินการกับฐานข้อมูลจริงผ่านแชทอัตโนมัติในรอบนี้ ✨\n\nรบกวนพี่พยาบาลระบุชื่อรายการ/หมวดหมู่ให้ชัดเจนขึ้น (เช่น "ลบ 11. T-piece / Tube ในเป๋า") หรือดำเนินการผ่านปุ่มจัดการในหน้าเว็บโดยตรงได้เลยนะคะ';
+          suggestedChoices = ['🏥 เปิดภาพรวมครุภัณฑ์', '💼 เปิดกระเป๋าฉุกเฉิน', '📋 สรุปส่งเวร (Shift Handover)'];
         }
       }
 

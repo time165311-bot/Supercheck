@@ -45,12 +45,12 @@ export const DrugItemCard: React.FC<DrugItemCardProps> = React.memo(({
     : 'พร้อมใช้';
 
   const statusTone = isExpired
-    ? 'bg-rose-500/12 text-rose-700 dark:bg-rose-500/20 dark:text-[#F28B82] border border-rose-200/80 dark:border-rose-500/30'
+    ? 'bg-rose-500/10 text-rose-700 dark:bg-rose-500/15 dark:text-[#F28B82] border border-rose-500/20 dark:border-rose-500/25'
     : isExpiringSoon
-    ? 'bg-amber-500/12 text-amber-700 dark:bg-amber-500/20 dark:text-[#FDD663] border border-amber-200/80 dark:border-amber-500/30'
+    ? 'bg-amber-500/10 text-amber-700 dark:bg-amber-500/15 dark:text-[#FDD663] border border-amber-500/20 dark:border-amber-500/25'
     : isLowStock
-    ? 'bg-orange-500/12 text-orange-700 dark:bg-orange-500/20 dark:text-orange-300 border border-orange-200/80 dark:border-orange-500/30'
-    : 'bg-emerald-500/12 text-emerald-700 dark:bg-emerald-500/20 dark:text-[#81C995] border border-emerald-200/80 dark:border-emerald-500/30';
+    ? 'bg-orange-500/10 text-orange-700 dark:bg-orange-500/15 dark:text-orange-300 border border-orange-500/20 dark:border-orange-500/25'
+    : 'bg-emerald-500/10 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400 border border-emerald-500/20 dark:border-emerald-500/25';
 
   return (
     <div
@@ -68,27 +68,27 @@ export const DrugItemCard: React.FC<DrugItemCardProps> = React.memo(({
 
         <div className="space-y-0.5 min-w-0 flex-1">
           <div className="flex items-center gap-2 min-w-0">
-            <h3 className="text-xs sm:text-sm font-bold text-slate-800 dark:text-[#E3E3E3] truncate leading-tight">
+            <h3 className="text-xs sm:text-sm md:text-base font-bold text-slate-800 dark:text-[#E3E3E3] truncate leading-tight">
               {item.name}
             </h3>
             {item.unit && (
-              <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-[#282A2C] text-slate-600 dark:text-[#C4C7C5] text-[10px] font-bold border border-slate-200 dark:border-white/10 shrink-0 whitespace-nowrap">
+              <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-400 text-[10px] md:text-xs font-semibold border border-transparent shrink-0 whitespace-nowrap">
                 {item.unit}
               </span>
             )}
             {(item.tmtCode || item.hospitalDrugCode) && (
-              <span className="hidden sm:inline-block px-1.5 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 text-[9px] font-mono font-bold border border-indigo-200 dark:border-indigo-500/30 shrink-0 whitespace-nowrap">
+              <span className="hidden sm:inline-block px-1.5 py-0.5 rounded-md bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-400 text-[9px] md:text-[11px] font-mono font-semibold border border-transparent shrink-0 whitespace-nowrap">
                 {item.tmtCode || item.hospitalDrugCode}
               </span>
             )}
           </div>
 
-          <div className="flex items-center gap-2.5 text-[11px] text-slate-500 dark:text-[#8E918F] flex-wrap font-sans">
+          <div className="flex items-center gap-2.5 text-[11px] md:text-xs text-slate-500 dark:text-[#8E918F] flex-wrap font-sans">
             <span className="tabular-nums">
               คงเหลือ: <b className="text-slate-900 dark:text-[#E3E3E3] font-extrabold">{item.remaining}</b> {item.unit || ''} (Min: {item.minStock})
             </span>
             {((item.lots && item.lots.length > 0) || item.lotNumber) && (
-              <span className="px-1.5 py-0.5 rounded bg-blue-50 dark:bg-[#A8C7FA]/15 text-blue-700 dark:text-[#A8C7FA] text-[10px] font-mono font-bold border border-blue-200 dark:border-[#A8C7FA]/25 shrink-0 whitespace-nowrap">
+              <span className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-400 text-[10px] md:text-xs font-mono font-semibold border border-transparent shrink-0 whitespace-nowrap">
                 {item.lots && item.lots.length > 1
                   ? `${item.lots.length} Lots (FEFO)`
                   : `Lot: ${item.lots?.[0]?.lotNumber || item.lotNumber}`}
@@ -100,7 +100,7 @@ export const DrugItemCard: React.FC<DrugItemCardProps> = React.memo(({
                   EXP: <span className={isCurrentYear ? 'underline' : ''}>{item.expDate}</span>
                 </span>
                 {isCurrentYear && (
-                  <span className="px-1.5 py-0.5 rounded bg-rose-100 dark:bg-rose-500/20 text-rose-700 dark:text-[#F28B82] text-[9px] font-bold border border-rose-200 dark:border-rose-500/30 shrink-0 whitespace-nowrap">
+                  <span className="px-1.5 py-0.5 rounded bg-rose-100 dark:bg-rose-500/20 text-rose-700 dark:text-[#F28B82] text-[9px] md:text-[11px] font-bold border border-rose-200 dark:border-rose-500/30 shrink-0 whitespace-nowrap">
                     EXP ปีนี้
                   </span>
                 )}
@@ -114,7 +114,7 @@ export const DrugItemCard: React.FC<DrugItemCardProps> = React.memo(({
       <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto justify-between sm:justify-end pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100 dark:border-white/10">
         {/* Status Badge (Locked shrink-0 & whitespace-nowrap) */}
         <span
-          className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase shrink-0 whitespace-nowrap ${statusTone}`}
+          className={`px-2.5 py-1 rounded-lg text-[10px] md:text-xs font-bold uppercase shrink-0 whitespace-nowrap ${statusTone}`}
         >
           {statusLabel}
         </span>
@@ -132,7 +132,7 @@ export const DrugItemCard: React.FC<DrugItemCardProps> = React.memo(({
           >
             <Minus className="w-3.5 h-3.5" />
           </button>
-          <span className="w-9 text-center font-extrabold text-xs text-slate-900 dark:text-[#E3E3E3] tabular-nums">
+          <span className="w-9 text-center font-extrabold text-xs md:text-sm text-slate-900 dark:text-[#E3E3E3] tabular-nums">
             {item.remaining}
           </span>
           <button
@@ -152,7 +152,7 @@ export const DrugItemCard: React.FC<DrugItemCardProps> = React.memo(({
         <button
           type="button"
           onClick={() => onSelectDetail(item)}
-          className="px-2.5 py-1.5 rounded-xl bg-blue-50 dark:bg-[#A8C7FA]/15 hover:bg-blue-100 dark:hover:bg-[#A8C7FA]/25 text-blue-700 dark:text-[#A8C7FA] font-bold text-xs flex items-center gap-1 transition-colors active:opacity-80 cursor-pointer border border-blue-100 dark:border-[#A8C7FA]/25 shrink-0 whitespace-nowrap touch-manipulation"
+          className="px-2.5 py-1.5 rounded-xl bg-blue-50 dark:bg-[#A8C7FA]/15 hover:bg-blue-100 dark:hover:bg-[#A8C7FA]/25 text-blue-700 dark:text-[#A8C7FA] font-bold text-xs md:text-sm flex items-center gap-1 transition-colors active:opacity-80 cursor-pointer border border-blue-100 dark:border-[#A8C7FA]/25 shrink-0 whitespace-nowrap touch-manipulation"
           title="ดูรายละเอียดข้อมูลยาครบถ้วน"
         >
           <Info className="w-3.5 h-3.5 shrink-0" />
@@ -212,12 +212,12 @@ export const ItemCard: React.FC<GenericItemCardProps> = React.memo(({
 }) => {
   const badgeClasses =
     statusVariant === 'danger'
-      ? 'bg-rose-600 text-white'
+      ? 'bg-rose-500/10 text-rose-700 border border-rose-500/20 dark:bg-rose-500/15 dark:text-rose-400 dark:border-rose-500/25'
       : statusVariant === 'low'
-      ? 'bg-amber-500 text-white'
+      ? 'bg-amber-500/10 text-amber-700 border border-amber-500/20 dark:bg-amber-500/15 dark:text-amber-400 dark:border-amber-500/25'
       : statusVariant === 'neutral'
-      ? 'bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200'
-      : 'bg-emerald-600 text-white';
+      ? 'bg-slate-100 text-slate-600 border border-transparent dark:bg-white/5 dark:text-slate-400'
+      : 'bg-emerald-500/10 text-emerald-700 border border-emerald-500/20 dark:bg-emerald-500/15 dark:text-emerald-400 dark:border-emerald-500/25';
 
   return (
     <div
@@ -227,11 +227,11 @@ export const ItemCard: React.FC<GenericItemCardProps> = React.memo(({
       }`}
     >
       <div className="min-w-0 flex-1 space-y-0.5">
-        <p className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white truncate">
+        <p className="text-xs sm:text-sm md:text-base font-bold text-slate-900 dark:text-white truncate">
           {title}
         </p>
         {(subtitle || quantity !== undefined) && (
-          <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate tabular-nums">
+          <p className="text-[11px] md:text-xs text-slate-500 dark:text-slate-400 truncate tabular-nums">
             {quantity !== undefined ? `จำนวน: ${quantity}${unit ? ` ${unit}` : ''}` : ''}
             {quantity !== undefined && subtitle ? ' • ' : ''}
             {subtitle || ''}
@@ -239,7 +239,7 @@ export const ItemCard: React.FC<GenericItemCardProps> = React.memo(({
         )}
       </div>
       <div className="flex items-center gap-2 shrink-0">
-        <span className={`px-2.5 py-1 rounded-lg text-[10px] font-bold shrink-0 whitespace-nowrap ${badgeClasses}`}>
+        <span className={`px-2.5 py-1 rounded-lg text-[10px] md:text-xs font-bold shrink-0 whitespace-nowrap ${badgeClasses}`}>
           {statusLabel}
         </span>
         {rightSlot}

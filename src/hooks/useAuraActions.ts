@@ -14,6 +14,8 @@ import {
   clearAllEquipmentInFirebase,
   clearChannelDrugsInFirebase,
   clearChannelEquipmentInFirebase,
+  deleteChannelDrugItemInFirebase,
+  deleteChannelEquipmentItemInFirebase,
   saveChannelBatchDrugsToFirebase,
   saveChannelBatchEquipmentToFirebase,
   saveChannelDataToFirebase,
@@ -24,9 +26,14 @@ import {
   saveRestockRequisitionToFirebase,
 } from '../services/firebase';
 import {
+  addDeletedItemIds,
   getChannelChecksKey,
+  getChannelDbKey,
   getChannelListsKey,
   getChannelWeekDatesKey,
+  getDeletedItemIds,
+  makeItemTombstoneTokens,
+  removeDeletedItemIds,
   setStored,
   STORAGE_KEYS,
 } from '../services/storage';
@@ -35,7 +42,7 @@ import { getLocalClearedFlags, persistClearedFlags } from './useChannelSync';
 import { clearChannelCategory } from '../services/aiEngine';
 import { logAuditEvent } from '../services/auditLogger';
 import { sendInspectionToGas } from '../services/api';
-import { matchMedicalItemName, parseExpDateObj, getRealTargetCheckValue } from '../utils/itemUtils';
+import { matchMedicalItemName, parseExpDateObj, getRealTargetCheckValue, sortItemsNaturally } from '../utils/itemUtils';
 import { getWednesdaysInfoForMonth, getWednesdaysIsoDates } from '../utils/wednesdayUtils';
 
 export interface UseAuraActionsParams {
@@ -48,11 +55,11 @@ export interface UseAuraActionsParams {
   setDrugs: Dispatch<SetStateAction<DrugItem[]>>;
   equipment: Record<string, EquipmentItem[]>;
   setEquipment: Dispatch<SetStateAction<Record<string, EquipmentItem[]>>>;
-  lists: Record<'bag' | 'cart', ListConfig>;
+  lists: Record<'bag' | 'cart' | 'ambulance' | string, ListConfig>;
   setLists: (
     newLists:
-      | Record<'bag' | 'cart', ListConfig>
-      | ((prev: Record<'bag' | 'cart', ListConfig>) => Record<'bag' | 'cart', ListConfig>)
+      | Record<'bag' | 'cart' | 'ambulance' | string, ListConfig>
+      | ((prev: Record<'bag' | 'cart' | 'ambulance' | string, ListConfig>) => Record<'bag' | 'cart' | 'ambulance' | string, ListConfig>)
   ) => void;
   globalChecks: Record<string, Record<string, CheckItemState>>;
   setGlobalChecks: (
@@ -70,6 +77,7 @@ export interface UseAuraActionsParams {
   ) => void;
   formattedBagItems: any[];
   formattedCartItems: any[];
+  formattedAmbulanceItems?: any[];
   setHistoryRecords: Dispatch<SetStateAction<InspectionHistoryRecord[]>>;
   setPendingClearCategory: Dispatch<SetStateAction<string | null>>;
   reRenderData: () => void;
@@ -165,6 +173,7 @@ export function useAuraActions(params: UseAuraActionsParams) {
     setEmergencyWeekDates,
     formattedBagItems,
     formattedCartItems,
+    formattedAmbulanceItems = [],
     setHistoryRecords,
     setPendingClearCategory,
     reRenderData,
@@ -177,9 +186,9 @@ export function useAuraActions(params: UseAuraActionsParams) {
 
   // Aura Smart Bulk Auto-Check Engine (100% Pass with true sub-item quantities & auto-calculated Wednesdays)
   const handleAuraBulkAutoCheck = useCallback(
-    async (arg: { categories: ('bag' | 'cart')[]; weeks: number[] }) => {
-      const categories: ('bag' | 'cart')[] =
-        arg.categories.length > 0 ? arg.categories : ['bag', 'cart'];
+    async (arg: { categories: ('bag' | 'cart' | 'ambulance')[]; weeks: number[] }) => {
+      const categories: ('bag' | 'cart' | 'ambulance')[] =
+        arg.categories.length > 0 ? arg.categories : ['bag', 'cart', 'ambulance'];
       const wedIsoMap = getWednesdaysIsoDates(new Date());
       const wedInfo = getWednesdaysInfoForMonth(new Date());
       const weeks = arg.weeks.length > 0 ? arg.weeks : wedInfo.weeks;
@@ -237,10 +246,17 @@ export function useAuraActions(params: UseAuraActionsParams) {
       const primaryWeek = weeks[0] || 1;
       const finalWeekDates = nextWeekDates[primaryCat] || {};
 
-      const itemsForSnapshot = primaryCat === 'bag' ? formattedBagItems : formattedCartItems;
+      const itemsForSnapshot =
+        primaryCat === 'bag'
+          ? formattedBagItems
+          : primaryCat === 'ambulance'
+          ? formattedAmbulanceItems
+          : formattedCartItems;
       const catTitle =
         primaryCat === 'bag'
           ? 'แบบฟอร์มตรวจสอบความพร้อม กระเป๋า Emergency'
+          : primaryCat === 'ambulance'
+          ? 'แบบฟอร์มตรวจสอบความพร้อม รถพยาบาลฉุกเฉิน'
           : 'แบบฟอร์มตรวจสอบความพร้อม รถ Emergency';
       const newRecord: InspectionHistoryRecord = {
         id: `${primaryCat}_wk${primaryWeek}_${Date.now()}`,
@@ -249,7 +265,7 @@ export function useAuraActions(params: UseAuraActionsParams) {
         type: primaryCat,
         title: `${catTitle} (สัปดาห์ที่ ${primaryWeek})`,
         who: currentUser?.name || 'ผู้ดูแลระบบ (Admin)',
-        rows: itemsForSnapshot.map((it) => ({
+        rows: itemsForSnapshot.map((it: any) => ({
           ...it,
           val: getRealTargetCheckValue(it as any),
           res: 'ใช้งานได้',
@@ -275,6 +291,7 @@ export function useAuraActions(params: UseAuraActionsParams) {
       activeChannelId,
       currentUser,
       emergencyWeekDates,
+      formattedAmbulanceItems,
       formattedBagItems,
       formattedCartItems,
       globalChecks,
@@ -330,12 +347,40 @@ export function useAuraActions(params: UseAuraActionsParams) {
           details: { category: 'equipment', channelId, note: 'ล้างข้อมูลครุภัณฑ์ทุกห้อง (ยืนยันโดยผู้ใช้)' },
           currentUser,
         });
+      } else if (q.includes('พยาบาล') || q.includes('ambulance') || q.includes('รถพยาบาล')) {
+        const { clearedCount } = clearChannelCategory(channelId, 'ambulance');
+        const nextLists = {
+          ...lists,
+          ambulance: {
+            ...(lists.ambulance || { title: 'รถพยาบาลฉุกเฉิน', sheet: 'รถ Ambulance', groups: {} }),
+            groups: {},
+          },
+        };
+        setLists(nextLists);
+        setStored(getChannelListsKey(channelId), nextLists);
+        if (isMaster) {
+          setStored(STORAGE_KEYS.CUSTOM_LISTS, nextLists);
+          await clearAllEquipmentInFirebase('ambulance').catch(() => {});
+          await persistClearedFlags({ ambulanceCleared: true }, channelId);
+        } else {
+          await clearChannelEquipmentInFirebase(channelId, 'ambulance').catch(() => {});
+        }
+        reRenderData();
+        logAuditEvent({
+          action: 'CLEAR_AMBULANCE',
+          targetCollection: 'ambulance',
+          targetId: channelId,
+          details: { clearedCount, note: 'ล้างข้อมูลรถพยาบาลฉุกเฉิน (ยืนยันโดยผู้ใช้)' },
+          currentUser,
+        });
       } else if (q.includes('รถ') || q.includes('cart')) {
         const { clearedCount } = clearChannelCategory(channelId, 'cart');
         reRenderData();
         if (isMaster) {
           await clearAllEquipmentInFirebase('cart').catch(() => {});
           await persistClearedFlags({ cartCleared: true }, channelId);
+        } else {
+          await clearChannelEquipmentInFirebase(channelId, 'cart').catch(() => {});
         }
         logAuditEvent({
           action: 'CLEAR_CART',
@@ -350,6 +395,8 @@ export function useAuraActions(params: UseAuraActionsParams) {
         if (isMaster) {
           await clearAllEquipmentInFirebase('bag').catch(() => {});
           await persistClearedFlags({ bagCleared: true }, channelId);
+        } else {
+          await clearChannelEquipmentInFirebase(channelId, 'bag').catch(() => {});
         }
         logAuditEvent({
           action: 'CLEAR_BAG',
@@ -361,7 +408,7 @@ export function useAuraActions(params: UseAuraActionsParams) {
       }
       setPendingClearCategory(null);
     },
-    [activeChannelId, currentUser, reRenderData, setDrugs, setEquipment, setPendingClearCategory]
+    [activeChannelId, currentUser, lists, reRenderData, setDrugs, setEquipment, setLists, setPendingClearCategory]
   );
 
   const createAuraSnapshot = useCallback(
@@ -382,6 +429,7 @@ export function useAuraActions(params: UseAuraActionsParams) {
           equipmentCleared: currentFlags.equipmentCleared,
           bagCleared: currentFlags.bagCleared,
           cartCleared: currentFlags.cartCleared,
+          ambulanceCleared: currentFlags.ambulanceCleared,
         },
       };
     },
@@ -574,13 +622,15 @@ export function useAuraActions(params: UseAuraActionsParams) {
 
   const handleAuraUpdateItem = useCallback(
     async (arg: {
-      targetType: 'drug' | 'bag' | 'cart' | 'room';
+      targetType: 'drug' | 'bag' | 'cart' | 'ambulance' | 'room';
       itemId: string;
       roomId?: string;
       newExp?: string;
       lotNumber?: string;
       newQty?: string | number;
-      newStatus?: 'ปกติ' | 'ผิดปกติ' | 'ไม่ปกติ';
+      newStatus?: 'ปกติ' | 'ผิดปกติ' | 'ไม่ปกติ' | 'ชำรุด' | 'ส่งคืน' | 'เก็บสำรอง';
+      newName?: string;
+      moveToRoomOrGroup?: string;
       note?: string;
     }): Promise<{ success: boolean; updatedName: string }> => {
       const channelId = activeChannelId || 'channel_master';
@@ -589,13 +639,14 @@ export function useAuraActions(params: UseAuraActionsParams) {
       const lotTag = arg.lotNumber && arg.lotNumber.trim() ? `Lot: ${arg.lotNumber.trim()}` : '';
       const extraNote = [lotTag, arg.note?.trim()].filter(Boolean).join(' | ');
       const normalizedStatus = arg.newStatus ? normalizeCheckResultStatus(arg.newStatus) : undefined;
+      const cleanNewName = arg.newName && arg.newName.trim() ? arg.newName.trim() : undefined;
 
       if (arg.targetType === 'drug') {
         let updatedName = '';
         let updatedDrugItem: DrugItem | null = null;
         const nextDrugs = drugs.map((d) => {
           if (d.id !== arg.itemId) return d;
-          updatedName = d.name;
+          updatedName = cleanNewName || d.name;
           const nextQtyNum =
             arg.newQty !== undefined && arg.newQty !== '' && !isNaN(Number(arg.newQty))
               ? Number(arg.newQty)
@@ -607,8 +658,10 @@ export function useAuraActions(params: UseAuraActionsParams) {
             : d.note;
           updatedDrugItem = {
             ...d,
+            ...(cleanNewName ? { name: cleanNewName } : {}),
             ...(arg.newExp ? { expDate: arg.newExp, exp: arg.newExp } : {}),
             ...(nextQtyNum !== undefined ? { remaining: nextQtyNum, totalQty: nextQtyNum } : {}),
+            ...(arg.moveToRoomOrGroup ? { location: arg.moveToRoomOrGroup.trim() } : {}),
             note: (mergedNote || '').slice(0, 950),
           };
           return updatedDrugItem;
@@ -636,7 +689,7 @@ export function useAuraActions(params: UseAuraActionsParams) {
         return { success: true, updatedName };
       }
 
-      if (arg.targetType === 'bag' || arg.targetType === 'cart') {
+      if (arg.targetType === 'bag' || arg.targetType === 'cart' || arg.targetType === 'ambulance') {
         const cat = arg.targetType;
         const currentList = lists[cat];
         if (!currentList?.groups) return { success: false, updatedName: '' };
@@ -644,43 +697,60 @@ export function useAuraActions(params: UseAuraActionsParams) {
         let updatedName = '';
         let matchedItemKey = '';
         let updatedEquipItem: EquipmentItem | null = null;
+        let sourceGroup = '';
         const nextGroups: Record<string, EquipmentItem[]> = {};
 
         Object.entries(currentList.groups).forEach(([gName, gItems]) => {
-          nextGroups[gName] = (gItems || []).map((it, idx) => {
+          const remainingInGroup: EquipmentItem[] = [];
+          (gItems || []).forEach((it, idx) => {
             const itemKey = it.id || `${cat}_${gName}_${idx}`;
             if (itemKey === arg.itemId || it.id === arg.itemId) {
-              updatedName = it.name;
+              updatedName = cleanNewName || it.name;
               matchedItemKey = itemKey;
+              sourceGroup = gName;
               const mergedNote = extraNote
                 ? it.note && !it.note.includes(extraNote)
                   ? `${it.note} (${extraNote})`
                   : extraNote
                 : it.note;
+              const targetGroup = arg.moveToRoomOrGroup?.trim() || gName;
               updatedEquipItem = {
                 ...it,
                 id: it.id || itemKey,
                 type: cat,
+                category: targetGroup,
+                location: targetGroup,
+                ...(cleanNewName ? { name: cleanNewName } : {}),
                 ...(arg.newExp ? { exp: arg.newExp } : {}),
                 ...(arg.newQty !== undefined && String(arg.newQty).trim() !== ''
                   ? { qty: String(arg.newQty), unitText: String(arg.newQty) }
                   : {}),
                 ...(mergedNote ? { note: mergedNote.slice(0, 950) } : {}),
               };
-              return updatedEquipItem;
+              if (targetGroup === gName) {
+                remainingInGroup.push(updatedEquipItem);
+              }
+            } else {
+              remainingInGroup.push(it);
             }
-            return it;
           });
+          nextGroups[gName] = remainingInGroup;
         });
 
         if (!updatedEquipItem) return { success: false, updatedName: '' };
+        const destGroup = arg.moveToRoomOrGroup?.trim();
+        if (destGroup && destGroup !== sourceGroup) {
+          nextGroups[destGroup] = sortItemsNaturally([...(nextGroups[destGroup] || []), updatedEquipItem]);
+        }
 
         const updatedLists = { ...lists, [cat]: { ...currentList, groups: nextGroups } };
         setLists(updatedLists);
-        setStored(getChannelListsKey(activeChannelId), updatedLists);
-        if (activeChannelId === 'channel_master') {
+        setStored(getChannelListsKey(channelId), updatedLists);
+        if (channelId === 'channel_master') {
           setStored(STORAGE_KEYS.CUSTOM_LISTS, updatedLists);
           await saveEquipmentItemToFirebase(updatedEquipItem).catch(() => {});
+        } else {
+          await saveChannelEquipmentItemToFirebase(channelId, updatedEquipItem).catch(() => {});
         }
 
         let nextGlobal = globalChecks;
@@ -695,12 +765,17 @@ export function useAuraActions(params: UseAuraActionsParams) {
           };
           nextGlobal = { ...globalChecks, [cat]: catChecks };
           setGlobalChecks(nextGlobal);
-          setStored(getChannelChecksKey(activeChannelId), nextGlobal);
+          setStored(getChannelChecksKey(channelId), nextGlobal);
         }
 
-        const channelPayload = { lists: updatedLists, globalChecks: nextGlobal, emergencyWeekDates };
-        setStored(`anesthesia_db_${activeChannelId}`, channelPayload);
-        await saveChannelDataToFirebase(activeChannelId, channelPayload).catch(() => {});
+        const channelPayload = {
+          lists: updatedLists,
+          globalChecks: nextGlobal,
+          emergencyWeekDates,
+          deletedItemIds: getDeletedItemIds(channelId),
+        };
+        setStored(getChannelDbKey(channelId), channelPayload);
+        await saveChannelDataToFirebase(channelId, channelPayload).catch(() => {});
         reRenderData();
 
         logAuditEvent({
@@ -713,6 +788,7 @@ export function useAuraActions(params: UseAuraActionsParams) {
             lotNumber: arg.lotNumber,
             newQty: arg.newQty,
             newStatus: normalizedStatus,
+            moveToRoomOrGroup: destGroup,
           },
           currentUser,
         });
@@ -724,71 +800,99 @@ export function useAuraActions(params: UseAuraActionsParams) {
         const targetRoomId =
           arg.roomId ||
           Object.keys(equipment).find((rId) =>
-            (equipment[rId] || []).some((it) => it.id === arg.itemId)
+            (equipment[rId] || []).some((it, idx) => it.id === arg.itemId || `${rId}_${idx}` === arg.itemId)
           );
         if (!targetRoomId || !equipment[targetRoomId]) return { success: false, updatedName: '' };
 
         let updatedName = '';
         let updatedRoomItem: EquipmentItem | null = null;
-        const nextRoomItems = (equipment[targetRoomId] || []).map((it) => {
-          if (it.id !== arg.itemId) return it;
-          updatedName = it.name;
-          const mergedNote = extraNote
-            ? it.note && !it.note.includes(extraNote)
-              ? `${it.note} (${extraNote})`
-              : extraNote
-            : it.note;
-          updatedRoomItem = {
-            ...it,
-            roomId: targetRoomId,
-            type: it.type || 'room',
-            ...(arg.newExp ? { exp: arg.newExp } : {}),
-            ...(arg.newQty !== undefined && String(arg.newQty).trim() !== ''
-              ? { qty: String(arg.newQty), unitText: String(arg.newQty) }
-              : {}),
-            ...(mergedNote ? { note: mergedNote.slice(0, 950) } : {}),
-          };
-          return updatedRoomItem;
+        let matchedKey = arg.itemId;
+        const resolvedDestRoom =
+          arg.moveToRoomOrGroup?.trim()
+            ? resolveRoomIdFromLocation(arg.moveToRoomOrGroup, arg.newStatus, arg.note)
+            : targetRoomId;
+
+        const nextEq: Record<string, EquipmentItem[]> = { ...equipment };
+        const remainingSource: EquipmentItem[] = [];
+        (equipment[targetRoomId] || []).forEach((it, idx) => {
+          const fbKey = `${targetRoomId}_${idx}`;
+          if (it.id === arg.itemId || fbKey === arg.itemId) {
+            matchedKey = it.id || fbKey;
+            updatedName = cleanNewName || it.name;
+            const mergedNote = extraNote
+              ? it.note && !it.note.includes(extraNote)
+                ? `${it.note} (${extraNote})`
+                : extraNote
+              : it.note;
+            updatedRoomItem = {
+              ...it,
+              id: it.id || fbKey,
+              roomId: resolvedDestRoom,
+              location: arg.moveToRoomOrGroup?.trim() || it.location || resolvedDestRoom.toUpperCase(),
+              type: it.type || 'room',
+              ...(cleanNewName ? { name: cleanNewName } : {}),
+              ...(arg.newStatus ? { status: arg.newStatus } : {}),
+              ...(arg.newExp ? { exp: arg.newExp } : {}),
+              ...(arg.newQty !== undefined && String(arg.newQty).trim() !== ''
+                ? { qty: String(arg.newQty), unitText: String(arg.newQty) }
+                : {}),
+              ...(mergedNote ? { note: mergedNote.slice(0, 950) } : {}),
+            };
+            if (resolvedDestRoom === targetRoomId) {
+              remainingSource.push(updatedRoomItem);
+            }
+          } else {
+            remainingSource.push(it);
+          }
         });
 
         if (!updatedRoomItem) return { success: false, updatedName: '' };
 
-        const nextEq = { ...equipment, [targetRoomId]: nextRoomItems };
+        nextEq[targetRoomId] = remainingSource;
+        if (resolvedDestRoom !== targetRoomId) {
+          nextEq[resolvedDestRoom] = [...(nextEq[resolvedDestRoom] || []), updatedRoomItem];
+        }
+
+        equipmentRef.current = nextEq;
         setEquipment(nextEq);
         setStored(chKeys.EQ, nextEq);
         if (isMaster) setStored(STORAGE_KEYS.EQ, nextEq);
         await saveChannelEquipmentItemToFirebase(channelId, updatedRoomItem).catch(() => {});
 
         if (normalizedStatus || arg.newExp || extraNote) {
-          const roomChecks = { ...(globalChecks[targetRoomId] || {}) };
-          const existingCheck = roomChecks[arg.itemId] || { result: '', weekVals: {} };
-          roomChecks[arg.itemId] = {
+          const destChecks = { ...(globalChecks[resolvedDestRoom] || {}) };
+          const existingCheck =
+            (globalChecks[targetRoomId] || {})[matchedKey] ||
+            destChecks[matchedKey] || { result: '', weekVals: {} };
+          destChecks[matchedKey] = {
             ...existingCheck,
             ...(normalizedStatus ? { result: normalizedStatus } : {}),
             ...(arg.newExp ? { exp: arg.newExp } : {}),
             ...(extraNote ? { note: extraNote.slice(0, 950) } : {}),
           };
-          const nextGlobal = { ...globalChecks, [targetRoomId]: roomChecks };
+          const nextGlobal = { ...globalChecks, [resolvedDestRoom]: destChecks };
           setGlobalChecks(nextGlobal);
-          setStored(getChannelChecksKey(activeChannelId), nextGlobal);
-          await saveChannelDataToFirebase(activeChannelId, {
+          setStored(getChannelChecksKey(channelId), nextGlobal);
+          await saveChannelDataToFirebase(channelId, {
             lists,
             globalChecks: nextGlobal,
             emergencyWeekDates,
+            deletedItemIds: getDeletedItemIds(channelId),
           }).catch(() => {});
         }
 
         logAuditEvent({
           action: 'EDIT_EQUIPMENT',
           targetCollection: 'equipment',
-          targetId: arg.itemId,
+          targetId: matchedKey,
           details: {
-            roomId: targetRoomId,
+            roomId: resolvedDestRoom,
             name: updatedName,
             newExp: arg.newExp,
             lotNumber: arg.lotNumber,
             newQty: arg.newQty,
             newStatus: normalizedStatus,
+            moveToRoomOrGroup: resolvedDestRoom !== targetRoomId ? resolvedDestRoom : undefined,
           },
           currentUser,
         });
@@ -814,16 +918,395 @@ export function useAuraActions(params: UseAuraActionsParams) {
     ]
   );
 
+  // 🎯 Targeted Specific Item Deletion across all 5 categories with Tombstones + Undo Snapshot
+  const handleAuraDeleteSpecificItems = useCallback(
+    async (
+      targets: Array<{
+        targetType: 'drug' | 'bag' | 'cart' | 'ambulance' | 'room';
+        itemId: string;
+        roomId?: string;
+        name?: string;
+        groupName?: string;
+      }>
+    ): Promise<{
+      success: boolean;
+      deletedCount: number;
+      deletedLabels: string[];
+      snapshot: AuraDataSnapshot;
+    }> => {
+      const channelId = activeChannelId || 'channel_master';
+      const isMaster = channelId === 'channel_master';
+      const chKeys = getChannelStorageKeys(channelId);
+      const snapshot = createAuraSnapshot(`ก่อนลบ ${targets.length} รายการเจาะจง`);
+
+      const deletedLabels: string[] = [];
+      const newTombstones: string[] = [];
+      const firebaseDeletes: Array<Promise<any>> = [];
+
+      let nextDrugs = [...drugs];
+      let drugsChanged = false;
+      const nextEq: Record<string, EquipmentItem[]> = {};
+      Object.entries(equipmentRef.current || {}).forEach(([rId, arr]) => {
+        nextEq[rId] = [...(arr || [])];
+      });
+      let eqChanged = false;
+      const nextLists = { ...lists };
+      let listsChanged = false;
+      const nextGlobal = { ...globalChecks };
+      let checksChanged = false;
+
+      for (const target of targets) {
+        if (target.targetType === 'drug') {
+          const found = nextDrugs.find((d) => d.id === target.itemId);
+          if (found) {
+            nextDrugs = nextDrugs.filter((d) => d.id !== target.itemId);
+            drugsChanged = true;
+            deletedLabels.push(`${found.name} (คลังยา)`);
+            newTombstones.push(...makeItemTombstoneTokens('drug', found as any, found.id));
+            firebaseDeletes.push(deleteChannelDrugItemInFirebase(channelId, found.id).catch(() => false));
+          }
+          continue;
+        }
+
+        if (target.targetType === 'bag' || target.targetType === 'cart' || target.targetType === 'ambulance') {
+          const cat = target.targetType;
+          const cfg = nextLists[cat];
+          if (!cfg?.groups) continue;
+          const updatedGroups: Record<string, EquipmentItem[]> = {};
+          let matchedInCat: EquipmentItem | null = null;
+          let matchedKey = '';
+          let matchedGroup = '';
+
+          Object.entries(cfg.groups).forEach(([gName, items]) => {
+            updatedGroups[gName] = (items || []).filter((it, idx) => {
+              const fbKey = `${cat}_${gName}_${idx}`;
+              const compKey = `${cat}_${it.category || gName}_${it.name}`;
+              const isMatch =
+                (target.itemId && (it.id === target.itemId || fbKey === target.itemId || compKey === target.itemId)) ||
+                (target.name && it.name.trim().toLowerCase() === target.name.trim().toLowerCase() && (!target.groupName || gName === target.groupName));
+              if (isMatch && !matchedInCat) {
+                matchedInCat = it;
+                matchedGroup = gName;
+                matchedKey = it.id || fbKey;
+                return false;
+              }
+              return true;
+            });
+          });
+
+          if (matchedInCat) {
+            listsChanged = true;
+            nextLists[cat] = { ...cfg, groups: updatedGroups };
+            const catLabel = cat === 'bag' ? 'กระเป๋าฉุกเฉิน' : cat === 'ambulance' ? 'รถพยาบาลฉุกเฉิน' : 'รถฉุกเฉิน';
+            deletedLabels.push(`${(matchedInCat as EquipmentItem).name} (${catLabel})`);
+            newTombstones.push(
+              ...makeItemTombstoneTokens(
+                cat,
+                { ...(matchedInCat as EquipmentItem), category: (matchedInCat as EquipmentItem).category || matchedGroup },
+                matchedKey
+              )
+            );
+            if (nextGlobal[cat]?.[matchedKey]) {
+              const catChecks = { ...nextGlobal[cat] };
+              delete catChecks[matchedKey];
+              nextGlobal[cat] = catChecks;
+              checksChanged = true;
+            }
+            firebaseDeletes.push(deleteChannelEquipmentItemInFirebase(channelId, matchedKey).catch(() => false));
+          }
+          continue;
+        }
+
+        if (target.targetType === 'room') {
+          const searchRooms = target.roomId && nextEq[target.roomId] ? [target.roomId] : Object.keys(nextEq);
+          for (const rId of searchRooms) {
+            const roomItems = nextEq[rId] || [];
+            const matchIdx = roomItems.findIndex((it, idx) => {
+              const fbKey = `${rId}_${idx}`;
+              return (
+                (target.itemId && (it.id === target.itemId || fbKey === target.itemId)) ||
+                (target.name && it.name.trim().toLowerCase() === target.name.trim().toLowerCase())
+              );
+            });
+            if (matchIdx !== -1) {
+              const removed = roomItems[matchIdx];
+              const resolvedKey = removed.id || `${rId}_${matchIdx}`;
+              nextEq[rId] = roomItems.filter((_, idx) => idx !== matchIdx);
+              eqChanged = true;
+              deletedLabels.push(`${removed.name} (${rId.toUpperCase()})`);
+              newTombstones.push(
+                ...makeItemTombstoneTokens(rId, { ...removed, category: rId }, resolvedKey)
+              );
+              if (nextGlobal[rId]?.[resolvedKey]) {
+                const rChecks = { ...nextGlobal[rId] };
+                delete rChecks[resolvedKey];
+                nextGlobal[rId] = rChecks;
+                checksChanged = true;
+              }
+              firebaseDeletes.push(deleteChannelEquipmentItemInFirebase(channelId, resolvedKey).catch(() => false));
+              break;
+            }
+          }
+        }
+      }
+
+      if (deletedLabels.length === 0) {
+        return { success: false, deletedCount: 0, deletedLabels: [], snapshot };
+      }
+
+      const persistedTombstones = addDeletedItemIds(channelId, newTombstones);
+
+      if (drugsChanged) {
+        setDrugs(nextDrugs);
+        setStored(chKeys.DRUGS, nextDrugs);
+        if (isMaster) setStored(STORAGE_KEYS.DRUGS, nextDrugs);
+      }
+      if (eqChanged) {
+        equipmentRef.current = nextEq;
+        setEquipment(nextEq);
+        setStored(chKeys.EQ, nextEq);
+        if (isMaster) setStored(STORAGE_KEYS.EQ, nextEq);
+      }
+      if (listsChanged) {
+        setLists(nextLists);
+        setStored(getChannelListsKey(channelId), nextLists);
+        if (isMaster) setStored(STORAGE_KEYS.CUSTOM_LISTS, nextLists);
+      }
+      if (checksChanged) {
+        setGlobalChecks(nextGlobal);
+        setStored(getChannelChecksKey(channelId), nextGlobal);
+      }
+
+      const channelPayload = {
+        lists: nextLists,
+        globalChecks: nextGlobal,
+        emergencyWeekDates,
+        deletedItemIds: persistedTombstones,
+      };
+      setStored(getChannelDbKey(channelId), channelPayload);
+      await saveChannelDataToFirebase(channelId, channelPayload).catch(() => {});
+      await Promise.all(firebaseDeletes);
+
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('channel_data_updated', { detail: { channelId, data: channelPayload } }));
+        window.dispatchEvent(new Event('storage'));
+      }
+      reRenderData();
+
+      logAuditEvent({
+        action: 'DELETE_SPECIFIC_ITEMS',
+        targetCollection: 'inventory',
+        targetId: channelId,
+        details: {
+          channelId,
+          deletedCount: deletedLabels.length,
+          items: deletedLabels,
+          source: 'AuraAssistant',
+        },
+        currentUser,
+      });
+
+      return {
+        success: true,
+        deletedCount: deletedLabels.length,
+        deletedLabels,
+        snapshot,
+      };
+    },
+    [
+      activeChannelId,
+      createAuraSnapshot,
+      currentUser,
+      drugs,
+      emergencyWeekDates,
+      globalChecks,
+      lists,
+      reRenderData,
+      setDrugs,
+      setEquipment,
+      setGlobalChecks,
+      setLists,
+    ]
+  );
+
+  // ➕ Universal Add New Item across all 5 categories
+  const handleAuraAddNewItem = useCallback(
+    async (arg: {
+      category: 'equipment' | 'drug' | 'bag' | 'cart' | 'ambulance';
+      name: string;
+      groupOrRoom?: string;
+      qty?: string;
+      unit?: string;
+      expDate?: string;
+      spec?: string;
+      status?: string;
+      note?: string;
+    }): Promise<{
+      success: boolean;
+      addedLabel: string;
+      categoryLabel: string;
+      snapshot: AuraDataSnapshot;
+    }> => {
+      const channelId = activeChannelId || 'channel_master';
+      const isMaster = channelId === 'channel_master';
+      const chKeys = getChannelStorageKeys(channelId);
+      const cleanName = String(arg.name || '').trim();
+      const snapshot = createAuraSnapshot(`ก่อนเพิ่ม ${cleanName}`);
+      if (!cleanName) {
+        return { success: false, addedLabel: '', categoryLabel: '', snapshot };
+      }
+
+      if (arg.category === 'drug') {
+        const qtyNum = Math.max(1, parseInt(String(arg.qty || '1').replace(/\D/g, ''), 10) || 1);
+        const groupText = String(arg.groupOrRoom || '').toLowerCase();
+        const drugCategory: 'monthly' | 'quarterly' | 'adhoc' =
+          groupText.includes('3') || groupText.includes('quarter') || groupText.includes('ไตรมาส')
+            ? 'quarterly'
+            : groupText.includes('ครั้งคราว') || groupText.includes('adhoc')
+            ? 'adhoc'
+            : 'monthly';
+        const todayStr = new Date().toISOString().split('T')[0];
+        const newDrug: DrugItem = {
+          id: `drug_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+          name: cleanName,
+          unit: String(arg.unit || 'หลอด').trim() || 'หลอด',
+          totalQty: qtyNum,
+          remaining: qtyNum,
+          receivedDate: todayStr,
+          receivedQty: qtyNum,
+          minStock: Math.max(1, Math.min(5, Math.floor(qtyNum / 2) || 1)),
+          batchRequest: '1',
+          expDate: String(arg.expDate || '-').trim() || '-',
+          exp: String(arg.expDate || '-').trim() || '-',
+          spec: String(arg.spec || '').trim(),
+          note: String(arg.note || arg.groupOrRoom || '').trim(),
+          category: drugCategory,
+          channelId,
+        };
+        removeDeletedItemIds(channelId, makeItemTombstoneTokens('drug', newDrug as any, newDrug.id));
+        const nextDrugs = [...drugs, newDrug];
+        setDrugs(nextDrugs);
+        setStored(chKeys.DRUGS, nextDrugs);
+        if (isMaster) setStored(STORAGE_KEYS.DRUGS, nextDrugs);
+        await persistClearedFlags({ drugsCleared: false }, channelId).catch(() => {});
+        await saveChannelDrugItemToFirebase(channelId, newDrug).catch(() => {});
+        await saveChannelDataToFirebase(channelId, {
+          lists,
+          globalChecks,
+          emergencyWeekDates,
+          deletedItemIds: getDeletedItemIds(channelId),
+        }).catch(() => {});
+        return { success: true, addedLabel: cleanName, categoryLabel: 'คลังยา & สารน้ำ', snapshot };
+      }
+
+      if (arg.category === 'bag' || arg.category === 'cart' || arg.category === 'ambulance') {
+        const cat = arg.category;
+        const currentList = lists[cat] || {
+          title: cat === 'bag' ? 'กระเป๋าฉุกเฉิน' : cat === 'ambulance' ? 'รถพยาบาลฉุกเฉิน' : 'รถฉุกเฉิน',
+          sheet: cat === 'bag' ? 'กระเป๋า Emergency' : cat === 'ambulance' ? 'รถ Ambulance' : 'รถ Emergency',
+          groups: {},
+        };
+        const groupName = String(arg.groupOrRoom || Object.keys(currentList.groups || {})[0] || 'ทั่วไป').trim();
+        const newItem: EquipmentItem = {
+          id: `${cat}_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+          name: cleanName,
+          qty: String(arg.qty || '1').trim() || '1',
+          unitText: String(arg.qty || '1').trim() || '1',
+          exp: String(arg.expDate || '-').trim() || '-',
+          spec: String(arg.spec || '').trim(),
+          note: String(arg.note || '').trim(),
+          category: groupName,
+          location: groupName,
+          type: cat,
+        };
+        removeDeletedItemIds(channelId, makeItemTombstoneTokens(cat, newItem, newItem.id));
+        const nextGroups = { ...(currentList.groups || {}) };
+        nextGroups[groupName] = sortItemsNaturally([...(nextGroups[groupName] || []), newItem]);
+        const nextLists = { ...lists, [cat]: { ...currentList, groups: nextGroups } };
+        setLists(nextLists);
+        setStored(getChannelListsKey(channelId), nextLists);
+        if (isMaster) setStored(STORAGE_KEYS.CUSTOM_LISTS, nextLists);
+        await persistClearedFlags(
+          cat === 'bag' ? { bagCleared: false } : cat === 'ambulance' ? { ambulanceCleared: false } : { cartCleared: false },
+          channelId
+        ).catch(() => {});
+        await saveChannelEquipmentItemToFirebase(channelId, newItem).catch(() => {});
+        const payload = {
+          lists: nextLists,
+          globalChecks,
+          emergencyWeekDates,
+          deletedItemIds: getDeletedItemIds(channelId),
+        };
+        setStored(getChannelDbKey(channelId), payload);
+        await saveChannelDataToFirebase(channelId, payload).catch(() => {});
+        reRenderData();
+        const catLabel = cat === 'bag' ? 'กระเป๋าฉุกเฉิน' : cat === 'ambulance' ? 'รถพยาบาลฉุกเฉิน' : 'รถฉุกเฉิน';
+        return { success: true, addedLabel: `${cleanName} (${groupName})`, categoryLabel: catLabel, snapshot };
+      }
+
+      // Equipment room item
+      const roomId = arg.groupOrRoom ? resolveRoomIdFromLocation(arg.groupOrRoom, arg.status, arg.note) : 'anes';
+      const existingRoomItems = equipmentRef.current?.[roomId] || [];
+      const newEqItem: EquipmentItem = {
+        id: `eq_${roomId}_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        no: String(existingRoomItems.length + 1),
+        name: cleanName,
+        qty: String(arg.qty || '1').trim() || '1',
+        spec: String(arg.spec || '').trim(),
+        location: String(arg.groupOrRoom || roomId.toUpperCase()).trim(),
+        roomId,
+        type: 'room',
+        status: String(arg.status || 'ปกติ').trim(),
+        note: String(arg.note || '').trim(),
+        exp: String(arg.expDate || '-').trim() || '-',
+      };
+      removeDeletedItemIds(channelId, makeItemTombstoneTokens(roomId, { ...newEqItem, category: roomId }, newEqItem.id));
+      const nextEq = { ...(equipmentRef.current || {}), [roomId]: [...existingRoomItems, newEqItem] };
+      equipmentRef.current = nextEq;
+      setEquipment(nextEq);
+      setStored(chKeys.EQ, nextEq);
+      if (isMaster) setStored(STORAGE_KEYS.EQ, nextEq);
+      await persistClearedFlags({ equipmentCleared: false }, channelId).catch(() => {});
+      await saveChannelEquipmentItemToFirebase(channelId, newEqItem).catch(() => {});
+      await saveChannelDataToFirebase(channelId, {
+        lists,
+        globalChecks,
+        emergencyWeekDates,
+        deletedItemIds: getDeletedItemIds(channelId),
+      }).catch(() => {});
+      reRenderData();
+      return { success: true, addedLabel: `${cleanName} (${roomId.toUpperCase()})`, categoryLabel: 'ครุภัณฑ์ห้องผ่าตัด', snapshot };
+    },
+    [
+      activeChannelId,
+      createAuraSnapshot,
+      drugs,
+      emergencyWeekDates,
+      globalChecks,
+      lists,
+      reRenderData,
+      setDrugs,
+      setEquipment,
+      setLists,
+    ]
+  );
+
   // ⚡ Complete Smart Auto-Fill & Expiry + Min-Stock Verification Engine
   const handleAutoFillChecks = useCallback(
     async (arg: {
       items: any[];
-      targetCategory?: 'bag' | 'cart' | 'drug';
+      targetCategory?: 'bag' | 'cart' | 'ambulance' | 'drug';
       week?: number;
       onlyDiffs?: boolean;
       syncSheets?: boolean;
     }) => {
-      const targetCat = arg.targetCategory || (currentView === 'cart_check' ? 'cart' : 'bag');
+      const targetCat =
+        arg.targetCategory ||
+        (currentView === 'cart_check'
+          ? 'cart'
+          : currentView === 'ambulance_check'
+          ? 'ambulance'
+          : 'bag');
       const week = arg.week || 1;
       const onlyDiffs = arg.onlyDiffs ?? false;
       const items = arg.items || [];
@@ -838,7 +1321,8 @@ export function useAuraActions(params: UseAuraActionsParams) {
       let lowStockCount = 0;
 
       const nextGlobal = { ...globalChecks };
-      const actualCat: 'bag' | 'cart' = targetCat === 'cart' ? 'cart' : 'bag';
+      const actualCat: 'bag' | 'cart' | 'ambulance' =
+        targetCat === 'cart' ? 'cart' : targetCat === 'ambulance' ? 'ambulance' : 'bag';
       const currentCatChecks = { ...(nextGlobal[actualCat] || {}) };
       const groups = (lists as any)[actualCat]?.groups || {};
 
@@ -954,7 +1438,17 @@ export function useAuraActions(params: UseAuraActionsParams) {
 
       const now = new Date();
       const catTitle =
-        actualCat === 'bag' ? 'ตรวจเช็กกระเป๋าฉุกเฉิน (Auto-Fill)' : 'ตรวจเช็กรถฉุกเฉิน (Auto-Fill)';
+        actualCat === 'bag'
+          ? 'ตรวจเช็กกระเป๋าฉุกเฉิน (Auto-Fill)'
+          : actualCat === 'ambulance'
+          ? 'ตรวจเช็กรถพยาบาลฉุกเฉิน (Auto-Fill)'
+          : 'ตรวจเช็กรถฉุกเฉิน (Auto-Fill)';
+      const targetItemsList =
+        actualCat === 'bag'
+          ? formattedBagItems
+          : actualCat === 'ambulance'
+          ? formattedAmbulanceItems
+          : formattedCartItems;
       const newRecord: InspectionHistoryRecord = {
         id: `${actualCat}_autofill_${Date.now()}`,
         timestamp: new Date().toLocaleString('th-TH'),
@@ -962,7 +1456,7 @@ export function useAuraActions(params: UseAuraActionsParams) {
         type: actualCat,
         title: `${catTitle} สัปดาห์ที่ ${week}`,
         who: currentUser?.name || 'น้องออร่า (Aura Auto-Fill)',
-        rows: (actualCat === 'bag' ? formattedBagItems : formattedCartItems).map((it: any) => ({
+        rows: targetItemsList.map((it: any) => ({
           ...it,
           val:
             currentCatChecks[it.itemKey || it.id || '']?.weekVals?.[week] ||
@@ -978,17 +1472,19 @@ export function useAuraActions(params: UseAuraActionsParams) {
 
       if (arg.syncSheets !== false && apiUrl && apiUrl.trim()) {
         try {
-          const uniqueSheet = `${actualCat === 'bag' ? 'กระเป๋า' : 'รถ'}_สัปดาห์${week}_${now.toISOString().split('T')[0]}`;
+          const sheetPrefix =
+            actualCat === 'bag' ? 'กระเป๋า' : actualCat === 'ambulance' ? 'รถพยาบาล' : 'รถ';
+          const uniqueSheet = `${sheetPrefix}_สัปดาห์${week}_${now.toISOString().split('T')[0]}`;
           await sendInspectionToGas(apiUrl, {
             type: actualCat,
-            sheet: actualCat === 'bag' ? 'กระเป๋า' : 'รถ',
+            sheet: sheetPrefix,
             sheetName: uniqueSheet,
             title: catTitle,
             location: activeChannel?.name || 'ห้องผ่าตัด OR',
             date: now.toISOString().split('T')[0],
             who: currentUser?.name || 'น้องออร่า (Aura Auto-Fill)',
             user: currentUser?.username || 'aura',
-            rows: (actualCat === 'bag' ? formattedBagItems : formattedCartItems).map((it: any, idx) => ({
+            rows: targetItemsList.map((it: any, idx: number) => ({
               no: String(idx + 1),
               name: it.name,
               val: currentCatChecks[it.itemKey || it.id || '']?.weekVals?.[week] || it.unitText || '1',
@@ -1049,6 +1545,7 @@ export function useAuraActions(params: UseAuraActionsParams) {
       currentView,
       drugs,
       emergencyWeekDates,
+      formattedAmbulanceItems,
       formattedBagItems,
       formattedCartItems,
       globalChecks,
@@ -1552,6 +2049,8 @@ export function useAuraActions(params: UseAuraActionsParams) {
     restoreAuraSnapshot,
     handleAuraDirectClear,
     handleAuraUpdateItem,
+    handleAuraDeleteSpecificItems,
+    handleAuraAddNewItem,
     handleAutoFillChecks,
     handleRestockRequest,
     handleAttachEquipmentPhotos,

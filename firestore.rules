@@ -205,9 +205,10 @@ service cloud.firestore {
       return data.keys().hasAll(['id']) &&
         data.keys().hasOnly([
           'id', 'lists', 'globalChecks', 'emergencyWeekDates',
-          'drugsCleared', 'equipmentCleared', 'updatedAt'
+          'deletedItemIds', 'drugsCleared', 'equipmentCleared', 'updatedAt'
         ]) &&
         isValidId(data.id) &&
+        isOptionalList(data, 'deletedItemIds', 500) &&
         isOptionalBool(data, 'drugsCleared') &&
         isOptionalBool(data, 'equipmentCleared') &&
         isOptionalString(data, 'updatedAt', 100);

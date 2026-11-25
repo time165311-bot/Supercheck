@@ -865,12 +865,12 @@ export const HaAuditReportModal: React.FC<HaAuditReportModalProps> = ({
                         </td>
                       </tr>
                     ) : (
-                      filteredAuditLogs.map((log) => {
+                      filteredAuditLogs.map((log, idx) => {
                         const isFhir = log.action === 'FHIR_MEDICATION_DISPENSE';
                         const isStock = log.action === 'UPDATE_DRUG_STOCK';
                         const isDefective = log.action === 'DEFECTIVE_FLAG';
                         return (
-                          <tr key={log.id} className="hover:bg-slate-50 dark:hover:bg-white/5 transition">
+                          <tr key={`${log.id || 'log'}__${idx}`} className="hover:bg-slate-50 dark:hover:bg-white/5 transition">
                             <td className="p-3 font-mono text-[11px] text-slate-500 whitespace-nowrap">
                               {log.timestamp ? new Date(log.timestamp).toLocaleString('th-TH') : '-'}
                             </td>

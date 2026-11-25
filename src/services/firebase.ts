@@ -393,13 +393,20 @@ export async function saveEquipmentItemToFirebase(item: EquipmentItem) {
   }
 }
 
+function isValidFirestoreDocId(id?: string): boolean {
+  return Boolean(id && /^[a-zA-Z0-9_-]{1,128}$/.test(id));
+}
+
 export async function deleteEquipmentItemInFirebase(id: string) {
+  if (!isValidFirestoreDocId(id)) {
+    return false;
+  }
   const path = `equipment/${id}`;
   try {
     await deleteDoc(doc(db, 'equipment', id));
     return true;
   } catch (e) {
-    handleFirestoreError(e, OperationType.DELETE, path);
+    console.warn(`[firebase] deleteEquipmentItemInFirebase(${path}) skipped:`, e);
     return false;
   }
 }
@@ -447,6 +454,18 @@ export async function saveBatchDrugsToFirebase(items: DrugItem[]): Promise<boole
     return true;
   } catch (e) {
     handleFirestoreError(e, OperationType.WRITE, 'drugs');
+    return false;
+  }
+}
+
+export async function deleteDrugItemInFirebase(id: string): Promise<boolean> {
+  if (!isValidFirestoreDocId(id)) return false;
+  const path = `drugs/${id}`;
+  try {
+    await deleteDoc(doc(db, 'drugs', id));
+    return true;
+  } catch (e) {
+    console.warn(`[firebase] deleteDrugItemInFirebase(${path}) skipped:`, e);
     return false;
   }
 }
@@ -523,19 +542,39 @@ export async function deleteChannelEquipmentItemInFirebase(channelId: string, id
   if (isMasterChannel(channelId)) {
     return deleteEquipmentItemInFirebase(id);
   }
+  if (!isValidFirestoreDocId(id)) {
+    return false;
+  }
   const path = `channels/${channelId}/equipment/${id}`;
   try {
     await deleteDoc(doc(db, 'channels', channelId, 'equipment', id));
     return true;
   } catch (e) {
-    handleFirestoreError(e, OperationType.DELETE, path);
+    console.warn(`[firebase] deleteChannelEquipmentItemInFirebase(${path}) skipped:`, e);
+    return false;
+  }
+}
+
+export async function deleteChannelDrugItemInFirebase(channelId: string, id: string): Promise<boolean> {
+  if (isMasterChannel(channelId)) {
+    return deleteDrugItemInFirebase(id);
+  }
+  if (!isValidFirestoreDocId(id)) {
+    return false;
+  }
+  const path = `channels/${channelId}/drugs/${id}`;
+  try {
+    await deleteDoc(doc(db, 'channels', channelId, 'drugs', id));
+    return true;
+  } catch (e) {
+    console.warn(`[firebase] deleteChannelDrugItemInFirebase(${path}) skipped:`, e);
     return false;
   }
 }
 
 export async function clearChannelEquipmentInFirebase(
   channelId: string,
-  filterType: 'room' | 'bag' | 'cart' | 'all' = 'all'
+  filterType: 'room' | 'bag' | 'cart' | 'ambulance' | 'all' = 'all'
 ): Promise<boolean> {
   if (isMasterChannel(channelId)) {
     return clearAllEquipmentInFirebase(filterType);
@@ -777,7 +816,7 @@ export async function saveUserToFirebase(user: User) {
   }
 }
 
-export async function clearAllEquipmentInFirebase(filterType: 'room' | 'bag' | 'cart' | 'all' = 'all'): Promise<boolean> {
+export async function clearAllEquipmentInFirebase(filterType: 'room' | 'bag' | 'cart' | 'ambulance' | 'all' = 'all'): Promise<boolean> {
   const path = 'equipment';
   try {
     const snap = await getDocs(collection(db, path));
@@ -823,6 +862,7 @@ export interface InventoryStateFlags {
   equipmentCleared?: boolean;
   bagCleared?: boolean;
   cartCleared?: boolean;
+  ambulanceCleared?: boolean;
   channelsInitialized?: boolean;
   updatedAt?: string;
 }
@@ -892,6 +932,7 @@ export async function saveChannelDataToFirebase(channelId: string, data: any): P
       lists: data.lists || {},
       globalChecks: data.globalChecks || {},
       emergencyWeekDates: data.emergencyWeekDates || {},
+      ...(Array.isArray(data.deletedItemIds) ? { deletedItemIds: data.deletedItemIds.slice(-500) } : {}),
       updatedAt: new Date().toISOString(),
     });
     await setDoc(doc(db, 'channels', channelId), cleanPayload, { merge: true });

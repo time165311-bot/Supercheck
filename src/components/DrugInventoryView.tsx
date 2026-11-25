@@ -22,6 +22,7 @@ import {
 } from '../types';
 import { INITIAL_DRUGS_DATA } from '../constants/initialDrugs';
 import { recomputeDrugFromLots } from '../utils/itemUtils';
+import { isValidInventoryItem } from '../utils/inventoryStats';
 import {
   diffDaysFromBangkokToday,
   getBangkokTodayIso,
@@ -66,7 +67,19 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
 
   // Internal drug state fallback
   const [internalDrugs, setInternalDrugs] = useState<DrugItem[]>(INITIAL_DRUGS_DATA);
-  const drugs = externalDrugs || internalDrugs;
+  const drugs = useMemo(
+    () =>
+      (externalDrugs || internalDrugs)
+        .filter((d) => isValidInventoryItem(d))
+        .map((d) => ({
+          ...d,
+          category:
+            d.category === 'monthly' || d.category === 'quarterly' || d.category === 'adhoc'
+              ? d.category
+              : 'monthly',
+        })),
+    [externalDrugs, internalDrugs]
+  );
 
   // Search & Filter state
   const [searchTerm, setSearchTerm] = useState('');
@@ -424,10 +437,10 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
   };
 
   return (
-    <div className="space-y-4 max-w-6xl mx-auto pb-8 font-['TH_Sarabun_New','Sarabun',sans-serif]">
+    <div className="space-y-4 max-w-7xl mx-auto pb-8 font-['TH_Sarabun_New','Sarabun',sans-serif]">
       {/* Toast Feedback Notification Banner */}
       {toastMsg && (
-        <div className="fixed top-4 right-4 z-50 bg-emerald-600 text-white font-bold px-4 py-2.5 rounded-2xl shadow-md text-xs flex items-center gap-2 border border-emerald-400">
+        <div className="fixed top-4 right-4 z-50 bg-emerald-600 text-white font-bold px-4 py-2.5 rounded-2xl shadow-md text-xs md:text-sm flex items-center gap-2 border border-emerald-400">
           <CheckCircle2 className="w-4 h-4 shrink-0" />
           <span>{toastMsg}</span>
         </div>
@@ -437,10 +450,10 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-gradient-to-r from-blue-600 via-blue-500 to-cyan-500 dark:from-[#1E1F20] dark:via-[#1A1B1C] dark:to-[#131314] text-white p-4 rounded-3xl border border-blue-400/30 dark:border-white/10 shadow-md">
         <div className="flex items-center gap-3">
           <div>
-            <h2 className="text-lg font-bold text-white tracking-tight leading-tight">
+            <h2 className="text-lg md:text-xl font-bold text-white tracking-tight leading-tight">
               ระบบคลังยาและสารน้ำ (Medicine Inventory)
             </h2>
-            <p className="text-xs text-blue-100/90 dark:text-[#C4C7C5] font-medium">
+            <p className="text-xs md:text-sm text-blue-100/90 dark:text-[#C4C7C5] font-medium">
               ตรวจสอบสต็อก ยอดคงเหลือ และวันหมดอายุคลังยาวิสัญญี
             </p>
           </div>
@@ -450,7 +463,7 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
           <button
             type="button"
             onClick={() => setShowRequisitionsModal(true)}
-            className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs flex items-center gap-1.5 transition shadow-xs cursor-pointer active:scale-95"
+            className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs md:text-sm flex items-center gap-1.5 transition shadow-xs cursor-pointer active:scale-95"
           >
             <ClipboardList className="w-4 h-4" />
             <span>ใบเบิกยา ({requisitions.filter((r) => r.status === 'pending' || r.status === 'approved').length})</span>
@@ -459,7 +472,7 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
           {onOpenPreview && (
             <button
               onClick={() => onOpenPreview(activeTab)}
-              className="px-3.5 py-2 rounded-xl bg-white text-blue-700 hover:bg-blue-50 font-bold text-xs flex items-center gap-1.5 transition cursor-pointer shadow-xs"
+              className="px-3.5 py-2 rounded-xl bg-white text-blue-700 hover:bg-blue-50 font-bold text-xs md:text-sm flex items-center gap-1.5 transition cursor-pointer shadow-xs"
             >
               <Printer className="w-4 h-4 text-blue-600" />
               <span>พิมพ์แบบฟอร์มรายงาน A4</span>
@@ -471,7 +484,7 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
               setFormError('');
               handleOpenAdd();
             }}
-            className="px-3.5 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-700 text-white font-bold text-xs flex items-center gap-1.5 transition shadow-xs cursor-pointer active:scale-95"
+            className="px-3.5 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-700 text-white font-bold text-xs md:text-sm flex items-center gap-1.5 transition shadow-xs cursor-pointer active:scale-95"
           >
             <Plus className="w-4 h-4" />
             <span>เพิ่มรายการยาใหม่</span>
@@ -480,7 +493,7 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
       </div>
 
       {/* Category Tabs: Horizontal Scrollable Pill Tabs */}
-      <div className="flex gap-2 overflow-x-auto no-scrollbar py-1 text-xs font-bold">
+      <div className="flex gap-2 overflow-x-auto no-scrollbar py-1 text-xs md:text-sm font-bold">
         <button
           type="button"
           onClick={() => setActiveTab('monthly')}
@@ -527,7 +540,7 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               placeholder="ค้นหาชื่อยา, สารน้ำ, รหัสบาร์โค้ด..."
-              className="w-full pl-9 pr-8 py-2 bg-slate-50 dark:bg-[#282A2C] border border-slate-200 dark:border-white/10 rounded-xl text-xs outline-none focus:ring-2 focus:ring-blue-100 dark:focus:ring-[#A8C7FA]/25 font-medium text-slate-800 dark:text-[#E3E3E3]"
+              className="w-full pl-9 pr-8 py-2 bg-slate-50 dark:bg-[#282A2C] border border-slate-200 dark:border-white/10 rounded-xl text-xs md:text-sm outline-none focus:ring-2 focus:ring-blue-100 dark:focus:ring-[#A8C7FA]/25 font-medium text-slate-800 dark:text-[#E3E3E3]"
             />
             {searchTerm && (
               <button
@@ -540,7 +553,7 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
           </div>
 
           {/* Status Filter Buttons */}
-          <div className="flex items-center gap-1.5 w-full sm:w-auto overflow-x-auto pb-1 sm:pb-0 text-xs">
+          <div className="flex items-center gap-1.5 w-full sm:w-auto overflow-x-auto pb-1 sm:pb-0 text-xs md:text-sm">
             <button
               onClick={() => setStatusFilter('all')}
               className={`px-3 py-1.5 min-h-[32px] rounded-xl font-semibold whitespace-nowrap transition cursor-pointer ${
@@ -584,9 +597,9 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
           </div>
         </div>
 
-        <div className="flex items-center justify-between border-t border-slate-100 dark:border-white/10 pt-3">
-          <span className="text-slate-500 dark:text-[#8E918F] font-medium">
-            พบ <b className="text-slate-800 dark:text-[#E3E3E3]">{displayedDrugs.length}</b> รายการยาในหมวดนี้
+        <div className="flex items-center justify-between border-t border-slate-100 dark:border-white/10 pt-3 text-xs md:text-sm">
+          <span className="text-slate-500 dark:text-[#8E918F] font-medium tabular-nums">
+            พบ <b className="text-slate-800 dark:text-[#E3E3E3]">{displayedDrugs.length}</b> รายการในหมวดนี้ • รวมทั้งหมด <b className="text-slate-800 dark:text-[#E3E3E3]">{drugs.length}</b> รายการ
           </span>
 
           <div className="flex items-center gap-2">
@@ -613,11 +626,11 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
 
       {/* Clean Inventory List View */}
       {displayedDrugs.length === 0 ? (
-        <div className="p-10 text-center bg-white dark:bg-[#1E1F20] rounded-3xl border border-dashed border-slate-200 dark:border-white/10 text-slate-400 dark:text-[#8E918F] text-xs">
+        <div className="p-10 text-center bg-white dark:bg-[#1E1F20] rounded-3xl border border-dashed border-slate-200 dark:border-white/10 text-slate-400 dark:text-[#8E918F] text-xs md:text-sm">
           ไม่พบรายการยาที่ตรงกับเงื่อนไขการค้นหา
         </div>
       ) : (
-        <div className="space-y-2">
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
           {displayedDrugs.map((item, idx) => {
             const expInfo = getExpirationInfo(item.expDate);
             const isLowStock = Number(item.remaining) <= Number(item.minStock);
@@ -627,7 +640,7 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
 
             return (
               <DrugItemCard
-                key={item.id || idx}
+                key={`${item.id || 'drug'}__${idx}`}
                 item={item}
                 index={idx}
                 isExpired={isExpired}

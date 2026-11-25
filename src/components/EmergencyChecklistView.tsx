@@ -35,6 +35,7 @@ import {
   sortItemsNaturally,
   matchMedicalItemName,
 } from '../utils/itemUtils';
+import { isValidInventoryItem } from '../utils/inventoryStats';
 export type { SubExpItemInfo as SubExpItem } from '../utils/itemUtils';
 export { getItemSizes, parseSubExps, getRealTargetCheckValue, sanitizeItemName, sortItemsNaturally, matchMedicalItemName };
 
@@ -248,7 +249,8 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
 
   const handleDeleteItemInEdit = (itemId: string) => {
     if (onDeleteItem) {
-      onDeleteItem(type, itemId);
+      const resolvedKey = itemToEdit?.id || (itemToEdit as any)?.itemKey || itemId;
+      onDeleteItem(type, resolvedKey);
     }
     setIsEditModalOpen(false);
     setItemToEdit(null);
@@ -289,9 +291,13 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
 
     if (!listConfig || !listConfig.groups) return itemsList;
 
+    const seenItemKeys = new Set<string>();
     Object.entries(listConfig.groups).forEach(([groupName, groupItems]) => {
-      groupItems.forEach((item, idx) => {
+      (groupItems || []).forEach((item, idx) => {
+        if (!isValidInventoryItem(item)) return;
         const itemKey = item.id || `${type}_${groupName}_${idx}`;
+        if (seenItemKeys.has(itemKey)) return;
+        seenItemKeys.add(itemKey);
         itemsList.push({
           itemKey,
           id: item.id || itemKey,
@@ -545,7 +551,7 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
                 setNewItemGroup(groups[0] || 'ทั่วไป');
                 setIsAddItemModalOpen(true);
               }}
-              className="px-3 py-2 rounded-xl bg-white text-blue-700 hover:bg-blue-50 font-bold text-xs shadow-xs transition flex items-center gap-1 cursor-pointer active:scale-95"
+              className="px-3 py-2 rounded-xl bg-white text-blue-700 hover:bg-blue-50 font-bold text-xs md:text-sm shadow-xs transition flex items-center gap-1 cursor-pointer active:scale-95"
               title="เพิ่มรายการอุปกรณ์ใหม่"
             >
               <Plus size={15} className="stroke-[2.5]" />
@@ -556,7 +562,7 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
             <button
               type="button"
               onClick={() => setPendingBulkAction('clear_all')}
-              className="px-3 py-2 rounded-xl bg-red-600/20 text-red-100 hover:bg-red-600/30 font-bold text-xs shadow-xs transition flex items-center gap-1 cursor-pointer active:scale-95 border border-red-500/30"
+              className="px-3 py-2 rounded-xl bg-red-600/20 text-red-100 hover:bg-red-600/30 font-bold text-xs md:text-sm shadow-xs transition flex items-center gap-1 cursor-pointer active:scale-95 border border-red-500/30"
               title="ลบรายการอุปกรณ์ทั้งหมดในหน้านี้"
             >
               <Trash2 size={15} />
@@ -567,8 +573,10 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
             <button
               type="button"
               onClick={handleTogglePassAll}
-              className={`px-3 py-2 rounded-xl text-white font-bold text-xs shadow-xs transition flex items-center gap-1.5 cursor-pointer active:scale-95 whitespace-nowrap ${
-                areAllPassed ? 'bg-rose-600 hover:bg-rose-700' : 'bg-emerald-600 hover:bg-emerald-700'
+              className={`px-3 py-2 rounded-xl font-bold text-xs md:text-sm shadow-xs transition flex items-center gap-1.5 cursor-pointer active:scale-95 whitespace-nowrap ${
+                areAllPassed
+                  ? 'bg-rose-500/90 hover:bg-rose-600 text-white border border-rose-400/30'
+                  : 'bg-emerald-500/25 hover:bg-emerald-500/35 text-white border border-emerald-300/35'
               }`}
               title={areAllPassed ? `ยกเลิกการตรวจทั้งหมด (สัปดาห์ที่ ${selectedWeek})` : `กดตรวจผ่านปกติทุกรายการประจำสัปดาห์ที่ ${selectedWeek}`}
             >
@@ -580,7 +588,7 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
             <button
               type="button"
               onClick={() => setPendingBulkAction('clear_checks')}
-              className="px-3 py-2 rounded-xl bg-slate-100 dark:bg-white/10 hover:bg-rose-50 hover:text-rose-600 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-white/10 font-bold text-xs transition flex items-center gap-1 cursor-pointer active:scale-95"
+              className="px-3 py-2 rounded-xl bg-slate-100 dark:bg-white/10 hover:bg-rose-50 hover:text-rose-600 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-white/10 font-bold text-xs md:text-sm transition flex items-center gap-1 cursor-pointer active:scale-95"
               title={`ล้างค่าการตรวจเช็กทั้งหมดสำหรับสัปดาห์ที่ ${selectedWeek}`}
             >
               <span>🧹</span>
@@ -592,7 +600,7 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
               <button
                 type="button"
                 onClick={() => setPendingBulkAction('pass_5_weeks')}
-                className="px-3 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-xs transition flex items-center gap-1 cursor-pointer active:scale-95"
+                className="px-3 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs md:text-sm shadow-xs transition flex items-center gap-1 cursor-pointer active:scale-95"
                 title="กดตรวจผ่านปกติทุกรายการ ครบทั้ง 5 สัปดาห์ในครั้งเดียว"
               >
                 <CheckCheck size={15} />
@@ -781,10 +789,10 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
         <button
           type="button"
           onClick={handleTogglePassAll}
-          className={`px-3.5 py-1.5 rounded-xl text-white text-xs font-bold shadow-xs flex items-center gap-1.5 cursor-pointer active:scale-95 transition whitespace-nowrap shrink-0 ${
+          className={`px-3.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer active:scale-95 transition whitespace-nowrap shrink-0 border ${
             areAllPassed
-              ? 'bg-rose-600 hover:bg-rose-700'
-              : 'bg-emerald-600 hover:bg-emerald-700'
+              ? 'bg-rose-500/10 dark:bg-rose-500/15 text-rose-700 dark:text-rose-400 border-rose-500/20 dark:border-rose-500/25 hover:bg-rose-500/15'
+              : 'bg-emerald-500/10 dark:bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/20 dark:border-emerald-500/25 hover:bg-emerald-500/15'
           }`}
           title={areAllPassed ? `ยกเลิกการตรวจทั้งหมด (สัปดาห์ที่ ${selectedWeek})` : `กดตรวจผ่านปกติทุกรายการประจำสัปดาห์ที่ ${selectedWeek}`}
         >
@@ -793,10 +801,10 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
         </button>
       </div>
 
-      {/* 📋 Clean Checklist Cards (CSS Column Layout for Seamless Desktop Masonry Flow Without Gaps) */}
-      <div className="columns-1 md:columns-2 gap-3.5 md:gap-4 [column-fill:_balance]">
+      {/* 📋 Clean Checklist Cards (Balanced Responsive Grid for Desktop & Mobile) */}
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3.5 md:gap-4 items-start">
         {filteredItems.length === 0 ? (
-          <div className="w-full p-6 text-center bg-white dark:bg-[#1E1F20] rounded-2xl border border-slate-200 dark:border-white/10 text-slate-500 dark:text-[#8E918F] text-xs shadow-xs mb-4">
+          <div className="col-span-full w-full p-6 text-center bg-white dark:bg-[#1E1F20] rounded-2xl border border-slate-200 dark:border-white/10 text-slate-500 dark:text-[#8E918F] text-xs md:text-sm shadow-xs mb-4">
             ไม่พบรายการอุปกรณ์ตรงตามคำค้นหา
           </div>
         ) : (
@@ -891,16 +899,13 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
 
             return (
               <div
-                key={item.itemKey}
-                style={{ breakInside: 'avoid' }}
-                className={`break-inside-avoid mb-3.5 md:mb-4 inline-block w-full align-top p-3 sm:p-3.5 rounded-2xl border transition-colors duration-150 space-y-2.5 card-perf bg-white dark:bg-[#1E1F20] text-slate-900 dark:text-[#E3E3E3] shadow-xs ${
+                key={`${item.itemKey}__${idx}`}
+                className={`w-full p-3.5 sm:p-4 rounded-2xl border transition-colors duration-150 space-y-2.5 card-perf bg-white dark:bg-[#1E1F20] text-slate-900 dark:text-[#E3E3E3] shadow-xs ${
                   isBad && isCountPartial
                     ? 'border-slate-200 dark:border-white/10 border-l-4 border-l-amber-500 dark:border-l-[#FDD663]'
                     : isBad
                     ? 'border-slate-200 dark:border-white/10 border-l-4 border-l-rose-500 dark:border-l-[#F28B82]'
-                    : isOk
-                    ? 'border-slate-200 dark:border-white/10 border-l-4 border-l-emerald-500 dark:border-l-[#81C995]'
-                    : 'border-slate-200 dark:border-white/10 hover:border-blue-300 dark:hover:border-white/25'
+                    : 'border-slate-200 dark:border-white/10 hover:border-slate-300 dark:hover:border-white/25'
                 }`}
               >
                 {/* Clean Header Row (Left-to-right scan) */}
@@ -908,27 +913,27 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
                   <div className="min-w-0 flex-1 space-y-1">
                     <div className="flex items-center justify-between gap-1.5">
                       <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className="text-[10px] px-2 py-0.5 rounded-md bg-blue-50 dark:bg-[#282A2C] text-blue-700 dark:text-[#A8C7FA] font-bold border border-blue-200/80 dark:border-white/10">
+                        <span className="text-[11px] md:text-xs px-2 py-0.5 rounded-md bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-400 font-semibold border border-transparent">
                           {item.groupName}
                         </span>
                         {item.no && (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-slate-100 dark:bg-[#282A2C] text-slate-700 dark:text-[#E3E3E3] font-mono font-bold border border-slate-200 dark:border-white/10">
+                          <span className="text-[11px] md:text-xs px-1.5 py-0.5 rounded-md bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-400 font-mono font-semibold border border-transparent">
                             #{item.no}
                           </span>
                         )}
                         {item.code && (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-slate-100 dark:bg-[#282A2C] text-slate-600 dark:text-[#C4C7C5] font-mono border border-slate-200 dark:border-white/10">
+                          <span className="text-[11px] md:text-xs px-1.5 py-0.5 rounded-md bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-400 font-mono border border-transparent">
                             {item.code}
                           </span>
                         )}
                         {isType1 && (
-                          <span className="text-[10px] px-2 py-0.5 rounded-md bg-slate-100 dark:bg-[#282A2C] text-slate-700 dark:text-[#C4C7C5] font-bold border border-slate-200 dark:border-white/10 tabular-nums shrink-0 whitespace-nowrap">
+                          <span className="text-[11px] md:text-xs px-2 py-0.5 rounded-md bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-400 font-semibold border border-transparent tabular-nums shrink-0 whitespace-nowrap">
                             เป้า {targetTotalQty} {item.qty?.replace(/[0-9\s]/g, '') || 'ชิ้น'}
                             {currentCount !== null && (
                               <span
                                 className={`ml-1 font-mono ${
                                   isCountOk
-                                    ? 'text-emerald-600 dark:text-[#81C995]'
+                                    ? 'text-emerald-700 dark:text-emerald-400'
                                     : isCountPartial
                                     ? 'text-amber-600 dark:text-[#FDD663]'
                                     : 'text-rose-600 dark:text-[#F28B82]'
@@ -940,7 +945,7 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
                           </span>
                         )}
                         {hasMultipleSubItems && (
-                          <span className="text-[10px] px-2 py-0.5 rounded-md bg-purple-50 dark:bg-purple-500/15 text-purple-700 dark:text-purple-300 font-bold border border-purple-200 dark:border-purple-500/30 tabular-nums shrink-0 whitespace-nowrap">
+                          <span className="text-[11px] md:text-xs px-2 py-0.5 rounded-md bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-400 font-semibold border border-transparent tabular-nums shrink-0 whitespace-nowrap">
                             {subItems.length} ชิ้นย่อย ({subStatuses.filter((s, i) => s === String(classification.subQuantities[i] || 1)).length}/{subItems.length} ปกติ)
                           </span>
                         )}
@@ -957,12 +962,12 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
                       </button>
                     </div>
 
-                    <h3 className="text-sm font-bold text-slate-900 dark:text-[#E3E3E3] leading-snug">
+                    <h3 className="text-sm md:text-base font-bold text-slate-900 dark:text-[#E3E3E3] leading-snug">
                       {idx + 1}. {sanitizeItemName(item.name)}
                     </h3>
 
                     {item.spec && (
-                      <p className="text-xs text-slate-500 dark:text-[#8E918F] line-clamp-1 font-sans">{item.spec}</p>
+                      <p className="text-xs md:text-sm text-slate-500 dark:text-[#8E918F] line-clamp-1 font-sans">{item.spec}</p>
                     )}
 
                     {/* Non-multi Single Item / Type 1 EXP Display */}
@@ -1075,10 +1080,10 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
                         <button
                           type="button"
                           onClick={handleMasterAllOk}
-                          className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer active:scale-95 whitespace-nowrap ${
+                          className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer active:scale-95 whitespace-nowrap border ${
                             isOk
-                              ? 'bg-emerald-600 dark:bg-emerald-500/20 text-white dark:text-[#81C995] border border-transparent dark:border-emerald-500/40 shadow-xs'
-                              : 'bg-slate-100 dark:bg-[#282A2C] text-slate-700 dark:text-[#C4C7C5] hover:bg-emerald-50 dark:hover:bg-emerald-500/15 hover:text-emerald-700 dark:hover:text-[#81C995] border border-slate-200/80 dark:border-white/10'
+                              ? 'bg-emerald-500/10 text-emerald-700 border-emerald-500/20 dark:bg-emerald-500/15 dark:text-emerald-400 dark:border-emerald-500/25'
+                              : 'bg-slate-100 dark:bg-[#282A2C] text-slate-700 dark:text-[#C4C7C5] hover:bg-emerald-500/10 dark:hover:bg-emerald-500/15 hover:text-emerald-700 dark:hover:text-emerald-400 border-slate-200/80 dark:border-white/10'
                           }`}
                         >
                           <Check size={14} strokeWidth={2.5} />
@@ -1152,10 +1157,10 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
                                       const subInfo = getItemSubItemsInfo(item);
                                       handleToggleSubItem(idx, String(subInfo.quantities[idx] || 1));
                                     }}
-                                    className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-0.5 cursor-pointer transition active:scale-95 whitespace-nowrap ${
+                                    className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-0.5 cursor-pointer transition active:scale-95 whitespace-nowrap border ${
                                       isSubOk
-                                        ? 'bg-emerald-600 dark:bg-emerald-500/25 text-white dark:text-[#81C995] border border-transparent dark:border-emerald-500/40 shadow-2xs'
-                                        : 'bg-white dark:bg-[#1E1F20] border border-slate-300 dark:border-white/10 text-slate-700 dark:text-[#C4C7C5] hover:bg-emerald-50 dark:hover:bg-emerald-500/15'
+                                        ? 'bg-emerald-500/10 text-emerald-700 border-emerald-500/20 dark:bg-emerald-500/15 dark:text-emerald-400 dark:border-emerald-500/25'
+                                        : 'bg-white dark:bg-[#1E1F20] border-slate-300 dark:border-white/10 text-slate-700 dark:text-[#C4C7C5] hover:bg-emerald-500/10 dark:hover:bg-emerald-500/15 hover:text-emerald-700 dark:hover:text-emerald-400'
                                     }`}
                                     title={`ตรวจแล้ว ปกติ (${subTarget})`}
                                   >
@@ -1252,10 +1257,10 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
                         <button
                           type="button"
                           onClick={() => handleSetCount(targetTotalQty)}
-                          className={`flex-1 py-2 px-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1 transition cursor-pointer active:scale-95 whitespace-nowrap ${
+                          className={`flex-1 py-2 px-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1 transition cursor-pointer active:scale-95 whitespace-nowrap border ${
                             isCountOk
-                              ? 'bg-emerald-600 dark:bg-emerald-500/20 text-white dark:text-[#81C995] border border-transparent dark:border-emerald-500/40 shadow-xs'
-                              : 'bg-slate-100 dark:bg-[#282A2C] text-slate-700 dark:text-[#C4C7C5] hover:bg-emerald-50 dark:hover:bg-emerald-500/15 hover:text-emerald-700 dark:hover:text-[#81C995] border border-slate-200 dark:border-white/10'
+                              ? 'bg-emerald-500/10 text-emerald-700 border-emerald-500/20 dark:bg-emerald-500/15 dark:text-emerald-400 dark:border-emerald-500/25'
+                              : 'bg-slate-100 dark:bg-[#282A2C] text-slate-700 dark:text-[#C4C7C5] hover:bg-emerald-500/10 dark:hover:bg-emerald-500/15 hover:text-emerald-700 dark:hover:text-emerald-400 border-slate-200 dark:border-white/10'
                           }`}
                         >
                           <Check size={14} strokeWidth={2.5} className="shrink-0" />
@@ -1284,10 +1289,10 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
                       <button
                         type="button"
                         onClick={() => onToggleCheck(item.itemKey, 'ปกติ', item.name, selectedWeek)}
-                        className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer active:scale-95 whitespace-nowrap ${
+                        className={`flex-1 py-2 px-3 rounded-xl text-xs md:text-sm font-bold flex items-center justify-center gap-1.5 transition cursor-pointer active:scale-95 whitespace-nowrap border ${
                           isOk
-                            ? 'bg-emerald-600 dark:bg-emerald-500/20 text-white dark:text-[#81C995] border border-transparent dark:border-emerald-500/40 shadow-xs'
-                            : 'bg-slate-100 dark:bg-[#282A2C] text-slate-700 dark:text-[#C4C7C5] hover:bg-emerald-50 dark:hover:bg-emerald-500/15 hover:text-emerald-700 dark:hover:text-[#81C995] border border-slate-200/80 dark:border-white/10'
+                            ? 'bg-emerald-500/10 text-emerald-700 border-emerald-500/20 dark:bg-emerald-500/15 dark:text-emerald-400 dark:border-emerald-500/25'
+                            : 'bg-slate-100 dark:bg-[#282A2C] text-slate-700 dark:text-[#C4C7C5] hover:bg-emerald-500/10 dark:hover:bg-emerald-500/15 hover:text-emerald-700 dark:hover:text-emerald-400 border-slate-200/80 dark:border-white/10'
                         }`}
                       >
                         <Check size={15} strokeWidth={2.5} className="shrink-0" />
@@ -1297,7 +1302,7 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
                       <button
                         type="button"
                         onClick={() => onToggleCheck(item.itemKey, 'ผิดปกติ', item.name, selectedWeek)}
-                        className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer active:scale-95 whitespace-nowrap ${
+                        className={`flex-1 py-2 px-3 rounded-xl text-xs md:text-sm font-bold flex items-center justify-center gap-1.5 transition cursor-pointer active:scale-95 whitespace-nowrap ${
                           isBad
                             ? 'bg-rose-600 dark:bg-rose-500/20 text-white dark:text-[#F28B82] border border-transparent dark:border-rose-500/40 shadow-xs'
                             : 'bg-slate-100 dark:bg-[#282A2C] text-slate-700 dark:text-[#C4C7C5] hover:bg-rose-50 dark:hover:bg-rose-500/15 hover:text-rose-700 dark:hover:text-[#F28B82] border border-slate-200/80 dark:border-white/10'

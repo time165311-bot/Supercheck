@@ -25,6 +25,7 @@ import {
 import { EquipmentItem, RoomDef, CheckItemState } from '../types';
 import { CORRIDOR_LABELS, CORRIDORS } from '../constants/initialData';
 import { EquipmentDetailModal } from './EquipmentDetailModal';
+import { isValidInventoryItem } from '../utils/inventoryStats';
 
 interface FloorMapProps {
   rooms: RoomDef[];
@@ -305,7 +306,7 @@ export const FloorMap: React.FC<FloorMapProps> = ({
   const interactiveRooms = useMemo(() => {
     return rooms.filter((r) => {
       if (!r.m) return false;
-      const list = equipment[r.id] || [];
+      const list = (equipment[r.id] || []).filter((it) => isValidInventoryItem(it));
       return list.length > 0;
     });
   }, [rooms, equipment]);
@@ -326,7 +327,15 @@ export const FloorMap: React.FC<FloorMapProps> = ({
     > = {};
 
     interactiveRooms.forEach((r) => {
-      const list = equipment[r.id] || [];
+      const seenRoomIds = new Set<string>();
+      const list = (equipment[r.id] || []).filter((it) => {
+        if (!isValidInventoryItem(it)) return false;
+        if (it.id) {
+          if (seenRoomIds.has(it.id)) return false;
+          seenRoomIds.add(it.id);
+        }
+        return true;
+      });
       const rTotal = list.length;
       const rChecks = globalChecks[r.id] || {};
       let checked = 0;
@@ -394,7 +403,15 @@ export const FloorMap: React.FC<FloorMapProps> = ({
 
   const currentRoomItems = useMemo(() => {
     if (!activeRoomId) return [];
-    return equipment[activeRoomId] || [];
+    const seen = new Set<string>();
+    return (equipment[activeRoomId] || []).filter((it) => {
+      if (!isValidInventoryItem(it)) return false;
+      if (it.id) {
+        if (seen.has(it.id)) return false;
+        seen.add(it.id);
+      }
+      return true;
+    });
   }, [equipment, activeRoomId]);
 
   const currentRoomChecks = useMemo(() => {
@@ -680,10 +697,10 @@ export const FloorMap: React.FC<FloorMapProps> = ({
               <h3 className="font-bold text-base text-slate-900 dark:text-slate-100 leading-none">
                 สถานะการตรวจเช็กห้องผ่าตัด
               </h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 tabular-nums">
                 {pendingRooms.length === 0
-                  ? '🎉 ตรวจเช็กครบถ้วนแล้วทุกห้องผ่าตัด!'
-                  : `⚠️ มีห้องที่ยังไม่ได้ตรวจเช็กอีก ${pendingRooms.length} ห้อง`}
+                  ? `🎉 ตรวจเช็กครบถ้วนแล้วทุกห้องผ่าตัด (${overallEquipmentStats.total} รายการ)`
+                  : `⚠️ มีห้องที่ยังไม่ได้ตรวจเช็กอีก ${pendingRooms.length} ห้อง • รวมทั้งหมด ${overallEquipmentStats.total} รายการ`}
               </p>
             </div>
           </div>
@@ -1184,7 +1201,7 @@ export const FloorMap: React.FC<FloorMapProps> = ({
 
               return (
                 <div
-                  key={itemKey}
+                  key={`${itemKey}__${idx}`}
                   className={`p-3.5 rounded-2xl border transition-colors duration-150 card-perf flex flex-col justify-between space-y-3 ${
                     isBad
                       ? 'bg-rose-50/90 dark:bg-rose-950/30 border-rose-300 dark:border-rose-800 text-slate-900 dark:text-white shadow-xs'

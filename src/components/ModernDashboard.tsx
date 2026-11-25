@@ -24,6 +24,11 @@ import {
   getVisibleExpiryAlerts,
 } from '../utils/alertUtils';
 import { categoryCovers } from '../assets/categoryCovers';
+import {
+  calculateOverallInventoryStats,
+  isValidInventoryItem,
+} from '../utils/inventoryStats';
+import { ROOMS } from '../constants/initialData';
 import { Swiper, SwiperSlide } from 'swiper/react';
 import { EffectCoverflow, Pagination } from 'swiper/modules';
 import { useDataContext } from '../context/DataContext';
@@ -68,11 +73,10 @@ interface ModernDashboardProps {
   };
 }
 
-const CATEGORY_ORDER: Array<'medicine' | 'equipment' | 'bag' | 'ambulance' | 'cart'> = [
+const CATEGORY_ORDER: Array<'medicine' | 'equipment' | 'bag' | 'cart'> = [
   'medicine',
   'equipment',
   'bag',
-  'ambulance',
   'cart',
 ];
 const CATEGORY_COUNT = CATEGORY_ORDER.length;
@@ -99,6 +103,7 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
   const swiperRef = React.useRef<any>(null);
   const [dashSearchTerm, setDashSearchTerm] = useState('');
   const [showAlerts, setShowAlerts] = useState(false);
+  const [coverFallbackMap, setCoverFallbackMap] = useState<Record<string, boolean>>({});
 
   // Listen for user profile updates in real-time
   const [, setProfileTrigger] = useState(0);
@@ -119,7 +124,7 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
     if (typeof activeCategoryIndex === 'number' && activeCategoryIndex >= 0 && activeCategoryIndex < CATEGORY_COUNT) {
       return activeCategoryIndex;
     }
-    const found = CATEGORY_ORDER.indexOf(activeCategory);
+    const found = CATEGORY_ORDER.indexOf(activeCategory as any);
     return found >= 0 ? found : 2;
   }, [activeCategory, activeCategoryIndex]);
 
@@ -215,8 +220,7 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
       if (targetView === 'drug_check') onSelectCategory('medicine', 0);
       else if (targetView === 'room_check' || targetView === 'eq_overview') onSelectCategory('equipment', 1);
       else if (targetView === 'bag_check') onSelectCategory('bag', 2);
-      else if (targetView === 'ambulance_check') onSelectCategory('ambulance', 3);
-      else if (targetView === 'cart_check') onSelectCategory('cart', 4);
+      else if (targetView === 'cart_check') onSelectCategory('cart', 3);
     }
 
     onNavigate(targetView);
@@ -270,59 +274,26 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
     };
   }, []);
 
-  const stats = overallStats || {
-    grandTotal: 0,
-    grandChecked: 0,
-    grandNormal: 0,
-    grandDefective: 0,
-    completionPct: 0,
-  };
-
-  // Validate that an alert key/name is a genuine item rather than orphaned random test data (e.g. "eq 179...", "eq_179...")
-  const isJunkTestItem = (key: string, name?: string) => {
-    const cleanKey = String(key || '').trim();
-    const cleanName = String(name || '').trim();
-    if (/^eq[\s_-]*17\d+/i.test(cleanKey) || /^eq[\s_-]*17\d+/i.test(cleanName)) return true;
-    if (/^eq[\s_-]*\d{8,}$/i.test(cleanName)) return true;
-    if (!cleanName || /^[\s\-_]+$/.test(cleanName)) return true;
-    return false;
-  };
-
-  const drugsCount = useMemo(
-    () => (drugs || []).filter((d) => d && !isJunkTestItem(d.id || '', d.name)).length,
-    [drugs]
-  );
-
-  const equipmentCount = useMemo(
+  const computedStats = useMemo(
     () =>
-      Object.values(equipment || {}).reduce(
-        (acc, items) =>
-          acc +
-          (Array.isArray(items)
-            ? items.filter((it) => it && !isJunkTestItem(it.id || '', it.name)).length
-            : 0),
-        0
-      ),
-    [equipment]
+      calculateOverallInventoryStats({
+        drugs: drugs || [],
+        equipment: equipment || {},
+        lists: lists || {},
+        globalChecks: globalChecks || {},
+        rooms: ROOMS,
+      }),
+    [drugs, equipment, lists, globalChecks]
   );
 
-  const countListItems = (groups?: Record<string, EquipmentItem[]>): number => {
-    let count = 0;
-    Object.values(groups || {}).forEach((arr) => {
-      if (Array.isArray(arr)) {
-        count += arr.filter((it) => it && !isJunkTestItem(it.id || '', it.name)).length;
-      }
-    });
-    return count;
-  };
+  const stats = overallStats && overallStats.grandTotal === computedStats.grandTotal
+    ? overallStats
+    : computedStats;
 
-  const bagCount = useMemo(() => countListItems(lists?.bag?.groups), [lists?.bag?.groups]);
-  const ambulanceCount = useMemo(() => countListItems(lists?.ambulance?.groups), [lists?.ambulance?.groups]);
-  const cartCount = useMemo(() => countListItems(lists?.cart?.groups), [lists?.cart?.groups]);
+  const { drugsCount, equipmentCount, bagCount, cartCount } = computedStats;
+  const totalInventoryCount = computedStats.grandTotal;
 
-  const totalInventoryCount = drugsCount + equipmentCount + bagCount + ambulanceCount + cartCount;
-
-  // Defective items list (Strictly matched against existing inventory + validated names)
+  // Defective items list (Strictly matched against existing valid inventory items)
   const defectiveItems = useMemo<Array<{
     category: string;
     name: string;
@@ -344,9 +315,10 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
       if (!checks || typeof checks !== 'object' || !Array.isArray(roomItems) || roomItems.length === 0) return;
 
       roomItems.forEach((eq, idx) => {
+        if (!isValidInventoryItem(eq)) return;
         const itemKey = eq.id || `${roomId}_${idx}`;
         const val = checks[itemKey];
-        if (val && val.result === 'ผิดปกติ' && !isJunkTestItem(itemKey, eq.name)) {
+        if (val && val.result === 'ผิดปกติ') {
           list.push({
             category: 'ครุภัณฑ์ห้องผ่าตัด',
             name: eq.name,
@@ -358,24 +330,25 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
       });
     });
 
-    // 2. Bag, Ambulance & Cart (validate against actual existing items in lists)
-    (['bag', 'ambulance', 'cart'] as const).forEach((cat) => {
+    // 2. Bag & Cart (validate against actual existing items in lists)
+    (['bag', 'cart'] as const).forEach((cat) => {
       const checks = (globalChecks && globalChecks[cat]) || {};
       const groups = lists?.[cat]?.groups || {};
       if (!checks || typeof checks !== 'object') return;
 
       Object.entries(groups).forEach(([groupName, groupItems]) => {
         (groupItems || []).forEach((it, idx) => {
+          if (!isValidInventoryItem(it)) return;
           const itemKey = it.id || `${cat}_${groupName}_${idx}`;
           const altKey = `${cat}_${idx}`;
           const val = checks[itemKey] || checks[altKey];
-          if (val && val.result === 'ผิดปกติ' && !isJunkTestItem(itemKey, it.name)) {
+          if (val && val.result === 'ผิดปกติ') {
             list.push({
-              category: cat === 'bag' ? 'กระเป๋า Emergency' : cat === 'ambulance' ? 'รถพยาบาลฉุกเฉิน' : 'รถเข็นฉุกเฉิน',
+              category: cat === 'bag' ? 'กระเป๋า Emergency' : 'รถเข็นฉุกเฉิน',
               name: it.name,
               location: groupName || cat,
               note: val.note,
-              targetView: cat === 'bag' ? 'bag_check' : cat === 'ambulance' ? 'ambulance_check' : 'cart_check',
+              targetView: cat === 'bag' ? 'bag_check' : 'cart_check',
             });
           }
         });
@@ -384,7 +357,7 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
 
     // 3. Drugs out of stock
     (drugs || []).forEach((d) => {
-      if (d && Number(d.remaining) <= 0 && !isJunkTestItem(d.id, d.name)) {
+      if (isValidInventoryItem(d) && Number(d.remaining) <= 0) {
         list.push({
           category: 'คลังยาและสารน้ำ',
           name: d.name,
@@ -406,29 +379,29 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
     const results: Array<{ name: string; location: string; targetView: 'home' | 'eq_overview' | 'room_check' | 'bag_check' | 'cart_check' | 'ambulance_check' | 'users' | 'drug_check' }> = [];
 
     (drugs || []).forEach((d: any) => {
-      if (d && (d.name.toLowerCase().includes(q) || (d.barcode && String(d.barcode).toLowerCase().includes(q)))) {
+      if (isValidInventoryItem(d) && (d.name.toLowerCase().includes(q) || (d.barcode && String(d.barcode).toLowerCase().includes(q)))) {
         results.push({ name: d.name, location: 'คลังยา OR', targetView: 'drug_check' });
       }
     });
 
     Object.entries(equipment || {}).forEach(([roomId, items]) => {
       (items || []).forEach((item) => {
-        if (item && (item.name.toLowerCase().includes(q) || (item.code && item.code.toLowerCase().includes(q)))) {
+        if (isValidInventoryItem(item) && (item.name.toLowerCase().includes(q) || (item.code && item.code.toLowerCase().includes(q)))) {
           results.push({ name: item.name, location: `ห้องผ่าตัด ${roomId.toUpperCase()}`, targetView: 'room_check' });
         }
       });
     });
 
-    (['bag', 'ambulance', 'cart'] as const).forEach((typeKey) => {
+    (['bag', 'cart'] as const).forEach((typeKey) => {
       const config = lists?.[typeKey];
       if (config && config.groups) {
         Object.entries(config.groups).forEach(([, items]) => {
           (items || []).forEach((it) => {
-            if (it && (it.name.toLowerCase().includes(q) || (it.code && it.code.toLowerCase().includes(q)))) {
+            if (isValidInventoryItem(it) && (it.name.toLowerCase().includes(q) || (it.code && it.code.toLowerCase().includes(q)))) {
               results.push({
                 name: it.name,
-                location: typeKey === 'bag' ? 'กระเป๋า Emergency' : typeKey === 'ambulance' ? 'รถพยาบาลฉุกเฉิน' : 'รถเข็นฉุกเฉิน',
-                targetView: typeKey === 'bag' ? 'bag_check' : typeKey === 'ambulance' ? 'ambulance_check' : 'cart_check',
+                location: typeKey === 'bag' ? 'กระเป๋า Emergency' : 'รถเข็นฉุกเฉิน',
+                targetView: typeKey === 'bag' ? 'bag_check' : 'cart_check',
               });
             }
           });
@@ -465,14 +438,6 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
       targetView: 'bag_check' as const,
     },
     {
-      id: 'ambulance',
-      title: 'รถพยาบาลฉุกเฉิน (Ambulance)',
-      count: `${ambulanceCount} รายการ`,
-      icon: <Truck className="w-4 h-4 text-sky-400 shrink-0" />,
-      bg: categoryCovers.cart,
-      targetView: 'ambulance_check' as const,
-    },
-    {
       id: 'cart',
       title: 'รถฉุกเฉิน (Crash Cart)',
       count: `${cartCount} รายการ`,
@@ -480,9 +445,9 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
       bg: categoryCovers.cart,
       targetView: 'cart_check' as const,
     },
-  ], [drugsCount, equipmentCount, bagCount, ambulanceCount, cartCount]);
+  ], [drugsCount, equipmentCount, bagCount, cartCount]);
 
-  // Looped categories (15 items total: 3 cycles of the 5 categories)
+  // Looped categories (12 items total: 3 cycles of the 4 categories)
   const loopedCategories = useMemo(() => {
     return [
       ...categories.map((c) => ({ ...c, uniqueId: `${c.id}-c1` })),
@@ -862,7 +827,7 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
               slideToClickedSlide={true}
               loop={true}
               loopPreventsSliding={false}
-              loopAdditionalSlides={5}
+              loopAdditionalSlides={4}
               initialSlide={initialSlideIndex}
               speed={300}
               resistance={true}
@@ -908,16 +873,34 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
                           handleCategorySelect(item.targetView);
                         }
                       }}
-                      className={`w-full focus-carousel-card card-grab-cursor relative h-72 sm:h-80 xl:h-96 rounded-[2rem] overflow-hidden select-none pointer-events-auto cursor-grab active:cursor-grabbing ${
+                      className={`w-full focus-carousel-card card-grab-cursor relative h-72 sm:h-80 xl:h-96 rounded-[2rem] overflow-hidden select-none pointer-events-auto cursor-grab active:cursor-grabbing bg-slate-900 ${
                         isActive ? 'ring-2 ring-white/40' : ''
                       }`}
                     >
-                      <img
-                        src={item.bg}
-                        alt={item.title}
-                        draggable={false}
-                        className="absolute inset-0 w-full h-full object-cover pointer-events-none select-none"
-                      />
+                      {!coverFallbackMap[item.id] ? (
+                        <img
+                          src={item.bg}
+                          alt={item.title}
+                          loading="eager"
+                          decoding="async"
+                          draggable={false}
+                          onError={() =>
+                            setCoverFallbackMap((prev) =>
+                              prev[item.id] ? prev : { ...prev, [item.id]: true }
+                            )
+                          }
+                          className="absolute inset-0 w-full h-full object-cover pointer-events-none select-none"
+                        />
+                      ) : (
+                        <img
+                          src={categoryCovers.operatingRoom}
+                          alt={item.title}
+                          loading="eager"
+                          decoding="async"
+                          draggable={false}
+                          className="absolute inset-0 w-full h-full object-cover pointer-events-none select-none opacity-85"
+                        />
+                      )}
                       <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/45 to-transparent pointer-events-none" />
 
                       <div className="absolute inset-0 p-5 sm:p-8 flex flex-col justify-between z-10 pointer-events-none">

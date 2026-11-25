@@ -3,6 +3,26 @@
 @custom-variant dark (&:where(.dark, .dark *, [data-theme=dark], [data-theme=dark] *));
 
 @layer base {
+  /* Responsive root font scaling for desktop readability */
+  html {
+    font-size: 15px;
+  }
+  @media (min-width: 640px) {
+    html {
+      font-size: 16px;
+    }
+  }
+  @media (min-width: 1024px) {
+    html {
+      font-size: 17px;
+    }
+  }
+  @media (min-width: 1280px) {
+    html {
+      font-size: 17.5px;
+    }
+  }
+
   /* Single scroll container strategy: lock html/body/#root to 100dvh so <main> scrolls smoothly without double scrollbars */
   html, body {
     max-width: 100vw !important;

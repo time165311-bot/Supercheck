@@ -22,12 +22,35 @@ import {
   getChannelWeekDatesKey,
   getStoredString,
   getInitialLists,
+  getDeletedItemIds,
+  setDeletedItemIds,
+  filterListsMapByTombstones,
 } from '../services/storage';
+import { DEFAULT_LISTS } from '../constants/initialData';
 import { sanitizeItemName, sortItemsNaturally } from '../utils/itemUtils';
+import { buildResolvedListsMap } from '../utils/inventoryStats';
 
 const CHANNELS_INITIALIZED_KEY = 'anesthesia_channels_initialized';
 const CHANNELS_PENDING_SYNC_KEY = 'anesthesia_channels_pending_sync';
 const DELETED_CHANNELS_STORAGE_KEY = 'anesthesia_deleted_channel_ids';
+
+function readLocalChannelClearedFlags(channelId: string): {
+  bagCleared?: boolean;
+  cartCleared?: boolean;
+  ambulanceCleared?: boolean;
+} {
+  if (typeof window === 'undefined') return {};
+  try {
+    const key =
+      !channelId || channelId === 'channel_master'
+        ? 'anesthesia_cleared_flags'
+        : `anesthesia_cleared_flags_${channelId}`;
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
 
 // Helper to deep clone and sanitize lists for a channel (retains items & subItems, but completely strips any check results)
 export function sanitizeListsForChannel(sourceLists: Record<'bag' | 'cart' | string, ListConfig>): Record<'bag' | 'cart' | string, ListConfig> {
@@ -61,9 +84,10 @@ export const DEFAULT_CHANNELS: WardChannel[] = [
 ];
 
 export interface ChannelData {
-  lists: Record<'bag' | 'cart' | string, ListConfig>;
+  lists: Record<'bag' | 'cart' | 'ambulance' | string, ListConfig>;
   globalChecks: Record<string, Record<string, CheckItemState>>;
   emergencyWeekDates: Record<string, Record<number, string>>;
+  deletedItemIds?: string[];
 }
 
 export interface DataContextType {
@@ -278,23 +302,46 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           localStorage.getItem('active_channel_id'))) ||
       'channel_master';
     const key = getChannelDbKey(initialActiveId);
+    const localTombstones = getDeletedItemIds(initialActiveId);
+    const isMaster = initialActiveId === 'channel_master';
+    const localFlags = readLocalChannelClearedFlags(initialActiveId);
     const stored = getStored<ChannelData | null>(key, null);
-    if (stored && stored.lists && (stored.lists.bag || stored.lists.cart)) {
-      return stored;
+    if (stored && stored.lists && (stored.lists.bag || stored.lists.cart || stored.lists.ambulance)) {
+      const mergedTombstones = Array.from(new Set([...localTombstones, ...(stored.deletedItemIds || [])]));
+      if (mergedTombstones.length > localTombstones.length) {
+        setDeletedItemIds(initialActiveId, mergedTombstones);
+      }
+      const tombstoneSet = new Set(mergedTombstones);
+      const resolvedLists = buildResolvedListsMap({
+        isMaster,
+        flags: localFlags,
+        remoteLists: stored.lists,
+        localLists: getStored<Record<string, ListConfig> | null>(getChannelListsKey(initialActiveId), null),
+        defaultLists: DEFAULT_LISTS as Record<string, ListConfig>,
+        tombstoneSet,
+      });
+      return {
+        ...stored,
+        lists: resolvedLists,
+        deletedItemIds: mergedTombstones,
+      };
     }
 
     const masterData = getStored<ChannelData | null>(getChannelDbKey('channel_master'), null);
     const initialLists = (masterData && masterData.lists) ? masterData.lists : getInitialLists();
-    const cleanLists = sanitizeListsForChannel(initialLists);
+    const cleanLists = filterListsMapByTombstones(
+      sanitizeListsForChannel({ ...initialLists, ambulance: initialLists.ambulance || DEFAULT_LISTS.ambulance }),
+      localTombstones
+    );
 
-    const isMaster = initialActiveId === 'channel_master';
     const baseData: ChannelData = {
       lists: cleanLists,
       globalChecks: isMaster ? (masterData?.globalChecks || getStored(STORAGE_KEYS.GLOBAL_CHECKS, {})) : {},
       emergencyWeekDates: isMaster ? (masterData?.emergencyWeekDates || getStored(STORAGE_KEYS.EMER_WEEK_DATES, {})) : {},
+      deletedItemIds: localTombstones,
     };
 
-    setStored(getChannelDbKey('channel_master'), isMaster ? baseData : (masterData || { lists: cleanLists, globalChecks: {}, emergencyWeekDates: {} }));
+    setStored(getChannelDbKey('channel_master'), isMaster ? baseData : (masterData || { lists: cleanLists, globalChecks: {}, emergencyWeekDates: {}, deletedItemIds: [] }));
     setStored(key, baseData);
     setStored(getChannelListsKey(initialActiveId), cleanLists);
     setStored(getChannelChecksKey(initialActiveId), baseData.globalChecks);
@@ -328,10 +375,29 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   // Load channel data when channel switches with deep clone isolation
   useEffect(() => {
     const key = getChannelDbKey(activeChannelId);
+    const isMaster = !activeChannelId || activeChannelId === 'channel_master';
+    const localFlags = readLocalChannelClearedFlags(activeChannelId);
+    const localTombstones = getDeletedItemIds(activeChannelId);
     const stored = getStored<ChannelData | null>(key, null);
 
-    if (stored && stored.lists && (stored.lists.bag || stored.lists.cart)) {
-      setChannelData(stored);
+    if (stored && stored.lists && (stored.lists.bag || stored.lists.cart || stored.lists.ambulance)) {
+      const mergedTombstones = Array.from(new Set([...localTombstones, ...(stored.deletedItemIds || [])]));
+      if (mergedTombstones.length > localTombstones.length) {
+        setDeletedItemIds(activeChannelId, mergedTombstones);
+      }
+      const resolvedLists = buildResolvedListsMap({
+        isMaster,
+        flags: localFlags,
+        remoteLists: stored.lists,
+        localLists: getStored<Record<string, ListConfig> | null>(getChannelListsKey(activeChannelId), null),
+        defaultLists: DEFAULT_LISTS as Record<string, ListConfig>,
+        tombstoneSet: new Set(mergedTombstones),
+      });
+      setChannelData({
+        ...stored,
+        lists: resolvedLists,
+        deletedItemIds: mergedTombstones,
+      });
       return;
     }
 
@@ -340,10 +406,23 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     fetchChannelDataFromFirebase(activeChannelId).then((remote) => {
       if (cancelled) return;
       if (remote && remote.lists) {
+        const mergedTombstones = setDeletedItemIds(activeChannelId, [
+          ...getDeletedItemIds(activeChannelId),
+          ...(Array.isArray(remote.deletedItemIds) ? remote.deletedItemIds : []),
+        ]);
+        const resolvedRemoteLists = buildResolvedListsMap({
+          isMaster,
+          flags: localFlags,
+          remoteLists: remote.lists,
+          localLists: getStored<Record<string, ListConfig> | null>(getChannelListsKey(activeChannelId), null),
+          defaultLists: DEFAULT_LISTS as Record<string, ListConfig>,
+          tombstoneSet: new Set(mergedTombstones),
+        });
         const remoteData: ChannelData = {
-          lists: remote.lists,
+          lists: resolvedRemoteLists,
           globalChecks: remote.globalChecks || {},
           emergencyWeekDates: remote.emergencyWeekDates || {},
+          deletedItemIds: mergedTombstones,
         };
         setChannelData(remoteData);
         setStored(key, remoteData);
@@ -355,13 +434,16 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
       const masterData = getStored<ChannelData | null>(getChannelDbKey('channel_master'), null);
       const sourceLists = (masterData && masterData.lists) ? masterData.lists : getInitialLists();
-      const cleanLists = sanitizeListsForChannel(sourceLists);
+      const cleanLists = filterListsMapByTombstones(
+        sanitizeListsForChannel({ ...sourceLists, ambulance: sourceLists.ambulance || DEFAULT_LISTS.ambulance }),
+        localTombstones
+      );
 
-      const isMaster = activeChannelId === 'channel_master';
       const newData: ChannelData = {
         lists: cleanLists,
         globalChecks: isMaster ? (masterData?.globalChecks || {}) : {},
         emergencyWeekDates: isMaster ? (masterData?.emergencyWeekDates || {}) : {},
+        deletedItemIds: localTombstones,
       };
       setChannelData(newData);
       setStored(key, newData);
@@ -379,6 +461,9 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setChannelData((prev) => {
       const patch = typeof newData === 'function' ? newData(prev) : newData;
       const updated = { ...prev, ...patch };
+      if (patch.deletedItemIds !== undefined) {
+        updated.deletedItemIds = setDeletedItemIds(activeChannelId, patch.deletedItemIds || []);
+      }
       setStored(getChannelDbKey(activeChannelId), updated);
       if (patch.lists) {
         setStored(getChannelListsKey(activeChannelId), patch.lists);
@@ -411,21 +496,39 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       localStorage.setItem('active_channel_id', id);
 
       const key = getChannelDbKey(id);
+      const localTombstones = getDeletedItemIds(id);
       let targetData = getStored<ChannelData | null>(key, null);
-      if (!targetData || !targetData.lists || (!targetData.lists.bag && !targetData.lists.cart)) {
+      if (!targetData || !targetData.lists || (!targetData.lists.bag && !targetData.lists.cart && !targetData.lists.ambulance)) {
         const masterData = getStored<ChannelData | null>(getChannelDbKey('channel_master'), null);
         const sourceLists = (masterData && masterData.lists) ? masterData.lists : getInitialLists();
-        const cleanLists = sanitizeListsForChannel(sourceLists);
+        const cleanLists = filterListsMapByTombstones(
+          sanitizeListsForChannel({ ...sourceLists, ambulance: sourceLists.ambulance || DEFAULT_LISTS.ambulance }),
+          localTombstones
+        );
         const isMaster = id === 'channel_master';
         targetData = {
           lists: cleanLists,
           globalChecks: isMaster ? (masterData?.globalChecks || {}) : {},
           emergencyWeekDates: isMaster ? (masterData?.emergencyWeekDates || {}) : {},
+          deletedItemIds: localTombstones,
         };
         setStored(key, targetData);
         setStored(getChannelListsKey(id), cleanLists);
         setStored(getChannelChecksKey(id), targetData.globalChecks);
         setStored(getChannelWeekDatesKey(id), targetData.emergencyWeekDates);
+      } else {
+        const mergedTombstones = Array.from(new Set([...localTombstones, ...(targetData.deletedItemIds || [])]));
+        targetData = {
+          ...targetData,
+          lists: buildResolvedListsMap({
+            isMaster: id === 'channel_master',
+            flags: readLocalChannelClearedFlags(id),
+            remoteLists: targetData.lists,
+            localLists: getStored<Record<string, ListConfig> | null>(getChannelListsKey(id), null),
+            defaultLists: DEFAULT_LISTS as Record<string, ListConfig>,
+            tombstoneSet: new Set(mergedTombstones),
+          }),
+        };
       }
       setChannelData(targetData);
 
@@ -466,12 +569,14 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       : {
           bag: { title: 'กระเป๋าฉุกเฉิน', sheet: 'กระเป๋า Emergency', groups: {} },
           cart: { title: 'รถฉุกเฉิน', sheet: 'รถ Emergency', groups: {} },
+          ambulance: { title: 'รถพยาบาลฉุกเฉิน', sheet: 'รถ Ambulance', groups: {} },
         };
 
     const newChannelData: ChannelData = {
       lists: cleanLists,
       globalChecks: {},
       emergencyWeekDates: {},
+      deletedItemIds: [],
     };
 
     setStored(getChannelDbKey(newId), newChannelData);
@@ -559,14 +664,30 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const updatedGroups: Record<string, EquipmentItem[]> = { ...(currentList.groups || {}) };
       const defaultGroupName = 'อุปกรณ์และเวชภัณฑ์ฉุกเฉิน';
 
+      const existingIds = new Set<string>();
+      Object.values(updatedGroups).forEach((arr) => {
+        (arr || []).forEach((ex) => {
+          if (ex?.id) existingIds.add(ex.id);
+        });
+      });
+
       newItems.forEach((item, index) => {
         const groupName = item.groupName || item.category || item.group || defaultGroupName;
         if (!updatedGroups[groupName]) {
           updatedGroups[groupName] = [];
         }
 
+        let resolvedId =
+          item.id && !existingIds.has(item.id)
+            ? String(item.id)
+            : `${targetType}_${Date.now()}_${index}_${Math.random().toString(36).substring(2, 7)}`;
+        while (existingIds.has(resolvedId)) {
+          resolvedId = `${targetType}_${Date.now()}_${index}_${Math.random().toString(36).substring(2, 7)}`;
+        }
+        existingIds.add(resolvedId);
+
         const formattedItem: EquipmentItem = {
-          id: item.id || `${targetType}_${Date.now()}_${index}_${Math.random().toString(36).substring(2, 7)}`,
+          id: resolvedId,
           name: sanitizeItemName(item.name || `รายการที่ ${index + 1}`),
           qty: String(item.unitText || item.qty || '1'),
           unitText: String(item.unitText || item.qty || '1'),
@@ -878,9 +999,11 @@ export const useDataContext = (): DataContextType => {
         lists: {
           bag: { title: 'กระเป๋าฉุกเฉิน', sheet: 'กระเป๋า Emergency', groups: {} },
           cart: { title: 'รถฉุกเฉิน', sheet: 'รถ Emergency', groups: {} },
+          ambulance: { title: 'รถพยาบาลฉุกเฉิน', sheet: 'รถ Ambulance', groups: {} },
         },
         globalChecks: {},
         emergencyWeekDates: {},
+        deletedItemIds: [],
       },
       updateChannelData: () => {},
     };

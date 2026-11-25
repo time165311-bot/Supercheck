@@ -21,6 +21,7 @@ import { AuraAssistant } from './components/AuraAssistant';
 import { ChannelSelectorModal } from './components/ChannelSelectorModal';
 import { useDataContext } from './context/DataContext';
 import { getRealTargetCheckValue, parseExpDateObj } from './utils/itemUtils';
+import { calculateOverallInventoryStats, isValidInventoryItem } from './utils/inventoryStats';
 import { diffDaysFromBangkokToday, getBangkokTodayIso } from './utils/dateUtils';
 import { getChannelStorageKeys } from './utils/helpers';
 import { useChannelSync, persistClearedFlags } from './hooks/useChannelSync';
@@ -37,12 +38,17 @@ import {
   setStoredString,
   getInitialEquipment,
   getInitialLists,
+  getChannelDbKey,
   getChannelListsKey,
   getChannelChecksKey,
   getChannelWeekDatesKey,
   getBangkokPeriodKeys,
   getStoredCyclePeriods,
   setStoredCyclePeriods,
+  addDeletedItemIds,
+  removeDeletedItemIds,
+  getDeletedItemIds,
+  makeItemTombstoneTokens,
 } from './services/storage';
 import { sendInspectionToGas, testGasConnection } from './services/api';
 import { authorizedFetch } from './services/aiService';
@@ -102,6 +108,7 @@ import {
   saveEquipmentItemToFirebase,
   deleteEquipmentItemInFirebase,
   deleteChannelEquipmentItemInFirebase,
+  deleteChannelDrugItemInFirebase,
   clearChannelEquipmentInFirebase,
   saveChannelEquipmentItemToFirebase,
   saveChannelBatchEquipmentToFirebase,
@@ -144,7 +151,6 @@ export default function App() {
         saved === 'room_check' ||
         saved === 'bag_check' ||
         saved === 'cart_check' ||
-        saved === 'ambulance_check' ||
         saved === 'eq_overview'
       ) {
         return saved;
@@ -158,13 +164,13 @@ export default function App() {
     medicine: 0,
     equipment: 1,
     bag: 2,
-    ambulance: 3,
-    cart: 4,
+    ambulance: 2,
+    cart: 3,
   };
   const [activeCategory, setActiveCategory] = useState<'medicine' | 'equipment' | 'bag' | 'ambulance' | 'cart'>(() => {
     try {
       const saved = sessionStorage.getItem('anesthesia_active_category');
-      if (saved === 'medicine' || saved === 'equipment' || saved === 'bag' || saved === 'ambulance' || saved === 'cart') {
+      if (saved === 'medicine' || saved === 'equipment' || saved === 'bag' || saved === 'cart') {
         return saved;
       }
     } catch {}
@@ -173,14 +179,14 @@ export default function App() {
 
   const [activeCategoryIndex, setActiveCategoryIndex] = useState<number>(() => {
     try {
+      const savedCat = sessionStorage.getItem('anesthesia_active_category');
+      if (savedCat === 'medicine' || savedCat === 'equipment' || savedCat === 'bag' || savedCat === 'cart') {
+        return CATEGORY_INDEX_MAP[savedCat];
+      }
       const savedIdx = sessionStorage.getItem('anesthesia_active_category_index');
       if (savedIdx !== null) {
         const parsed = Number(savedIdx);
-        if (Number.isInteger(parsed) && parsed >= 0 && parsed < 5) return parsed;
-      }
-      const savedCat = sessionStorage.getItem('anesthesia_active_category');
-      if (savedCat === 'medicine' || savedCat === 'equipment' || savedCat === 'bag' || savedCat === 'ambulance' || savedCat === 'cart') {
-        return CATEGORY_INDEX_MAP[savedCat];
+        if (Number.isInteger(parsed) && parsed >= 0 && parsed < 4) return parsed;
       }
     } catch {}
     return 2;
@@ -188,8 +194,9 @@ export default function App() {
 
   const setCategoryAndIndex = useCallback(
     (cat: 'medicine' | 'equipment' | 'bag' | 'ambulance' | 'cart', idx?: number) => {
-      setActiveCategory(cat);
-      setActiveCategoryIndex(typeof idx === 'number' && idx >= 0 && idx < 5 ? idx : CATEGORY_INDEX_MAP[cat]);
+      const safeCat = cat === 'ambulance' ? 'bag' : cat;
+      setActiveCategory(safeCat);
+      setActiveCategoryIndex(typeof idx === 'number' && idx >= 0 && idx < 4 ? idx : CATEGORY_INDEX_MAP[safeCat]);
     },
     []
   );
@@ -341,7 +348,7 @@ export default function App() {
   const { lists, globalChecks, emergencyWeekDates } = channelData;
   
   // Helper to update specific parts of channelData (functional updater prevents stale closures in loops)
-  const setLists = (newLists: Record<'bag' | 'cart' | string, ListConfig> | ((prev: Record<'bag' | 'cart' | string, ListConfig>) => Record<'bag' | 'cart' | string, ListConfig>)) => {
+  const setLists = (newLists: Record<'bag' | 'cart' | 'ambulance' | string, ListConfig> | ((prev: Record<'bag' | 'cart' | 'ambulance' | string, ListConfig>) => Record<'bag' | 'cart' | 'ambulance' | string, ListConfig>)) => {
     updateChannelData((prev) => ({
       lists: typeof newLists === 'function' ? newLists(prev.lists) : newLists,
     }));
@@ -858,18 +865,53 @@ export default function App() {
     const isMaster = channelId === 'channel_master';
     const chKeys = getChannelStorageKeys(channelId);
 
+    const nextIdSet = new Set(nextDrugs.map((d) => d.id));
+    const prevIdSet = new Set(drugs.map((d) => d.id));
+    const removedDrugs = drugs.filter((d) => d.id && !nextIdSet.has(d.id));
+    const addedDrugs = nextDrugs.filter((d) => d.id && !prevIdSet.has(d.id));
+
+    if (removedDrugs.length > 0) {
+      const removedTokens = removedDrugs.flatMap((d) =>
+        makeItemTombstoneTokens('drug', d as any, d.id)
+      );
+      addDeletedItemIds(channelId, removedTokens);
+    }
+    if (addedDrugs.length > 0) {
+      const addedTokens = addedDrugs.flatMap((d) =>
+        makeItemTombstoneTokens('drug', d as any, d.id)
+      );
+      removeDeletedItemIds(channelId, addedTokens);
+    }
+    const persistedTombstones = getDeletedItemIds(channelId);
+
     setDrugs(nextDrugs);
     setStored(chKeys.DRUGS, nextDrugs);
     if (isMaster) {
       setStored(STORAGE_KEYS.DRUGS, nextDrugs);
     }
+    if (removedDrugs.length > 0 || addedDrugs.length > 0) {
+      updateChannelData({ deletedItemIds: persistedTombstones });
+    }
     try {
+      if (removedDrugs.length > 0) {
+        await Promise.all(
+          removedDrugs.map((d) => deleteChannelDrugItemInFirebase(channelId, d.id).catch(() => false))
+        );
+      }
       if (nextDrugs.length === 0) {
         await clearChannelDrugsInFirebase(channelId);
         await persistClearedFlags({ drugsCleared: true }, channelId);
       } else {
         await persistClearedFlags({ drugsCleared: false }, channelId);
         await saveChannelBatchDrugsToFirebase(channelId, nextDrugs);
+      }
+      if (removedDrugs.length > 0 || addedDrugs.length > 0) {
+        await saveChannelDataToFirebase(channelId, {
+          lists,
+          globalChecks,
+          emergencyWeekDates,
+          deletedItemIds: persistedTombstones,
+        }).catch(() => {});
       }
     } catch (err) {
       console.warn('Failed to sync drugs to Cloud Firestore:', err);
@@ -1082,7 +1124,7 @@ export default function App() {
     });
   };
 
-  // Add New Item to Emergency Bag or Crash Cart Checklist
+  // Add New Item to Emergency Bag, Crash Cart, or Ambulance Checklist
   const handleAddItem = async (
     type: 'bag' | 'cart' | 'ambulance' | string,
     newItem: {
@@ -1098,6 +1140,8 @@ export default function App() {
       subExps?: Array<{ label?: string; exp?: string; qty?: number; hasNoExp?: boolean }>;
     }
   ) => {
+    const channelId = activeChannelId || 'channel_master';
+    const isMaster = channelId === 'channel_master';
     const itemKey = `${type}_${newItem.groupName}_${Date.now()}`;
     const itemObject: EquipmentItem = {
       id: itemKey,
@@ -1117,11 +1161,23 @@ export default function App() {
       ...(newItem.subExps && newItem.subExps.length > 0 ? { subExps: newItem.subExps } : {}),
     };
 
-    const saved = await saveEquipmentItemToFirebase(itemObject);
-    const persistedItem = saved || itemObject;
-    if (activeChannelId === 'channel_master') {
-      persistClearedFlags(type === 'bag' ? { bagCleared: false } : { cartCleared: false }).catch(() => {});
+    const persistedTombstones = removeDeletedItemIds(
+      channelId,
+      makeItemTombstoneTokens(type, itemObject, itemKey)
+    );
+
+    const saved = await saveChannelEquipmentItemToFirebase(channelId, itemObject).catch(() => null);
+    if (isMaster) {
+      saveEquipmentItemToFirebase(itemObject).catch(() => null);
     }
+    const persistedItem = saved || itemObject;
+    const clearPatch =
+      type === 'bag'
+        ? { bagCleared: false }
+        : type === 'ambulance'
+        ? { ambulanceCleared: false }
+        : { cartCleared: false };
+    persistClearedFlags(clearPatch, channelId).catch(() => {});
 
     logAuditEvent({
       action: 'ADD_EQUIPMENT',
@@ -1131,68 +1187,131 @@ export default function App() {
       currentUser,
     });
 
-    setLists((prev) => {
-      const currentList = prev[type] || {
+    updateChannelData((prev) => {
+      const currentList = prev.lists[type] || {
         title: type === 'bag' ? 'กระเป๋าฉุกเฉิน' : type === 'ambulance' ? 'รถพยาบาลฉุกเฉิน' : 'รถฉุกเฉิน',
         groups: {},
       };
       const groups = { ...(currentList.groups || {}) };
+      Object.keys(groups).forEach((g) => {
+        groups[g] = (groups[g] || []).filter((it) => it.id !== persistedItem.id);
+      });
       const targetGroup = groups[newItem.groupName] ? [...groups[newItem.groupName]] : [];
-      
       groups[newItem.groupName] = [...targetGroup, persistedItem];
 
-      const updatedLists = { ...prev, [type]: { ...currentList, groups } };
-      setStored(getChannelListsKey(activeChannelId), updatedLists);
-      return updatedLists;
+      const updatedLists = { ...prev.lists, [type]: { ...currentList, groups } };
+      setStored(getChannelListsKey(channelId), updatedLists);
+      if (isMaster) setStored(STORAGE_KEYS.CUSTOM_LISTS, updatedLists);
+      const nextPayload = {
+        lists: updatedLists,
+        globalChecks: prev.globalChecks || {},
+        emergencyWeekDates: prev.emergencyWeekDates || {},
+        deletedItemIds: persistedTombstones,
+      };
+      setStored(getChannelDbKey(channelId), nextPayload);
+      saveChannelDataToFirebase(channelId, nextPayload).catch(() => {});
+      return { lists: updatedLists, deletedItemIds: persistedTombstones };
     });
   };
 
-  // Delete Item from Emergency Bag or Crash Cart Checklist
+  // Delete Item from Emergency Bag, Crash Cart, or Ambulance Checklist (Guaranteed state + localStorage + tombstone + cloud)
   const handleDeleteItem = async (type: 'bag' | 'cart' | 'ambulance' | string, itemKey: string) => {
-    const ok = await deleteEquipmentItemInFirebase(itemKey);
-    if (!ok) return;
+    const channelId = activeChannelId || 'channel_master';
+    const isMaster = channelId === 'channel_master';
+
+    let matchedItem: EquipmentItem | undefined;
+    let matchedGroup = '';
+    const currentListSnapshot = lists[type];
+    if (currentListSnapshot?.groups) {
+      Object.entries(currentListSnapshot.groups).forEach(([groupName, items]) => {
+        if (matchedItem) return;
+        const found = (items || []).find((it, idx) => {
+          const currentKey = it.id || `${type}_${groupName}_${idx}`;
+          const compositeKey = `${type}_${it.category || groupName}_${it.name}`;
+          return currentKey === itemKey || it.id === itemKey || compositeKey === itemKey;
+        });
+        if (found) {
+          matchedItem = found;
+          matchedGroup = groupName;
+        }
+      });
+    }
+
+    const tombstoneTokens = [
+      itemKey,
+      ...(matchedItem
+        ? makeItemTombstoneTokens(type, { ...matchedItem, category: matchedItem.category || matchedGroup }, itemKey)
+        : []),
+    ];
+    const persistedTombstones = addDeletedItemIds(channelId, tombstoneTokens);
+
+    updateChannelData((prev) => {
+      const currentList = prev.lists[type];
+      const newGroups: Record<string, EquipmentItem[]> = {};
+      if (currentList?.groups) {
+        Object.entries(currentList.groups).forEach(([groupName, items]) => {
+          newGroups[groupName] = (items || []).filter((it, idx) => {
+            const currentKey = it.id || `${type}_${groupName}_${idx}`;
+            const compositeKey = `${type}_${it.category || groupName}_${it.name}`;
+            return currentKey !== itemKey && it.id !== itemKey && compositeKey !== itemKey;
+          });
+        });
+      }
+
+      const updatedLists = currentList
+        ? { ...prev.lists, [type]: { ...currentList, groups: newGroups } }
+        : prev.lists;
+
+      const prevChecks = prev.globalChecks || {};
+      const categoryChecks = prevChecks[type];
+      let updatedGlobal = prevChecks;
+      if (categoryChecks) {
+        const newCategoryChecks = { ...categoryChecks };
+        delete newCategoryChecks[itemKey];
+        if (matchedItem?.id) delete newCategoryChecks[matchedItem.id];
+        updatedGlobal = { ...prevChecks, [type]: newCategoryChecks };
+      }
+
+      setStored(getChannelListsKey(channelId), updatedLists);
+      if (isMaster) setStored(STORAGE_KEYS.CUSTOM_LISTS, updatedLists);
+      setStored(getChannelChecksKey(channelId), updatedGlobal);
+
+      const nextPayload = {
+        lists: updatedLists,
+        globalChecks: updatedGlobal,
+        emergencyWeekDates: prev.emergencyWeekDates || {},
+        deletedItemIds: persistedTombstones,
+      };
+      setStored(getChannelDbKey(channelId), nextPayload);
+      saveChannelDataToFirebase(channelId, nextPayload).catch(() => {});
+
+      return {
+        lists: updatedLists,
+        globalChecks: updatedGlobal,
+        deletedItemIds: persistedTombstones,
+      };
+    });
+
+    const cloudId = matchedItem?.id || itemKey;
+    deleteChannelEquipmentItemInFirebase(channelId, cloudId).catch(() => {});
+    if (isMaster) {
+      deleteEquipmentItemInFirebase(cloudId).catch(() => {});
+    }
 
     logAuditEvent({
       action: 'DELETE_EQUIPMENT',
       targetCollection: type,
-      targetId: itemKey,
-      details: { type },
+      targetId: cloudId,
+      details: { type, name: matchedItem?.name || itemKey, channelId },
       currentUser,
     });
-
-    setLists((prev) => {
-      const currentList = prev[type];
-      if (!currentList || !currentList.groups) return prev;
-
-      const newGroups: Record<string, EquipmentItem[]> = {};
-      Object.entries(currentList.groups).forEach(([groupName, items]) => {
-        newGroups[groupName] = items.filter((it, idx) => {
-          const currentKey = it.id || `${type}_${groupName}_${idx}`;
-          return currentKey !== itemKey;
-        });
-      });
-
-      const updatedLists = { ...prev, [type]: { ...currentList, groups: newGroups } };
-      setStored(getChannelListsKey(activeChannelId), updatedLists);
-      return updatedLists;
-    });
-
-    // Also clean up checks for this item
-    setGlobalChecks((prev) => {
-      const categoryChecks = prev[type];
-      if (!categoryChecks || !categoryChecks[itemKey]) return prev;
-
-      const newCategoryChecks = { ...categoryChecks };
-      delete newCategoryChecks[itemKey];
-
-      const updatedGlobal = { ...prev, [type]: newCategoryChecks };
-      setStored(getChannelChecksKey(activeChannelId), updatedGlobal);
-      return updatedGlobal;
-    });
+    triggerGameToast('ลบรายการเรียบร้อยแล้ว');
   };
 
   // Edit Item in Emergency Bag or Crash Cart Checklist (Instant Optimistic Sync to Lists & PDF)
   const handleEditItem = (type: 'bag' | 'cart' | 'ambulance' | string, updatedItem: EquipmentItem) => {
+    const channelId = activeChannelId || 'channel_master';
+    const isMaster = channelId === 'channel_master';
     const itemId = updatedItem.id || (updatedItem.code ? `${type}_${updatedItem.code}` : `eq_${Date.now()}`);
     const finalItem: EquipmentItem = {
       ...updatedItem,
@@ -1200,7 +1319,7 @@ export default function App() {
       type,
     };
 
-    // 1. Optimistically update local state immediately so PDF and Checklist reflect changes instantly!
+    // 1. Optimistically update local state & channel persistence immediately so PDF and Checklist reflect changes!
     setLists((prev) => {
       const currentList = prev[type];
       if (!currentList || !currentList.groups) return prev;
@@ -1244,15 +1363,35 @@ export default function App() {
         }
       }
 
+      // Strip any duplicate copies with the same id across all groups before placing finalItem
+      const seenIds = new Set<string>();
+      Object.keys(newGroups).forEach((g) => {
+        newGroups[g] = (newGroups[g] || []).filter((it) => {
+          if (!it.id) return true;
+          if (seenIds.has(it.id)) return false;
+          seenIds.add(it.id);
+          return true;
+        });
+        if (newGroups[g].length === 0) delete newGroups[g];
+      });
+
       const updatedLists = { ...prev, [type]: { ...currentList, groups: newGroups } };
-      setStored(getChannelListsKey(activeChannelId), updatedLists);
+      setStored(getChannelListsKey(channelId), updatedLists);
+      if (isMaster) {
+        setStored(STORAGE_KEYS.CUSTOM_LISTS, updatedLists);
+      }
       return updatedLists;
     });
 
     // 2. Persist to Firebase in background without blocking state
-    saveEquipmentItemToFirebase(finalItem).catch((err) =>
-      console.warn('Firebase saveEquipmentItem error:', err)
+    saveChannelEquipmentItemToFirebase(channelId, finalItem).catch((err) =>
+      console.warn('Firebase saveChannelEquipmentItem error:', err)
     );
+    if (isMaster) {
+      saveEquipmentItemToFirebase(finalItem).catch((err) =>
+        console.warn('Firebase saveEquipmentItem error:', err)
+      );
+    }
   };
 
   // Edit / Add / Move Room Equipment directly from FloorMap OR Drawer
@@ -1269,29 +1408,35 @@ export default function App() {
     setEquipment((prev) => {
       const nextEq: Record<string, EquipmentItem[]> = { ...prev };
 
-      // If moved to a different room, remove old copy from sourceRoomId
-      if (sourceRoomId !== targetRoomId && Array.isArray(nextEq[sourceRoomId])) {
-        nextEq[sourceRoomId] = nextEq[sourceRoomId].filter(
+      // Remove stale copies sharing finalItem.id across any other room
+      Object.keys(nextEq).forEach((rKey) => {
+        if (rKey === targetRoomId || !Array.isArray(nextEq[rKey])) return;
+        nextEq[rKey] = nextEq[rKey].filter(
           (it, idx) =>
             it.id !== finalItem.id &&
-            `${sourceRoomId}_${idx}` !== finalItem.id &&
-            !(it.code && finalItem.code && it.code === finalItem.code)
+            `${rKey}_${idx}` !== finalItem.id &&
+            !(rKey === sourceRoomId && it.code && finalItem.code && it.code === finalItem.code)
         );
-      }
+      });
 
       const targetList = Array.isArray(nextEq[targetRoomId]) ? [...nextEq[targetRoomId]] : [];
       let replaced = false;
-      const updatedTargetList = targetList.map((it, idx) => {
+      const updatedTargetList: EquipmentItem[] = [];
+      targetList.forEach((it, idx) => {
         const itKey = it.id || `${targetRoomId}_${idx}`;
         const matches =
           (it.id && it.id === finalItem.id) ||
           itKey === finalItem.id ||
           (it.code && finalItem.code && it.code === finalItem.code);
-        if (matches && !replaced) {
-          replaced = true;
-          return finalItem;
+        if (matches) {
+          if (!replaced) {
+            replaced = true;
+            updatedTargetList.push(finalItem);
+          }
+          // Any extra duplicate matching the same id/key is dropped
+          return;
         }
-        return it;
+        updatedTargetList.push(it);
       });
       if (!replaced) {
         updatedTargetList.push(finalItem);
@@ -1363,6 +1508,8 @@ export default function App() {
   };
 
   const handleDeleteRoomEquipment = async (roomId: string, itemKeyOrId: string) => {
+    const channelId = activeChannelId || 'channel_master';
+    const isMaster = channelId === 'channel_master';
     const roomObj = ROOMS.find((r) => r.id === roomId);
     const roomName = roomObj?.n || roomId;
 
@@ -1374,6 +1521,11 @@ export default function App() {
     });
 
     const resolvedFirestoreId = targetItem?.id || (itemKeyOrId.includes('|') ? null : itemKeyOrId);
+    const tombstoneTokens = [
+      itemKeyOrId,
+      ...makeItemTombstoneTokens(roomId, { ...(targetItem || { id: itemKeyOrId, name: itemKeyOrId }), category: roomId }, itemKeyOrId),
+    ];
+    const persistedTombstones = addDeletedItemIds(channelId, tombstoneTokens);
 
     setEquipment((prev) => {
       const list = prev[roomId] || [];
@@ -1383,39 +1535,54 @@ export default function App() {
         return it.id !== itemKeyOrId && k1 !== itemKeyOrId && k2 !== itemKeyOrId;
       });
       const nextEq = { ...prev, [roomId]: nextList };
-      const chKeys = getChannelStorageKeys(activeChannelId || 'channel_master');
+      const chKeys = getChannelStorageKeys(channelId);
       setStored(chKeys.EQ, nextEq);
-      if (!activeChannelId || activeChannelId === 'channel_master') {
+      if (isMaster) {
         setStored(STORAGE_KEYS.EQ, nextEq);
       }
       return nextEq;
     });
 
-    setGlobalChecks((prev) => {
-      const rChecks = prev[roomId];
-      if (!rChecks) return prev;
-      const nextRChecks = { ...rChecks };
-      delete nextRChecks[itemKeyOrId];
-      if (targetItem) {
-        if (targetItem.id) delete nextRChecks[targetItem.id];
-        delete nextRChecks[`${roomName}|${targetItem.name}|${targetItem.code || ''}`];
+    updateChannelData((prev) => {
+      const prevChecks = prev.globalChecks || {};
+      const rChecks = prevChecks[roomId];
+      let nextGlobal = prevChecks;
+      if (rChecks) {
+        const nextRChecks = { ...rChecks };
+        delete nextRChecks[itemKeyOrId];
+        if (targetItem) {
+          if (targetItem.id) delete nextRChecks[targetItem.id];
+          delete nextRChecks[`${roomName}|${targetItem.name}|${targetItem.code || ''}`];
+        }
+        nextGlobal = { ...prevChecks, [roomId]: nextRChecks };
+        setStored(getChannelChecksKey(channelId), nextGlobal);
       }
-      const nextGlobal = { ...prev, [roomId]: nextRChecks };
-      setStored(getChannelChecksKey(activeChannelId), nextGlobal);
-      return nextGlobal;
+      const nextPayload = {
+        lists: prev.lists,
+        globalChecks: nextGlobal,
+        emergencyWeekDates: prev.emergencyWeekDates || {},
+        deletedItemIds: persistedTombstones,
+      };
+      setStored(getChannelDbKey(channelId), nextPayload);
+      saveChannelDataToFirebase(channelId, nextPayload).catch(() => {});
+      return { globalChecks: nextGlobal, deletedItemIds: persistedTombstones };
     });
 
     if (resolvedFirestoreId) {
-      await deleteChannelEquipmentItemInFirebase(activeChannelId || 'channel_master', resolvedFirestoreId).catch(() => {});
+      deleteChannelEquipmentItemInFirebase(channelId, resolvedFirestoreId).catch(() => {});
+      if (isMaster) {
+        deleteEquipmentItemInFirebase(resolvedFirestoreId).catch(() => {});
+      }
     }
 
     logAuditEvent({
       action: 'DELETE_EQUIPMENT',
       targetCollection: 'equipment',
       targetId: resolvedFirestoreId || itemKeyOrId,
-      details: { roomId, name: targetItem?.name, channelId: activeChannelId || 'channel_master' },
+      details: { roomId, name: targetItem?.name, channelId },
       currentUser,
     });
+    triggerGameToast('ลบรายการเรียบร้อยแล้ว');
   };
 
   // Calculate Expiry Alerts (Strict Asia/Bangkok UTC+7 + Buddhist Era normalization)
@@ -1445,92 +1612,25 @@ export default function App() {
     };
 
     checkListExp('bag', lists.bag);
-    if (lists.ambulance) checkListExp('ambulance', lists.ambulance);
     checkListExp('cart', lists.cart);
     return alerts;
   }, [lists]);
 
-  // Overall Statistics Calculation (Filters random test artifacts & matches ModernDashboard check resolution across all 5 categories)
+  // Overall Statistics Calculation (Unified single source of truth matching ModernDashboard & inner views)
   const overallStats = useMemo(() => {
-    let grandTotal = 0;
-    let grandChecked = 0;
-    let grandNormal = 0;
-    let grandDefective = 0;
-
-    const isJunkTestItem = (name: string, id?: string) => {
-      const n = String(name || '').trim();
-      const rawId = String(id || '').trim();
-      if (/^eq[\s_-]*17\d+/i.test(n) || /^eq[\s_-]*\d{8,}$/i.test(n)) return true;
-      if (/^eq[\s_-]*17\d+/i.test(rawId) || /^eq[\s_-]*\d{8,}$/i.test(rawId)) return true;
-      return !n;
-    };
-
-    // 1. Drugs & Fluids
-    (drugs || []).forEach((d) => {
-      if (!d || isJunkTestItem(d.name, d.id)) return;
-      grandTotal++;
-      if (Number(d.remaining) <= 0) {
-        grandChecked++;
-        grandDefective++;
-      } else {
-        grandChecked++;
-        grandNormal++;
-      }
+    const computed = calculateOverallInventoryStats({
+      drugs,
+      equipment,
+      lists,
+      globalChecks,
+      rooms: ROOMS,
     });
-
-    // 2. Room Equipment
-    Object.entries(equipment).forEach(([roomId, items]) => {
-      const roomObj = ROOMS.find((r) => r.id === roomId);
-      const roomName = roomObj?.n || roomId;
-      const roomChecks = globalChecks[roomId] || {};
-      items.forEach((item, idx) => {
-        if (isJunkTestItem(item.name, item.id)) return;
-        grandTotal++;
-        const itemKey = item.id || `${roomId}_${idx}`;
-        const altKey = `${roomName}|${item.name}|${item.code || ''}`;
-        const state = roomChecks[itemKey] || roomChecks[altKey];
-        if (state?.result === 'ปกติ') {
-          grandChecked++;
-          grandNormal++;
-        } else if (state?.result === 'ผิดปกติ') {
-          grandChecked++;
-          grandDefective++;
-        }
-      });
-    });
-
-    // 3. Lists (Bag, Ambulance & Cart)
-    (['bag', 'ambulance', 'cart'] as const).forEach((catKey) => {
-      const config = lists[catKey];
-      const catChecks = globalChecks[catKey] || {};
-      if (config && config.groups) {
-        Object.entries(config.groups).forEach(([gName, items]) => {
-          items.forEach((item, idx) => {
-            if (isJunkTestItem(item.name, item.id)) return;
-            grandTotal++;
-            const itemKey = item.id || `${catKey}_${gName}_${idx}`;
-            const altKey = `${catKey}_${idx}`;
-            const state = catChecks[itemKey] || catChecks[altKey];
-            if (state?.result === 'ปกติ') {
-              grandChecked++;
-              grandNormal++;
-            } else if (state?.result === 'ผิดปกติ') {
-              grandChecked++;
-              grandDefective++;
-            }
-          });
-        });
-      }
-    });
-
-    const completionPct = grandTotal > 0 ? Math.round((grandNormal / grandTotal) * 100) : 0;
-
     return {
-      grandTotal,
-      grandChecked,
-      grandNormal,
-      grandDefective,
-      completionPct,
+      grandTotal: computed.grandTotal,
+      grandChecked: computed.grandChecked,
+      grandNormal: computed.grandNormal,
+      grandDefective: computed.grandDefective,
+      completionPct: computed.completionPct,
     };
   }, [drugs, equipment, lists, globalChecks]);
 
@@ -1539,7 +1639,8 @@ export default function App() {
     const items: InspectionSlideItem[] = [];
     if (!lists.bag || !lists.bag.groups) return items;
     Object.entries(lists.bag.groups).forEach(([groupName, groupItems]) => {
-      groupItems.forEach((item, idx) => {
+      (groupItems || []).forEach((item, idx) => {
+        if (!isValidInventoryItem(item)) return;
         const itemKey = item.id || `bag_${groupName}_${idx}`;
         items.push({
           id: item.id || itemKey,
@@ -1566,7 +1667,8 @@ export default function App() {
     const items: InspectionSlideItem[] = [];
     if (!lists.cart || !lists.cart.groups) return items;
     Object.entries(lists.cart.groups).forEach(([groupName, groupItems]) => {
-      groupItems.forEach((item, idx) => {
+      (groupItems || []).forEach((item, idx) => {
+        if (!isValidInventoryItem(item)) return;
         const itemKey = item.id || `cart_${groupName}_${idx}`;
         items.push({
           id: item.id || itemKey,
@@ -1595,6 +1697,7 @@ export default function App() {
       const roomObj = ROOMS.find((r) => r.id === roomId);
       const roomName = roomObj ? roomObj.n : roomId;
       roomList.forEach((eq, idx) => {
+        if (!isValidInventoryItem(eq)) return;
         const itemKey = eq.id || `${roomId}_${idx}`;
         items.push({
           id: eq.id || itemKey,
@@ -1642,6 +1745,7 @@ export default function App() {
       const roomItems = equipment[r.id] || [];
       const roomChecks = globalChecks[r.id] || {};
       roomItems.forEach((it, idx) => {
+        if (!isValidInventoryItem(it)) return;
         const itemKey = it.id || `${r.id}_${idx}`;
         const altKey = `${r.n}|${it.name}|${it.code || ''}`;
         const st = roomChecks[itemKey] || roomChecks[altKey];
@@ -1986,6 +2090,8 @@ export default function App() {
     restoreAuraSnapshot,
     handleAuraDirectClear,
     handleAuraUpdateItem,
+    handleAuraDeleteSpecificItems,
+    handleAuraAddNewItem,
     handleAutoFillChecks,
     handleRestockRequest,
     handleAttachEquipmentPhotos,
@@ -2008,6 +2114,7 @@ export default function App() {
     setEmergencyWeekDates,
     formattedBagItems,
     formattedCartItems,
+    formattedAmbulanceItems,
     setHistoryRecords,
     setPendingClearCategory,
     reRenderData,
@@ -3821,6 +3928,12 @@ export default function App() {
         onRestoreSnapshot={restoreAuraSnapshot}
         onDirectClearInventory={handleAuraDirectClear}
         onDeleteAllEquipment={executeDeleteAllEquipment}
+        onDeleteSpecificItems={handleAuraDeleteSpecificItems}
+        onAddNewItem={handleAuraAddNewItem}
+        onOpenSheetsDrawer={() => {
+          setIsSheetsAccordionOpen(true);
+          setIsDrawerOpen(true);
+        }}
         onUpdateInventoryItem={handleAuraUpdateItem}
         onAttachEquipmentPhotos={handleAttachEquipmentPhotos}
         onBulkImportEquipment={handleBulkImportEquipment}
@@ -3835,10 +3948,10 @@ export default function App() {
           }
           setIsOfficialReportOpen(true);
         }}
-        onNavigate={(view, category) => {
+        onNavigate={(view, category, roomId) => {
           if (view === 'users') return;
           if (view === 'room_check') {
-            setSelectedRoomId(null);
+            setSelectedRoomId(roomId || null);
             setCategoryAndIndex('equipment', 1);
           } else if (view === 'bag_check') {
             setCategoryAndIndex('bag', 2);

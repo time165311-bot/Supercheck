@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import operatingRoomBg from '../assets/images/modern_operating_room_1793107748862.jpg';
+import { categoryCovers } from '../assets/categoryCovers';
+const operatingRoomBg = categoryCovers.operatingRoom;
 
 interface Particle {
   x: number;
