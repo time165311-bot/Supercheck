@@ -310,14 +310,49 @@ export const Header: React.FC<HeaderProps> = ({
             </nav>
           </div>
 
-          {/* Right Side Cluster: [ User Avatar + Name | 🔔 Notifications | ☰ Menu ] */}
-          <div className="flex items-center gap-2.5 sm:gap-3 shrink-0 relative justify-self-end">
+          {/* Right Side Cluster: [ PDF Preview | Google Sheets | User Avatar + Name | 🔔 Notifications | ☰ Menu ] */}
+          <div className="flex items-center gap-2 sm:gap-2.5 lg:gap-3 shrink-0 relative justify-self-end">
+            {onOpenReport && (
+              <button
+                type="button"
+                onClick={onOpenReport}
+                className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 dark:bg-blue-500/15 dark:hover:bg-blue-500/25 text-blue-700 dark:text-blue-300 border border-blue-200/80 dark:border-blue-500/30 text-xs lg:text-sm font-bold transition-colors cursor-pointer whitespace-nowrap shrink-0"
+                title="พรีวิวรายงาน (PDF)"
+              >
+                <FileText className="w-4 h-4 shrink-0" />
+                <span>พรีวิวรายงาน (PDF)</span>
+              </button>
+            )}
+
+            {sheetUrl?.trim() ? (
+              <a
+                href={sheetUrl.trim()}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-500/15 dark:hover:bg-emerald-500/25 text-emerald-700 dark:text-emerald-300 border border-emerald-200/80 dark:border-emerald-500/30 text-xs lg:text-sm font-bold transition-colors cursor-pointer whitespace-nowrap shrink-0"
+                title="เปิด Google Sheets"
+              >
+                <FileSpreadsheet className="w-4 h-4 shrink-0" />
+                <span>เปิด Google Sheets</span>
+              </a>
+            ) : onOpenSheets ? (
+              <button
+                type="button"
+                onClick={onOpenSheets}
+                className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-500/15 dark:hover:bg-emerald-500/25 text-emerald-700 dark:text-emerald-300 border border-emerald-200/80 dark:border-emerald-500/30 text-xs lg:text-sm font-bold transition-colors cursor-pointer whitespace-nowrap shrink-0"
+                title="เปิด Google Sheets"
+              >
+                <FileSpreadsheet className="w-4 h-4 shrink-0" />
+                <span>เปิด Google Sheets</span>
+              </button>
+            ) : null}
+
             {currentUser && (
               <button
                 type="button"
                 onClick={onOpenProfile}
                 title={isAdmin ? 'ระดับสิทธิ์: ผู้ดูแลระบบ (Admin)' : 'ระดับสิทธิ์: เจ้าหน้าที่ (Staff)'}
-                className="flex items-center gap-2 pl-1 pr-2.5 sm:pr-3 py-1 rounded-full border border-slate-200 dark:border-white/10 bg-slate-100/90 hover:bg-slate-200/80 dark:bg-[#282A2C] dark:hover:bg-[#333537] text-slate-800 dark:text-[#E3E3E3] text-[11px] sm:text-xs font-bold select-none shrink-0 cursor-pointer transition-colors"
+                className="flex items-center gap-2 pl-1 pr-2.5 sm:pr-3 py-1 rounded-full border border-slate-200 dark:border-white/10 bg-slate-100/90 hover:bg-slate-200/80 dark:bg-[#282A2C] dark:hover:bg-[#333537] text-slate-800 dark:text-[#E3E3E3] text-[11px] sm:text-xs lg:text-sm font-bold select-none shrink-0 cursor-pointer transition-colors"
               >
                 <UserAvatarBadge user={currentUser} size="sm" />
                 <span className="truncate max-w-[72px] sm:max-w-[120px] whitespace-nowrap">
@@ -344,7 +379,7 @@ export const Header: React.FC<HeaderProps> = ({
               )}
             </button>
 
-            {/* Menu ☰ Button */}
+            {/* Menu ☰ Button (Far Right, opens Right Slide-over Drawer) */}
             <button
               onClick={() => setIsMenuOpen(!isMenuOpen)}
               type="button"

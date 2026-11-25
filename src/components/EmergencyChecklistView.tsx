@@ -21,6 +21,7 @@ import { PaperAuditModal } from './PaperAuditModal';
 import { CheckItemState, ListConfig, EquipmentItem } from '../types';
 import { formatAcquiredDate } from './OfficialReportModal';
 import { EditItemModal } from './EditItemModal';
+import { MinimalExpiryDatePicker } from './MinimalExpiryDatePicker';
 import { getWednesdaysInfoForMonth } from '../utils/wednesdayUtils';
 import { compressImageForFirestore } from '../utils/helpers';
 
@@ -992,27 +993,18 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
                               </button>
                             </div>
                           ) : isIsoDateExp ? (
-                            <div className="flex items-center gap-1.5">
+                            <div className="flex items-center gap-1.5 flex-wrap">
                               <p className="text-xs text-rose-600 dark:text-[#F28B82] font-bold flex items-center gap-1 shrink-0">
                                 <span>⏳ EXP:</span>
                               </p>
-                              <div className="flex items-center gap-1.5">
-                                <input
-                                  type="date"
-                                  value={cleanExp}
-                                  onChange={(e) => onUpdateNote(item.itemKey, `EXP:${e.target.value}`)}
-                                  className="text-[10px] bg-white dark:bg-[#282A2C] border border-slate-200 dark:border-white/10 rounded px-1.5 py-0.5 text-rose-700 dark:text-[#F28B82] font-bold outline-none w-32 h-7"
-                                  title="แก้ไขวันหมดอายุ"
-                                />
-                                <button
-                                  type="button"
-                                  onClick={() => onUpdateNote(item.itemKey, 'EXP:-')}
-                                  className="p-1 rounded-md bg-slate-100 dark:bg-[#282A2C] hover:bg-rose-100 dark:hover:bg-rose-500/20 text-slate-500 dark:text-[#8E918F] hover:text-rose-600 dark:hover:text-[#F28B82] transition cursor-pointer"
-                                  title="ล้างวันหมดอายุ"
-                                >
-                                  <X size={11} />
-                                </button>
-                              </div>
+                              <MinimalExpiryDatePicker
+                                value={cleanExp}
+                                onChange={(val) => onUpdateNote(item.itemKey, val ? `EXP:${val}` : 'EXP:-')}
+                                onClear={() => onUpdateNote(item.itemKey, 'EXP:-')}
+                                compact={true}
+                                showQuickPresets={false}
+                                className="min-w-[185px]"
+                              />
                             </div>
                           ) : (
                             <div className="flex items-center gap-1.5">

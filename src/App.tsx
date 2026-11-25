@@ -102,6 +102,7 @@ import {
   Image as ImageIcon,
   Cloud,
   ArrowLeft,
+  Bell,
 } from 'lucide-react';
 
 import {
@@ -2599,9 +2600,9 @@ export default function App() {
       <main
         ref={mainScrollRef}
         onScroll={handleMainScroll}
-        className="relative w-full max-w-[1536px] mx-auto px-4 sm:px-6 lg:px-10 py-4 lg:py-8 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain touch-pan-y pb-[calc(6.5rem+env(safe-area-inset-bottom,0px))]"
+        className="relative w-full max-w-[1536px] mx-auto px-4 sm:px-6 lg:px-10 py-4 lg:py-8 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain touch-pan-y pb-[calc(6.5rem+env(safe-area-inset-bottom,0px))] md:pb-10"
       >
-        {/* Unified Single Back Button on All Sub-views (GPU transform-only auto-hide without layout shift) */}
+        {/* Unified Single Back Button + Desktop Quick Actions on All Sub-views */}
         {currentView !== 'home' && (
           <div
             aria-hidden={!isTopHeaderVisible}
@@ -2611,30 +2612,107 @@ export default function App() {
               transform: isTopHeaderVisible ? 'translate3d(0, 0, 0)' : 'translate3d(0, calc(-100% - 20px), 0)',
               transition: 'transform 0.24s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.2s ease',
             }}
-            className={`sticky top-0 z-30 flex items-center justify-between bg-white/95 dark:bg-[#181A20]/95 px-4 py-2.5 mb-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs transform-gpu ${
+            className={`sticky top-0 z-30 flex items-center justify-between gap-3 bg-white/95 dark:bg-[#181A20]/95 px-4 py-2.5 mb-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs transform-gpu ${
               isTopHeaderVisible
                 ? 'opacity-100 pointer-events-auto'
                 : 'opacity-0 pointer-events-none'
             }`}
           >
-            <button
-              onClick={handleUiBackToHome}
-              type="button"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-100 font-bold text-xs sm:text-sm transition-colors cursor-pointer active:opacity-80 border border-slate-200 dark:border-slate-700 shrink-0 whitespace-nowrap"
-            >
-              <ChevronLeft className="w-4 h-4 text-blue-600 dark:text-blue-400 stroke-[2.5]" />
-              <span>กลับหน้าหลัก</span>
-            </button>
-            <div className="flex items-center gap-2 text-xs font-bold text-slate-600 dark:text-slate-300 min-w-0 truncate">
-              <span className="w-2 h-2 rounded-full bg-blue-500 shrink-0" />
-              <span className="truncate">
-                {currentView === 'drug_check' && '💊 คลังยาและสารน้ำ'}
-                {currentView === 'room_check' && '🩺 ครุภัณฑ์ประจำห้องผ่าตัด'}
-                {currentView === 'bag_check' && '🎒 ตรวจเช็กกระเป๋าฉุกเฉิน'}
-                {currentView === 'ambulance_check' && '🚑 ตรวจเช็กรถพยาบาลฉุกเฉิน'}
-                {currentView === 'cart_check' && '🛒 ตรวจเช็กรถฉุกเฉิน'}
-                {currentView === 'eq_overview' && '📋 ภาพรวมครุภัณฑ์วิสัญญี'}
-              </span>
+            <div className="flex items-center gap-3 min-w-0">
+              <button
+                onClick={handleUiBackToHome}
+                type="button"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-100 font-bold text-xs sm:text-sm transition-colors cursor-pointer active:opacity-80 border border-slate-200 dark:border-slate-700 shrink-0 whitespace-nowrap"
+              >
+                <ChevronLeft className="w-4 h-4 text-blue-600 dark:text-blue-400 stroke-[2.5]" />
+                <span>กลับหน้าหลัก</span>
+              </button>
+              <div className="flex items-center gap-2 text-xs sm:text-sm font-bold text-slate-600 dark:text-slate-300 min-w-0 truncate">
+                <span className="w-2 h-2 rounded-full bg-blue-500 shrink-0" />
+                <span className="truncate">
+                  {currentView === 'drug_check' && '💊 คลังยาและสารน้ำ'}
+                  {currentView === 'room_check' && '🩺 ครุภัณฑ์ประจำห้องผ่าตัด'}
+                  {currentView === 'bag_check' && '🎒 ตรวจเช็กกระเป๋าฉุกเฉิน'}
+                  {currentView === 'ambulance_check' && '🚑 ตรวจเช็กรถพยาบาลฉุกเฉิน'}
+                  {currentView === 'cart_check' && '🛒 ตรวจเช็กรถฉุกเฉิน'}
+                  {currentView === 'eq_overview' && '📋 ภาพรวมครุภัณฑ์วิสัญญี'}
+                </span>
+              </div>
+            </div>
+
+            {/* Desktop Quick Actions Bar (md: and up) */}
+            <div className="hidden md:flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  setReportCategory(currentView === 'drug_check' ? 'drug' : currentView === 'bag_check' ? 'bag' : currentView === 'cart_check' ? 'cart' : 'eq');
+                  setIsOfficialReportOpen(true);
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 dark:bg-blue-500/15 dark:hover:bg-blue-500/25 text-blue-700 dark:text-blue-300 border border-blue-200/80 dark:border-blue-500/30 text-xs lg:text-sm font-bold transition-colors cursor-pointer whitespace-nowrap shrink-0"
+                title="พรีวิวรายงาน (PDF)"
+              >
+                <FileText className="w-4 h-4 shrink-0" />
+                <span>พรีวิวรายงาน (PDF)</span>
+              </button>
+
+              {sheetUrl?.trim() ? (
+                <a
+                  href={sheetUrl.trim()}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-500/15 dark:hover:bg-emerald-500/25 text-emerald-700 dark:text-emerald-300 border border-emerald-200/80 dark:border-emerald-500/30 text-xs lg:text-sm font-bold transition-colors cursor-pointer whitespace-nowrap shrink-0"
+                  title="เปิด Google Sheets"
+                >
+                  <FileSpreadsheet className="w-4 h-4 shrink-0" />
+                  <span>เปิด Google Sheets</span>
+                </a>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsSheetsAccordionOpen(true);
+                    setIsDrawerOpen(true);
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-500/15 dark:hover:bg-emerald-500/25 text-emerald-700 dark:text-emerald-300 border border-emerald-200/80 dark:border-emerald-500/30 text-xs lg:text-sm font-bold transition-colors cursor-pointer whitespace-nowrap shrink-0"
+                  title="ตั้งค่าและเปิด Google Sheets"
+                >
+                  <FileSpreadsheet className="w-4 h-4 shrink-0" />
+                  <span>เปิด Google Sheets</span>
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() => setIsProfileOpen(true)}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-100 text-xs font-bold border border-slate-200 dark:border-slate-700 cursor-pointer whitespace-nowrap shrink-0"
+                title="โปรไฟล์ผู้ใช้"
+              >
+                <UserIcon className="w-4 h-4 text-blue-500 shrink-0" />
+                <span className="max-w-[100px] truncate">{currentUser?.name || 'โปรไฟล์'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsNotificationOpen(true)}
+                className="relative w-9 h-9 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 flex items-center justify-center transition-colors cursor-pointer shrink-0"
+                title="การแจ้งเตือน"
+              >
+                <Bell className="w-4 h-4" />
+                {expiryAlerts.length > 0 && (
+                  <span className="absolute -top-1 -right-1 flex h-4 min-w-4 px-1 items-center justify-center rounded-full bg-rose-500 text-[10px] font-bold text-white">
+                    {expiryAlerts.length > 99 ? '99+' : expiryAlerts.length}
+                  </span>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsDrawerOpen(true)}
+                className="w-9 h-9 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 flex items-center justify-center transition-colors cursor-pointer shrink-0"
+                title="เปิดเมนูระบบและตั้งค่า"
+              >
+                <Menu className="w-4 h-4" />
+              </button>
             </div>
           </div>
         )}
@@ -2688,6 +2766,7 @@ export default function App() {
               setIsSheetsAccordionOpen(true);
               setIsDrawerOpen(true);
             }}
+            sheetUrl={sheetUrl}
             onToggleCheck={handleToggleCheck}
             onOpenBarcodeScan={() => setIsBarcodeScannerOpen(true)}
             overallStats={overallStats}
@@ -2831,27 +2910,32 @@ export default function App() {
         )}
       </main>
 
-      {/* 📂 SAMSUNG ONE UI DRAWER (Bottom Sheet on Mobile, Slide-in Right Drawer Panel on Desktop) */}
+      {/* 📂 SAMSUNG ONE UI DRAWER (Bottom Sheet on Mobile, Slide-in Right Drawer Panel on Tablet/Desktop) */}
       {isDrawerOpen && (
         <div
-          className="fixed inset-0 z-50 flex items-end justify-center lg:items-stretch lg:justify-end bg-black/65 transition-opacity duration-200"
+          className="fixed inset-0 z-50 flex items-end justify-center md:items-stretch md:justify-end bg-black/65 transition-opacity duration-200"
           onClick={() => setIsDrawerOpen(false)}
         >
           <div
-            className={`w-full max-w-lg lg:max-w-[380px] lg:w-[360px] max-h-[85dvh] lg:max-h-full rounded-t-[2rem] lg:rounded-t-none lg:rounded-l-[2rem] flex flex-col border-t border-x lg:border-t-0 lg:border-l lg:border-y-0 shadow-xl overflow-hidden relative ${
+            className={`w-full max-w-lg md:max-w-[400px] md:w-[380px] max-h-[85dvh] md:max-h-full md:h-full rounded-t-[2rem] md:rounded-t-none md:rounded-l-[2rem] flex flex-col border-t border-x md:border-t-0 md:border-l md:border-y-0 shadow-xl overflow-hidden relative transition-transform duration-300 ease-out ${
+              isDrawerMounted
+                ? 'translate-y-0 md:translate-x-0'
+                : 'translate-y-full md:translate-y-0 md:translate-x-full'
+            } ${
               isDark
                 ? 'bg-[#181A20] border-slate-700 text-white'
                 : 'bg-white border-slate-200 text-slate-900'
             }`}
-            style={{
-              transform: drawerDragY > 0 ? `translateY(${drawerDragY}px)` : isDrawerMounted ? 'translate(0, 0)' : 'translateY(100%)',
-              transition: drawerDragY > 0 ? 'none' : 'transform 0.35s cubic-bezier(0.32, 0.72, 0, 1)',
-            }}
+            style={
+              drawerDragY > 0
+                ? { transform: `translateY(${drawerDragY}px)`, transition: 'none' }
+                : undefined
+            }
             onClick={(e) => e.stopPropagation()}
           >
             {/* Drag Handle Bar for Mobile Only - Only this handle bar handles touch drag down */}
             <div
-              className="lg:hidden w-full pt-3 pb-1 flex justify-center cursor-grab active:cursor-grabbing touch-none select-none flex-none"
+              className="md:hidden w-full pt-3 pb-1 flex justify-center cursor-grab active:cursor-grabbing touch-none select-none flex-none"
               onTouchStart={handleTouchStartDrawer}
               onTouchMove={handleTouchMoveDrawer}
               onTouchEnd={handleTouchEndDrawer}

@@ -3,6 +3,7 @@ import { X, Save, Trash2, Upload, Image as ImageIcon, Plus, Minus, Layers, Hash,
 import { EquipmentItem } from '../types';
 import { getItemSubItemsInfo, getItemSizes, resolveItemUnitText } from '../utils/itemUtils';
 import { compressImageForFirestore } from '../utils/helpers';
+import { MinimalExpiryDatePicker } from './MinimalExpiryDatePicker';
 
 export interface SubExpField {
   id: string;
@@ -646,7 +647,13 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
                       <input
                         type="checkbox"
                         checked={noExp}
-                        onChange={(e) => setNoExp(e.target.checked)}
+                        onChange={(e) => {
+                          const checked = e.target.checked;
+                          setNoExp(checked);
+                          if (!checked && (singleExp === '-' || /^no\s*exp$/i.test(singleExp))) {
+                            setSingleExp('');
+                          }
+                        }}
                         className="w-3.5 h-3.5 rounded text-blue-600 cursor-pointer"
                       />
                       <span>ไม่มีวันหมดอายุ (No EXP)</span>
@@ -665,11 +672,11 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
                       />
                     </div>
                   ) : (
-                    <input
-                      type="date"
+                    <MinimalExpiryDatePicker
                       value={singleExp}
-                      onChange={(e) => setSingleExp(e.target.value)}
-                      className="w-full px-3.5 py-2 rounded-xl border border-slate-300 dark:border-white/10 bg-white dark:bg-black/20 text-slate-900 dark:text-white outline-none focus:border-blue-500 h-10 font-bold"
+                      onChange={setSingleExp}
+                      onClear={() => setSingleExp('')}
+                      showQuickPresets={true}
                     />
                   )}
                 </div>
@@ -775,11 +782,13 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
                             className="flex-1 min-w-[120px] px-2.5 py-1 rounded-lg border border-slate-300 dark:border-white/10 bg-slate-100 dark:bg-black/20 text-[11px] text-slate-700 dark:text-white outline-none focus:border-purple-500 h-8 font-bold"
                           />
                         ) : (
-                          <input
-                            type="date"
+                          <MinimalExpiryDatePicker
                             value={sub.date}
-                            onChange={(e) => handleSubExpChange(sub.id, 'date', e.target.value)}
-                            className="flex-1 min-w-[120px] px-2.5 py-1 rounded-lg border border-slate-300 dark:border-white/10 bg-white dark:bg-black/20 text-[11px] text-slate-900 dark:text-white outline-none focus:border-purple-500 h-8 font-bold"
+                            onChange={(val) => handleSubExpChange(sub.id, 'date', val)}
+                            onClear={() => handleSubExpChange(sub.id, 'date', '')}
+                            compact={true}
+                            showQuickPresets={false}
+                            className="flex-1 min-w-[165px]"
                           />
                         )}
 

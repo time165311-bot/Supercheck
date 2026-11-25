@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { Calendar, Check, RefreshCw, X } from 'lucide-react';
+import { Check, RefreshCw, X } from 'lucide-react';
 import { EquipmentItem } from '../types';
+import { MinimalExpiryDatePicker } from './MinimalExpiryDatePicker';
 
 interface QuickReplaceModalProps {
   isOpen: boolean;
@@ -29,12 +30,6 @@ export const QuickReplaceModal: React.FC<QuickReplaceModalProps> = ({
   });
 
   if (!isOpen || !item) return null;
-
-  const setOffsetMonths = (months: number) => {
-    const d = new Date();
-    d.setMonth(d.getMonth() + months);
-    setNewExpDate(d.toISOString().split('T')[0]);
-  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -85,45 +80,16 @@ export const QuickReplaceModal: React.FC<QuickReplaceModalProps> = ({
         <form onSubmit={handleSubmit} className="space-y-3">
           <div>
             <label
-              className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1"
+              className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1.5"
               style={{ display: 'flex', alignItems: 'center', whiteSpace: 'nowrap', flexShrink: 0 }}
             >
               <span style={{ whiteSpace: 'nowrap', flexShrink: 0 }}>ระบุวันหมดอายุของล็อตใหม่</span>
             </label>
-            <input
-              type="date"
+            <MinimalExpiryDatePicker
               value={newExpDate}
-              onChange={(e) => setNewExpDate(e.target.value)}
-              className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-medium outline-none focus:ring-1 focus:ring-sky-500"
+              onChange={setNewExpDate}
+              showQuickPresets={true}
             />
-          </div>
-
-          {/* Quick Preset Buttons */}
-          <div>
-            <span className="text-[10px] text-slate-400 block mb-1">เลือกวันที่รวดเร็ว:</span>
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <button
-                type="button"
-                onClick={() => setOffsetMonths(6)}
-                className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-[11px] font-medium transition cursor-pointer"
-              >
-                +6 เดือน
-              </button>
-              <button
-                type="button"
-                onClick={() => setOffsetMonths(12)}
-                className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-[11px] font-medium transition cursor-pointer"
-              >
-                +1 ปี
-              </button>
-              <button
-                type="button"
-                onClick={() => setOffsetMonths(24)}
-                className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-[11px] font-medium transition cursor-pointer"
-              >
-                +2 ปี
-              </button>
-            </div>
           </div>
 
           <p className="text-[10px] text-slate-400 leading-relaxed">

@@ -15,6 +15,9 @@ import {
   Truck,
   Stethoscope,
   ScanLine,
+  FileText,
+  FileSpreadsheet,
+  Menu,
 } from 'lucide-react';
 import { CheckItemState, DrugItem, EquipmentItem, ExpiryAlertItem, ListConfig, User } from '../types';
 import {
@@ -59,6 +62,7 @@ interface ModernDashboardProps {
   onOpenMenu?: () => void;
   onOpenReport?: () => void;
   onOpenSheets?: () => void;
+  sheetUrl?: string;
   onOpenChannelSelector?: () => void;
   onToggleCheck?: (categoryOrRoomId: string, itemKey: string, result: 'ปกติ' | 'ผิดปกติ', itemName: string) => void;
   onUpdateNote?: (categoryOrRoomId: string, itemKey: string, note: string) => void;
@@ -95,6 +99,11 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
   onSelectCategory,
   onOpenNotifications,
   onOpenProfile,
+  onOpenDrawer,
+  onOpenMenu,
+  onOpenReport,
+  onOpenSheets,
+  sheetUrl = '',
   onOpenChannelSelector,
   overallStats,
 }) => {
@@ -565,50 +574,87 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
         
         {/* 1. Unified Header Card & Live Ward Weather */}
         <div
-          className={`w-full min-w-0 p-4 sm:p-6 rounded-[2rem] border shadow-sm space-y-4 lg:col-span-2 relative overflow-hidden text-white ${
+          className={`w-full min-w-0 p-4 sm:p-6 lg:p-7 rounded-[2rem] border shadow-sm space-y-4 lg:col-span-2 relative overflow-hidden text-white ${
             isDarkMode
               ? 'bg-[#1E1F20] border-white/10'
               : 'bg-gradient-to-br from-blue-700 via-blue-600 to-blue-500 border-blue-400/40'
           }`}
         >
-          {/* Top Bar: Centered Brand + Right Profile & Bell (No Sun/Moon Toggle) */}
-          <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 pb-4 border-b border-white/15 relative z-10">
-            <div aria-hidden="true" className="min-w-0" />
-
-            <div className="flex items-center justify-center gap-1.5 sm:gap-2 font-valorant text-2xl sm:text-3xl font-bold tracking-wider text-center whitespace-nowrap">
+          {/* Top Bar: Brand + Desktop Quick Actions (PDF, Google Sheets, Profile, Bell, Menu Drawer) */}
+          <div className="flex items-center justify-between gap-3 pb-4 border-b border-white/15 relative z-10">
+            <div className="flex items-center gap-2 sm:gap-2.5 font-valorant text-2xl sm:text-3xl lg:text-4xl font-bold tracking-wider whitespace-nowrap shrink-0">
               <span className={isDarkMode ? 'text-[#A8C7FA]' : 'text-sky-200'}>ANESTHESIA</span>
               <span className="text-white">CARE</span>
             </div>
 
-            <div className="flex items-center justify-end gap-3 shrink-0 justify-self-end">
+            <div className="flex items-center justify-end gap-2 sm:gap-2.5 lg:gap-3 shrink-0">
+              {/* Desktop Quick Action: PDF Report Preview */}
+              {onOpenReport && (
+                <button
+                  type="button"
+                  onClick={onOpenReport}
+                  className="hidden md:flex items-center gap-2 px-3.5 py-2 rounded-xl bg-white/15 hover:bg-white/25 border border-white/25 text-white text-xs lg:text-sm font-bold transition-colors active:scale-95 cursor-pointer whitespace-nowrap shrink-0"
+                  title="พรีวิวรายงานและพิมพ์เอกสาร (PDF)"
+                >
+                  <FileText size={16} className="shrink-0" />
+                  <span>พรีวิวรายงาน (PDF)</span>
+                </button>
+              )}
+
+              {/* Desktop Quick Action: Open Google Sheets */}
+              {sheetUrl?.trim() ? (
+                <a
+                  href={sheetUrl.trim()}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="hidden md:flex items-center gap-2 px-3.5 py-2 rounded-xl bg-emerald-500/25 hover:bg-emerald-500/35 border border-emerald-300/35 text-white text-xs lg:text-sm font-bold transition-colors active:scale-95 cursor-pointer whitespace-nowrap shrink-0"
+                  title="เปิด Google Sheets"
+                >
+                  <FileSpreadsheet size={16} className="shrink-0 text-emerald-200" />
+                  <span>เปิด Google Sheets</span>
+                </a>
+              ) : onOpenSheets ? (
+                <button
+                  type="button"
+                  onClick={onOpenSheets}
+                  className="hidden md:flex items-center gap-2 px-3.5 py-2 rounded-xl bg-white/15 hover:bg-white/25 border border-white/25 text-white text-xs lg:text-sm font-bold transition-colors active:scale-95 cursor-pointer whitespace-nowrap shrink-0"
+                  title="ตั้งค่าและเปิด Google Sheets"
+                >
+                  <FileSpreadsheet size={16} className="shrink-0 text-emerald-200" />
+                  <span>เปิด Google Sheets</span>
+                </button>
+              ) : null}
+
+              {/* User Profile */}
               {currentUser && onOpenProfile && (
                 <button
                   type="button"
                   onClick={onOpenProfile}
-                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full border border-white/30 bg-white/15 hover:bg-white/25 text-white transition-colors active:opacity-80 cursor-pointer shrink-0"
+                  className="flex items-center gap-2 px-2.5 lg:px-3.5 py-1.5 lg:py-2 rounded-full border border-white/30 bg-white/15 hover:bg-white/25 text-white transition-colors active:opacity-80 cursor-pointer shrink-0"
                   title="คลิกเพื่อแก้ไขโปรไฟล์และชื่อผู้ตรวจ"
                 >
-                  <div className="w-5 h-5 rounded-full bg-cyan-400 text-blue-900 font-black flex items-center justify-center text-[10px] overflow-hidden shrink-0">
+                  <div className="w-5 h-5 lg:w-6 lg:h-6 rounded-full bg-cyan-400 text-blue-900 font-black flex items-center justify-center text-[10px] lg:text-xs overflow-hidden shrink-0">
                     {currentUser.avatar ? (
                       <img src={currentUser.avatar} alt={effectiveDisplayName} className="w-full h-full object-cover" />
                     ) : (
                       effectiveDisplayName ? effectiveDisplayName.charAt(0) : 'U'
                     )}
                   </div>
-                  <span className="text-[11px] sm:text-xs font-bold truncate max-w-[68px] sm:max-w-[120px] text-white whitespace-nowrap">
+                  <span className="text-[11px] sm:text-xs lg:text-sm font-bold truncate max-w-[72px] sm:max-w-[140px] text-white whitespace-nowrap">
                     {effectiveDisplayName}
                   </span>
                 </button>
               )}
 
+              {/* Notification Bell */}
               {onOpenNotifications && (
                 <button
                   type="button"
                   onClick={onOpenNotifications}
-                  className="relative p-2 sm:p-2.5 rounded-full bg-white/15 hover:bg-white/25 border border-white/20 text-white transition-colors active:scale-95 cursor-pointer shrink-0 flex items-center justify-center"
+                  className="relative p-2 sm:p-2.5 lg:w-10 lg:h-10 rounded-full bg-white/15 hover:bg-white/25 border border-white/20 text-white transition-colors active:scale-95 cursor-pointer shrink-0 flex items-center justify-center"
                   title="การแจ้งเตือน"
                 >
-                  <Bell size={16} />
+                  <Bell size={18} />
                   {bellBadgeCount > 0 && (
                     <span className="absolute -top-1 -right-1 flex h-4 min-w-4 px-1 items-center justify-center rounded-full bg-rose-500 text-[10px] font-bold text-white shadow-xs border border-white/50">
                       {bellBadgeCount > 99 ? '99+' : bellBadgeCount}
@@ -616,19 +662,32 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
                   )}
                 </button>
               )}
+
+              {/* Far-Right Slide-over Menu Drawer Trigger */}
+              {(onOpenMenu || onOpenDrawer) && (
+                <button
+                  type="button"
+                  onClick={onOpenMenu || onOpenDrawer}
+                  className="hidden md:flex w-10 h-10 rounded-full bg-white/15 hover:bg-white/25 border border-white/25 text-white items-center justify-center transition-colors active:scale-95 cursor-pointer shrink-0"
+                  title="เปิดเมนูระบบและตั้งค่า"
+                  aria-label="เปิดเมนูระบบ"
+                >
+                  <Menu size={19} />
+                </button>
+              )}
             </div>
           </div>
 
           {/* Ward / Channel Selector & Live Weather */}
           <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-2.5 sm:gap-4">
-            <div className="flex items-center justify-between gap-3 w-full md:w-auto bg-white/15 px-3.5 py-2 rounded-2xl border border-white/20 min-w-0">
-              <div className="flex items-center gap-1.5 min-w-0">
-                <span className="text-[10px] sm:text-xs text-blue-100 opacity-85 uppercase font-bold shrink-0">วอร์ด:</span>
-                <span className="text-xs sm:text-sm font-bold text-white truncate">
+            <div className="flex items-center justify-between gap-3 w-full md:w-auto bg-white/15 px-3.5 lg:px-5 py-2 lg:py-2.5 rounded-2xl border border-white/20 min-w-0">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="text-[11px] sm:text-xs lg:text-sm text-blue-100 opacity-90 uppercase font-bold shrink-0">วอร์ด:</span>
+                <span className="text-xs sm:text-sm lg:text-base font-bold text-white truncate">
                   {activeChannel?.name || 'คลินิกวิสัญญี (Master)'}
                 </span>
                 {activeChannel?.isDefault && (
-                  <span className="px-1.5 py-0.5 rounded bg-white/20 text-white text-[9px] font-bold uppercase border border-white/20 shrink-0">
+                  <span className="px-2 py-0.5 rounded bg-white/20 text-white text-[10px] lg:text-xs font-bold uppercase border border-white/20 shrink-0">
                     Master
                   </span>
                 )}
@@ -638,18 +697,18 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
                 <button
                   type="button"
                   onClick={onOpenChannelSelector}
-                  className="px-2.5 py-1 rounded-lg bg-amber-400 text-slate-900 keep-dark-text text-[10px] font-bold uppercase transition-opacity shrink-0 active:opacity-80 cursor-pointer"
+                  className="px-2.5 lg:px-3.5 py-1 lg:py-1.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-900 keep-dark-text text-[11px] lg:text-xs font-bold uppercase transition-colors shrink-0 active:opacity-80 cursor-pointer whitespace-nowrap"
                 >
                   สลับ
                 </button>
               )}
             </div>
 
-            <div className="flex items-center justify-between sm:justify-start gap-2.5 bg-white/15 px-4 py-2 rounded-2xl border border-white/15 text-xs text-blue-100 shrink-0">
+            <div className="flex items-center justify-between sm:justify-start gap-2.5 bg-white/15 px-4 lg:px-5 py-2 lg:py-2.5 rounded-2xl border border-white/15 text-xs lg:text-sm text-blue-100 shrink-0">
               <div className="flex items-center gap-2">
-                <Sun className="w-4 h-4 text-amber-300 shrink-0" />
-                <span className="font-bold text-white tabular-nums">{weatherData.temp}°C</span>
-                <span className="opacity-90 truncate">
+                <Sun className="w-4 h-4 lg:w-5 lg:h-5 text-amber-300 shrink-0" />
+                <span className="font-bold text-white tabular-nums lg:text-base">{weatherData.temp}°C</span>
+                <span className="opacity-95 truncate lg:text-sm">
                   {weatherData.locationName} ({weatherData.condition})
                 </span>
               </div>
@@ -659,19 +718,19 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
 
         {/* 2. Search Bar (Gemini Minimalist Charcoal Dark Mode) */}
         <div className="lg:col-span-2 w-full min-w-0 space-y-2">
-          <div className={`w-full rounded-2xl p-3 sm:p-3.5 border shadow-xs flex items-center justify-between gap-3 transition-colors ${
+          <div className={`w-full rounded-2xl p-3 sm:p-3.5 lg:px-5 lg:h-14 border shadow-xs flex items-center justify-between gap-3 transition-colors ${
             isDarkMode
               ? 'bg-[#1E1F20] border-white/10 text-[#E3E3E3]'
               : 'bg-white border-slate-200 text-slate-800'
           }`}>
-            <div className="flex items-center gap-2.5 flex-1 min-w-0">
-              <Search size={18} className={isDarkMode ? 'text-[#A8C7FA] shrink-0' : 'text-blue-500 shrink-0'} />
+            <div className="flex items-center gap-3 flex-1 min-w-0">
+              <Search size={19} className={isDarkMode ? 'text-[#A8C7FA] shrink-0' : 'text-blue-500 shrink-0'} />
               <input
                 type="text"
                 value={dashSearchTerm}
                 onChange={(e) => setDashSearchTerm(e.target.value)}
                 placeholder="ค้นหาอุปกรณ์, ยา, กระเป๋าฉุกเฉิน, รถฉุกเฉิน..."
-                className="search-transparent w-full bg-transparent border-0 outline-none text-xs sm:text-sm font-medium placeholder:text-slate-400 dark:placeholder:text-[#8E918F]"
+                className="search-transparent w-full bg-transparent border-0 outline-none text-xs sm:text-sm lg:text-base font-medium placeholder:text-slate-400 dark:placeholder:text-[#8E918F]"
               />
               {dashSearchTerm && (
                 <button
@@ -679,12 +738,12 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
                   onClick={() => setDashSearchTerm('')}
                   className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer p-1 shrink-0"
                 >
-                  <X size={14} />
+                  <X size={16} />
                 </button>
               )}
             </div>
             <div className="shrink-0">
-              <span className={`text-xs font-bold px-3 py-1.5 rounded-full border tabular-nums whitespace-nowrap ${
+              <span className={`text-xs lg:text-sm font-bold px-3 lg:px-4 py-1.5 rounded-full border tabular-nums whitespace-nowrap ${
                 isDarkMode
                   ? 'bg-[#282A2C] border-white/10 text-[#A8C7FA]'
                   : 'bg-blue-50 border-blue-200 text-blue-700'
@@ -733,49 +792,81 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
           )}
         </div>
 
-        {/* 3. Main Category Cards Carousel */}
+        {/* 3. Main Category Cards: Mobile Carousel + Desktop 4-Column Full Grid */}
         <div className="space-y-4 lg:col-span-2 relative w-full min-w-0 max-w-full overflow-hidden">
           <div className="flex justify-between items-end px-1">
             <div className="min-w-0">
-              <h2 className={`text-lg sm:text-2xl font-extrabold tracking-tight ${isDarkMode ? 'text-slate-100' : 'text-slate-900'}`}>
+              <h2 className={`text-lg sm:text-2xl lg:text-[26px] font-extrabold tracking-tight ${isDarkMode ? 'text-slate-100' : 'text-slate-900'}`}>
                 หมวดหมู่ตรวจเช็กหลัก
               </h2>
-              <p className={`text-xs mt-0.5 font-medium ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+              <p className={`text-xs lg:text-sm mt-0.5 font-medium ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
                 เลือกหมวดหมู่ที่ต้องการเริ่มทำการตรวจเช็กประเมินความพร้อม
               </p>
             </div>
-            <div className="hidden lg:flex items-center gap-1.5 shrink-0">
-              <button
-                type="button"
-                onClick={() => swiperRef.current?.slidePrev()}
-                className={`w-8 h-8 rounded-full border flex items-center justify-center transition-colors active:opacity-80 cursor-pointer shadow-xs ${
-                  isDarkMode
-                    ? 'bg-slate-800 border-slate-700 text-slate-200 hover:bg-slate-700'
-                    : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'
-                }`}
-              >
-                <ChevronLeft size={18} />
-              </button>
-              <button
-                type="button"
-                onClick={() => swiperRef.current?.slideNext()}
-                className={`w-8 h-8 rounded-full border flex items-center justify-center transition-colors active:opacity-80 cursor-pointer shadow-xs ${
-                  isDarkMode
-                    ? 'bg-slate-800 border-slate-700 text-slate-200 hover:bg-slate-700'
-                    : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'
-                }`}
-              >
-                <ChevronRight size={18} />
-              </button>
-            </div>
           </div>
 
-          <div className="relative w-full max-w-full overflow-hidden group">
+          {/* Desktop 4-Column Full Grid (No clipped side cards or < > arrows) */}
+          <div className="hidden lg:grid lg:grid-cols-4 gap-5">
+            {categories.map((item) => (
+              <div
+                key={`desktop_${item.id}`}
+                onClick={() => handleCategorySelect(item.targetView)}
+                className="group relative h-80 xl:h-[22rem] rounded-[2rem] overflow-hidden cursor-pointer bg-slate-900 border border-white/10 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300"
+              >
+                {!coverFallbackMap[item.id] ? (
+                  <img
+                    src={item.bg}
+                    alt={item.title}
+                    loading="eager"
+                    decoding="async"
+                    draggable={false}
+                    onError={() =>
+                      setCoverFallbackMap((prev) =>
+                        prev[item.id] ? prev : { ...prev, [item.id]: true }
+                      )
+                    }
+                    className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-105 select-none"
+                  />
+                ) : (
+                  <img
+                    src={categoryCovers.operatingRoom}
+                    alt={item.title}
+                    loading="eager"
+                    decoding="async"
+                    draggable={false}
+                    className="absolute inset-0 w-full h-full object-cover opacity-85 select-none"
+                  />
+                )}
+                <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/50 to-transparent" />
+
+                <div className="absolute inset-0 p-6 flex flex-col justify-between z-10">
+                  <span className="self-start bg-black/75 text-white text-xs xl:text-sm px-3.5 py-1.5 rounded-full font-bold border border-white/20 shadow-xs flex items-center gap-2 tabular-nums whitespace-nowrap">
+                    {item.icon} {item.count}
+                  </span>
+
+                  <div className="space-y-3.5">
+                    <h3 className="text-xl xl:text-2xl font-extrabold text-white leading-snug drop-shadow-sm">
+                      {item.title}
+                    </h3>
+                    <button
+                      type="button"
+                      className="w-full bg-[#3B82F6] hover:bg-blue-500 text-white font-bold text-sm xl:text-base py-3 px-5 rounded-2xl shadow-sm transition-colors active:opacity-80 flex items-center justify-center gap-2 cursor-pointer"
+                    >
+                      <span>เข้าตรวจเช็ก &rarr;</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Mobile & Tablet Horizontal Swiper Carousel */}
+          <div className="lg:hidden relative w-full max-w-full overflow-hidden group">
             {/* Mobile-Only Edge Arrows (No backdrop-blur) */}
             <button
               type="button"
               onClick={() => swiperRef.current?.slidePrev()}
-              className="lg:hidden absolute left-1 top-1/2 -translate-y-1/2 z-40 w-10 h-10 rounded-full bg-slate-900/70 text-white flex items-center justify-center active:opacity-80 transition-opacity border border-white/15 shadow-sm cursor-pointer"
+              className="absolute left-1 top-1/2 -translate-y-1/2 z-40 w-10 h-10 rounded-full bg-slate-900/70 text-white flex items-center justify-center active:opacity-80 transition-opacity border border-white/15 shadow-sm cursor-pointer"
               aria-label="หมวดหมู่ก่อนหน้า"
             >
               <ChevronLeft size={22} />
@@ -783,7 +874,7 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
             <button
               type="button"
               onClick={() => swiperRef.current?.slideNext()}
-              className="lg:hidden absolute right-1 top-1/2 -translate-y-1/2 z-40 w-10 h-10 rounded-full bg-slate-900/70 text-white flex items-center justify-center active:opacity-80 transition-opacity border border-white/15 shadow-sm cursor-pointer"
+              className="absolute right-1 top-1/2 -translate-y-1/2 z-40 w-10 h-10 rounded-full bg-slate-900/70 text-white flex items-center justify-center active:opacity-80 transition-opacity border border-white/15 shadow-sm cursor-pointer"
               aria-label="หมวดหมู่ถัดไป"
             >
               <ChevronRight size={22} />
@@ -873,7 +964,7 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
                           handleCategorySelect(item.targetView);
                         }
                       }}
-                      className={`w-full focus-carousel-card card-grab-cursor relative h-72 sm:h-80 xl:h-96 rounded-[2rem] overflow-hidden select-none pointer-events-auto cursor-grab active:cursor-grabbing bg-slate-900 ${
+                      className={`w-full focus-carousel-card card-grab-cursor relative h-72 sm:h-80 rounded-[2rem] overflow-hidden select-none pointer-events-auto cursor-grab active:cursor-grabbing bg-slate-900 ${
                         isActive ? 'ring-2 ring-white/40' : ''
                       }`}
                     >

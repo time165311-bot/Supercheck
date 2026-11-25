@@ -85,17 +85,16 @@ export const GlobalScrollButtons: React.FC<GlobalScrollButtonsProps> = ({
   return (
     <div
       style={{
-        position: 'fixed',
-        right: '16px',
-        bottom: isBottomBarVisible
-          ? 'calc(96px + env(safe-area-inset-bottom, 0px))'
-          : 'calc(24px + env(safe-area-inset-bottom, 0px))',
         zIndex: 30,
         opacity: isVisible ? 1 : 0,
         pointerEvents: isVisible ? 'auto' : 'none',
         transform: isVisible ? 'translateX(0) scale(1)' : 'translateX(20px) scale(0.9)',
       }}
-      className="flex flex-col gap-2 items-center select-none transition-[transform,opacity,bottom] duration-200 ease-out transform-gpu"
+      className={`fixed right-4 lg:right-8 flex flex-col gap-2 items-center select-none transition-[transform,opacity,bottom] duration-200 ease-out transform-gpu ${
+        isBottomBarVisible
+          ? 'bottom-[calc(96px+env(safe-area-inset-bottom,0px))] lg:bottom-28'
+          : 'bottom-[calc(24px+env(safe-area-inset-bottom,0px))] lg:bottom-28'
+      }`}
     >
       {/* 1. ปุ่ม [↑] (Scroll to Top) */}
       <button

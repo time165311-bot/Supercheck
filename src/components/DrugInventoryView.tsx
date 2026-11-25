@@ -38,6 +38,7 @@ import {
 } from '../services/firestoreService';
 import { useDataContext } from '../context/DataContext';
 import { DrugItemCard } from './ItemCard';
+import { MinimalExpiryDatePicker } from './MinimalExpiryDatePicker';
 
 interface DrugInventoryViewProps {
   currentUser: User | null;
@@ -810,7 +811,7 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-2.5">
+              <div className="space-y-3">
                 <div>
                   <label className="block text-slate-700 font-bold mb-1">หน่วยนับ</label>
                   <input
@@ -823,12 +824,11 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
                 </div>
                 <div>
                   <label className="block text-slate-700 font-bold mb-1">วันหมดอายุ (EXP)</label>
-                  <input
-                    type="text"
-                    value={formExpDate}
-                    onChange={(e) => setFormExpDate(e.target.value)}
-                    placeholder="YYYY-MM-DD"
-                    className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-slate-900 outline-none focus:border-blue-500"
+                  <MinimalExpiryDatePicker
+                    value={normalizeExpDateToIso(formExpDate)}
+                    onChange={setFormExpDate}
+                    onClear={() => setFormExpDate('')}
+                    showQuickPresets={true}
                   />
                 </div>
               </div>
@@ -899,14 +899,15 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
                           placeholder="Lot No."
                           className="col-span-4 px-2 py-1 rounded-lg border border-slate-300 bg-white font-mono text-[11px]"
                         />
-                        <input
-                          type="text"
-                          value={lot.expiryDate}
-                          onChange={(e) =>
-                            setFormLots((prev) => prev.map((it, i) => (i === lIdx ? { ...it, expiryDate: e.target.value } : it)))
+                        <MinimalExpiryDatePicker
+                          value={normalizeExpDateToIso(lot.expiryDate)}
+                          onChange={(val) =>
+                            setFormLots((prev) => prev.map((it, i) => (i === lIdx ? { ...it, expiryDate: val } : it)))
                           }
-                          placeholder="YYYY-MM-DD"
-                          className="col-span-4 px-2 py-1 rounded-lg border border-slate-300 bg-white text-[11px]"
+                          compact={true}
+                          showQuickPresets={false}
+                          placeholder="วันหมดอายุ"
+                          className="col-span-5"
                         />
                         <input
                           type="number"
@@ -916,7 +917,7 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
                             setFormLots((prev) => prev.map((it, i) => (i === lIdx ? { ...it, quantity: Number(e.target.value) } : it)))
                           }
                           placeholder="จำนวน"
-                          className="col-span-3 px-2 py-1 rounded-lg border border-slate-300 bg-white text-[11px]"
+                          className="col-span-2 px-2 py-1 rounded-lg border border-slate-300 bg-white text-[11px]"
                         />
                         <button
                           type="button"

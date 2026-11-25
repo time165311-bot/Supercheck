@@ -4131,23 +4131,26 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
 
   return (
     <>
-      {/* Floating AI Toggle Button (Bottom-Left) */}
+      {/* Floating AI Toggle Button (Bottom-Left on Mobile, Bottom-Right with Label on Desktop) */}
       {!isOpen && isBottomBarVisible && !isAnyModalOpen && (
         <button
           type="button"
           onClick={handleOpen}
-          className="fixed bottom-24 left-4 z-30 w-14 h-14 rounded-full bg-gradient-to-tr from-blue-600 via-indigo-500 to-teal-400 text-white flex items-center justify-center shadow-lg shadow-blue-500/25 hover:brightness-110 active:scale-95 active:opacity-90 transition-all cursor-pointer group border border-white/25 touch-manipulation"
-          title="คุยกับน้องออร่า"
+          className="fixed bottom-24 left-4 lg:left-auto lg:bottom-8 lg:right-8 z-30 w-14 h-14 lg:w-auto lg:h-13 lg:px-5 rounded-full lg:rounded-2xl bg-gradient-to-tr from-blue-600 via-indigo-500 to-teal-400 text-white flex items-center justify-center lg:gap-2.5 shadow-lg shadow-blue-500/25 hover:brightness-110 active:scale-95 active:opacity-90 transition-all cursor-pointer group border border-white/25 touch-manipulation"
+          title="ถามน้องออร่า"
         >
-          <Sparkles size={26} />
+          <Sparkles size={24} className="shrink-0" />
+          <span className="hidden lg:inline text-sm font-extrabold tracking-tight whitespace-nowrap">
+            ถามน้องออร่า
+          </span>
           {hasUnreadAuraMessage && (
             <span
-              className="absolute top-0.5 right-0.5 w-3.5 h-3.5 bg-emerald-400 rounded-full ring-2 ring-white dark:ring-[#0E0F12] shadow-sm animate-pulse pointer-events-none"
+              className="absolute top-0.5 right-0.5 lg:-top-1 lg:-right-1 w-3.5 h-3.5 bg-emerald-400 rounded-full ring-2 ring-white dark:ring-[#0E0F12] shadow-sm animate-pulse pointer-events-none"
               aria-label="มีข้อความใหม่จากน้องออร่า"
             />
           )}
-          <span className="absolute left-full ml-3 px-3 py-1.5 rounded-xl bg-slate-900 text-white text-[10px] font-bold whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-md border border-white/10">
-            คุยกับน้องออร่า
+          <span className="lg:hidden absolute left-full ml-3 px-3 py-1.5 rounded-xl bg-slate-900 text-white text-[10px] font-bold whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-md border border-white/10">
+            ถามน้องออร่า
           </span>
         </button>
       )}
