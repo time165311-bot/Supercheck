@@ -484,7 +484,8 @@ export function normalizeExpDate(expStr?: string): { expDate: string; hasNoExp: 
 }
 
 /**
- * Strips leading numeric prefixes from item names (e.g., "1. Name" -> "Name", "1.1. Name" -> "Name")
+ * Strips leading numeric list prefixes from item names (e.g., "1. Name" -> "Name", "10. 5% D/N/2" -> "5% D/N/2", "11. 0.9% NSS" -> "0.9% NSS")
+ * while strictly preserving decimal concentrations and sizes (e.g., "0.9% NSS", "0.5% Marcaine", "5.5 mm", "3-way").
  */
 export function sanitizeItemName(name: string): string {
   if (!name) return '';
@@ -496,7 +497,7 @@ export function sanitizeItemName(name: string): string {
     .replace(/par\s*level/gi, '')
     .replace(/ยอดยกมา/gi, '')
     .replace(/รวมสัปดาห์[^\n]*/gi, '')
-    .replace(/^\d+\s*[\.\:\-]\s*/, '')
+    .replace(/^(?:\d+(?:\.\d+)*\.(?!\d|%)(?:\s+|(?=[A-Za-zก-๙]))|\d+\s*[\)\:]\s*|\d+\s+\-\s+)/, '')
     .trim();
   return cleaned || name.trim();
 }
@@ -536,7 +537,9 @@ export function parseExpDateObj(dateStr?: string): Date | null {
  */
 export function extractSignificantNumbers(str: string): string[] {
   if (!str) return [];
-  const matches = str.match(/\d+(?:\.\d+)?/g);
+  // Normalize thousand-separated numbers (e.g. "1,000 ml" -> "1000 ml") without merging lists like "18, 20"
+  const normalizedStr = str.replace(/(\d),(?=\d{3}(?:\D|$))/g, '$1');
+  const matches = normalizedStr.match(/\d+(?:\.\d+)?/g);
   if (!matches) return [];
   const results: string[] = [];
   matches.forEach((m) => {
@@ -612,14 +615,28 @@ export const ANESTHESIA_ALIASES: string[][] = [
  * Computes a clinical match confidence score (0 = incompatible/no match).
  * Enforces strict size/number verification (e.g. 7.0 vs 7.5, 18G vs 20G).
  */
+function normalizeMedicalComparisonText(raw: string): string {
+  return sanitizeItemName(raw || '')
+    .trim()
+    .toLowerCase()
+    .replace(/(\d),(?=\d{3}(?:\D|$))/g, '$1')
+    .replace(/%\s+/g, '%')
+    .replace(/\s*\/\s*/g, '/')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 export function scoreMedicalItemMatch(queryName: string, candidateName: string, candidateSpec: string = ''): number {
   if (!queryName || !candidateName) return 0;
-  const qClean = queryName.trim().toLowerCase();
-  const cClean = candidateName.trim().toLowerCase();
+  const qClean = sanitizeItemName(queryName).trim().toLowerCase();
+  const cClean = sanitizeItemName(candidateName).trim().toLowerCase();
   const specClean = candidateSpec.trim().toLowerCase();
   const fullCandidate = `${cClean} ${specClean}`.trim();
+  const qNorm = normalizeMedicalComparisonText(queryName);
+  const cNorm = normalizeMedicalComparisonText(candidateName);
+  const fullNorm = `${cNorm}${specClean ? ` ${specClean}` : ''}`.trim();
 
-  if (qClean === cClean || qClean === fullCandidate) return 100;
+  if (qClean === cClean || qClean === fullCandidate || (qNorm && (qNorm === cNorm || qNorm === fullNorm))) return 100;
 
   // 1. Adult vs Pediatric check
   const qChild = qClean.includes('เด็ก') || qClean.includes('pediatric') || qClean.includes('pedia');
@@ -647,17 +664,24 @@ export function scoreMedicalItemMatch(queryName: string, candidateName: string, 
 
   // 3. Anesthesia Medical Alias Group Matching
   for (const group of ANESTHESIA_ALIASES) {
-    const qMatches = group.some((alias) => qClean.includes(alias));
-    const cMatches = group.some((alias) => fullCandidate.includes(alias));
+    const qMatches = group.some((alias) => qClean.includes(alias) || qNorm.includes(alias.replace(/%\s+/g, '%')));
+    const cMatches = group.some((alias) => fullCandidate.includes(alias) || fullNorm.includes(alias.replace(/%\s+/g, '%')));
     if (qMatches && cMatches) {
       score = Math.max(score, hasExactNumberMatch ? 90 : qNums.length > 0 && cNums.length === 0 ? 55 : 80);
     }
   }
 
-  // 4. Direct substring match
-  if (fullCandidate.includes(qClean) || cClean.includes(qClean)) {
+  // 4. Direct substring match (space/percent-normalized and raw)
+  if (
+    fullCandidate.includes(qClean) ||
+    cClean.includes(qClean) ||
+    (qNorm && (fullNorm.includes(qNorm) || cNorm.includes(qNorm)))
+  ) {
     score = Math.max(score, hasExactNumberMatch ? 95 : 85);
-  } else if (qClean.includes(cClean) && cClean.length >= 3) {
+  } else if (
+    (qClean.includes(cClean) && cClean.length >= 3) ||
+    (qNorm && cNorm.length >= 3 && qNorm.includes(cNorm))
+  ) {
     score = Math.max(score, hasExactNumberMatch ? 85 : 70);
   }
 
@@ -676,8 +700,8 @@ export function scoreMedicalItemMatch(queryName: string, candidateName: string, 
       .split(/\s+/)
       .filter((w) => w.length >= 2 && !['เบอร์', 'ขนาด', 'no', 'อย่าง', 'ละ', 'ชุด', 'ชิ้น', 'อัน', 'กระเป๋า', 'รถ', 'ตู้', 'และ', 'กับ', 'หรือ', 'ของ'].includes(w));
 
-  const qWords = getKeywords(qClean);
-  const cWords = getKeywords(fullCandidate);
+  const qWords = getKeywords(qNorm || qClean);
+  const cWords = getKeywords(fullNorm || fullCandidate);
 
   if (qWords.length === 0 || cWords.length === 0) return 0;
 
@@ -891,7 +915,7 @@ export function findFuzzyDrugOrItemMatches<T>(
     minScore?: number;
   }
 ): FuzzyMedicalMatchResult<T>[] {
-  const qRaw = (queryName || '').trim().toLowerCase();
+  const qRaw = sanitizeItemName(queryName || '').trim().toLowerCase();
   const qCode = (options.queryCode || '').trim().toLowerCase();
   const minScore = options.minScore ?? 45;
 
@@ -902,6 +926,7 @@ export function findFuzzyDrugOrItemMatches<T>(
 
   for (const item of items) {
     const cName = (options.getName(item) || '').trim();
+    const cSanitized = sanitizeItemName(cName).trim();
     const cSpec = (options.getSpec ? options.getSpec(item) : '') || '';
     const codes = (options.getCodes ? options.getCodes(item) : [])
       .map((c) => (c || '').trim().toLowerCase())
@@ -916,9 +941,9 @@ export function findFuzzyDrugOrItemMatches<T>(
     if (!qRaw && !qCode) continue;
 
     // 2. Clinical & Size-guarded score
-    const cLower = cName.toLowerCase();
+    const cLower = cSanitized.toLowerCase();
     const fullLower = `${cLower} ${cSpec.toLowerCase()}`.trim();
-    if (qRaw && (qRaw === cLower || qRaw === fullLower)) {
+    if (qRaw && (qRaw === cLower || qRaw === fullLower || normalizeMedicalComparisonText(qRaw) === normalizeMedicalComparisonText(cLower))) {
       results.push({ item, score: 100, matchedBy: 'exact' });
       continue;
     }

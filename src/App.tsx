@@ -4,7 +4,8 @@ import { BottomBar } from './components/BottomBar';
 import { OfficialReportModal, OfficialReportItemRow } from './components/OfficialReportModal';
 import { ImageModal } from './components/ImageModal';
 import { HaAuditReportModal } from './components/HaAuditReportModal';
-import { logAuditEvent } from './services/auditLogger';
+import { AdminCenterModal, WardBackupPayload } from './components/AdminCenterModal';
+import { logAuditEvent, archiveDeletedItemToTrash } from './services/auditLogger';
 import { BarcodeScannerModal } from './components/BarcodeScannerModal';
 import { NotificationModal } from './components/NotificationModal';
 import { ProfileModal } from './components/ProfileModal';
@@ -19,11 +20,13 @@ import { GoogleSheetsSettings } from './components/GoogleSheetsSettings';
 import { GlobalScrollButtons } from './components/GlobalScrollButtons';
 import { AuraAssistant } from './components/AuraAssistant';
 import { ChannelSelectorModal } from './components/ChannelSelectorModal';
+import { PinUnlockModal } from './components/PinUnlockModal';
 import { useDataContext } from './context/DataContext';
 import { getRealTargetCheckValue, parseExpDateObj } from './utils/itemUtils';
 import { calculateOverallInventoryStats, isValidInventoryItem } from './utils/inventoryStats';
 import { diffDaysFromBangkokToday, getBangkokTodayIso } from './utils/dateUtils';
 import { getChannelStorageKeys } from './utils/helpers';
+import { isDefaultWard, resolveWardId } from './utils/wardUtils';
 import { useChannelSync, persistClearedFlags } from './hooks/useChannelSync';
 import { useAuth } from './hooks/useAuth';
 import { useAuraActions, normalizeCheckResultStatus } from './hooks/useAuraActions';
@@ -36,8 +39,6 @@ import {
   setStored,
   getStoredString,
   setStoredString,
-  getInitialEquipment,
-  getInitialLists,
   getChannelDbKey,
   getChannelListsKey,
   getChannelChecksKey,
@@ -52,42 +53,30 @@ import {
 } from './services/storage';
 import { sendInspectionToGas, testGasConnection } from './services/api';
 import { authorizedFetch } from './services/aiService';
-import { INITIAL_DRUGS_DATA } from './constants/initialDrugs';
 import { GAS_SCRIPT_V5, ROOMS } from './constants/initialData';
 import {
-  AuraDataSnapshot,
   CheckItemState,
   DrugItem,
   EquipmentItem,
   ExpiryAlertItem,
   ListConfig,
+  Role,
+  TrashItemRecord,
   User,
   InspectionHistoryRecord,
 } from './types';
 import {
-  BriefcaseMedical,
-  Truck,
-  Stethoscope,
-  Pill,
-  LayoutGrid,
-  MapPin,
-  Trash2,
   X,
   FileText,
-  Home,
-  User as UserIcon,
   Moon,
   Sun,
+  Shield,
   ShieldCheck,
   FileSpreadsheet,
   ExternalLink,
-  Copy,
   Plus,
-  Calendar,
   Check,
   RefreshCw,
-  Code,
-  Sparkles,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -95,7 +84,6 @@ import {
   AlertTriangle,
   Barcode,
   CheckCircle2,
-  Package,
   Database,
   GitBranch,
   HardDrive,
@@ -103,24 +91,26 @@ import {
   Cloud,
   ArrowLeft,
   Bell,
+  User as UserIcon,
 } from 'lucide-react';
 
 import {
-  saveEquipmentItemToFirebase,
-  deleteEquipmentItemInFirebase,
   deleteChannelEquipmentItemInFirebase,
   deleteChannelDrugItemInFirebase,
   clearChannelEquipmentInFirebase,
   saveChannelEquipmentItemToFirebase,
   saveChannelBatchEquipmentToFirebase,
+  saveChannelDrugItemToFirebase,
   saveChannelBatchDrugsToFirebase,
   saveChannelDataToFirebase,
-  saveChannelsToFirebase,
   clearChannelDrugsInFirebase,
   saveUserToFirebase,
   saveInspectionToFirebase,
   deleteInspectionFromFirebase,
   deleteBatchInspectionsFromFirebase,
+  markTrashRestoredInFirebase,
+  markAuditLogRestoredInFirebase,
+  deleteAuditLogInFirebase,
   measureFirestoreUsageClient,
   testCloudConnectivity,
   type CloudConnectivityResult,
@@ -132,6 +122,11 @@ export default function App() {
     activeChannelId,
     activeChannel,
     setActiveChannelId,
+    switchWard,
+    pinConfig,
+    wardPermissionLocks,
+    updatePermissionLocks,
+    trashItems,
     addChannel,
     removeChannel,
     renameChannel,
@@ -139,6 +134,19 @@ export default function App() {
   } = useDataContext();
 
   const [isChannelModalOpen, setIsChannelModalOpen] = useState(false);
+  const [isAdminCenterOpen, setIsAdminCenterOpen] = useState(false);
+  const [pendingPinAction, setPendingPinAction] = useState<{ label: string; run: () => void } | null>(null);
+
+  const guardWithPin = useCallback(
+    (label: string, action: () => void) => {
+      if (pinConfig.pinEnabled && !pinConfig.isSessionUnlocked) {
+        setPendingPinAction({ label, run: action });
+        return;
+      }
+      action();
+    },
+    [pinConfig.pinEnabled, pinConfig.isSessionUnlocked]
+  );
 
   // Navigation & Theme (Persisted across reloads/reopens)
   const [currentView, setCurrentView] = useState<
@@ -282,7 +290,7 @@ export default function App() {
     if (sessionUser) {
       return {
         ...sessionUser,
-        name: savedDisplayName || sessionUser.name || 'เจ้าหน้าที่วิสัญญี',
+        name: savedDisplayName || sessionUser.name || 'สาธิต',
         position: savedPosition || sessionUser.position || 'พยาบาลวิสัญญี',
       };
     }
@@ -290,7 +298,7 @@ export default function App() {
     return {
       id: 'usr_staff_default',
       username: 'staff',
-      name: savedDisplayName || 'เจ้าหน้าที่วิสัญญี',
+      name: savedDisplayName || 'สาธิต',
       role: 'user',
       position: savedPosition || 'พยาบาลวิสัญญี',
       active: true,
@@ -305,16 +313,29 @@ export default function App() {
     authReady,
     isAuthenticated,
     isAdmin,
+    isSuperAdminUnlocked,
+    hasAdminAccess,
+    superAdminToken,
+    adminPasscodeConfigured,
     authLoading,
     authError,
     signInWithGoogle,
     signOut,
+    fetchAdminPasscodeStatus,
+    setupMasterPasscode,
+    verifyMasterPasscode,
+    changeMasterPasscode,
+    lockSuperAdmin,
   } = useAuth((syncedUser) => {
     setCurrentUser((prev) => ({
       ...prev,
       ...syncedUser,
     }));
   });
+
+  const canDelete = hasAdminAccess || !wardPermissionLocks.lockStaffDeleteItems;
+  const canEditStructure = hasAdminAccess || !wardPermissionLocks.lockStaffEditStructure;
+  const canExportSheets = hasAdminAccess || !wardPermissionLocks.lockGoogleSheetsExport;
 
   // Listen for real-time user profile updates across components
   useEffect(() => {
@@ -337,7 +358,10 @@ export default function App() {
     return () => window.removeEventListener('user_profile_updated', handleProfileUpdated);
   }, []);
 
-  const [allUsers, setAllUsers] = useState<User[]>([]);
+  const [allUsers, setAllUsers] = useState<User[]>(() => {
+    const saved = getStored<User[]>(STORAGE_KEYS.USERS, []);
+    return Array.isArray(saved) ? saved : [];
+  });
   const [apiUrl, setApiUrl] = useState<string>(() => getStoredString(STORAGE_KEYS.API_URL, ''));
   const [sheetUrl, setSheetUrl] = useState<string>(() => getStoredString(STORAGE_KEYS.SHEET_URL, ''));
 
@@ -470,8 +494,8 @@ export default function App() {
       let embeddedMediaBytes = Number(serverData?.embeddedMedia?.usedBytes || 0);
       let embeddedMediaCount = Number(serverData?.embeddedMedia?.fileCount || 0);
 
-      // Client-side fallback if server couldn't reach Firestore or found 0 docs while signed in
-      if (firebaseUser && (firebaseMetric.error || (firebaseMetric.docCount === 0 && (firebaseMetric.usedBytes ?? 0) === 0))) {
+      // Client-side fallback works across Shared Ward Workspaces even without Google sign-in
+      if (firebaseMetric.error || (firebaseMetric.docCount === 0 && (firebaseMetric.usedBytes ?? 0) === 0)) {
         const clientStats = await measureFirestoreUsageClient(channelIdsList);
         if (!clientStats.error && clientStats.docCount > 0) {
           const totalBytes = 1024 * 1024 * 1024;
@@ -561,7 +585,7 @@ export default function App() {
     setFirebaseTestResult(null);
     let result: CloudConnectivityResult = { ok: false, status: 'error', msg: '' };
     try {
-      result = await testCloudConnectivity();
+      result = await testCloudConnectivity(activeChannelId);
       await fetchStorageUsage();
     } catch (error: any) {
       result = {
@@ -574,7 +598,7 @@ export default function App() {
       setIsTestingFirebase(false);
     }
     return result;
-  }, [fetchStorageUsage]);
+  }, [activeChannelId, fetchStorageUsage]);
 
   useEffect(() => {
     if (isDrawerOpen && drawerView === 'cloud') {
@@ -609,8 +633,10 @@ export default function App() {
     setIsProfileOpen(false);
     setIsNotificationOpen(false);
     setIsChannelModalOpen(false);
+    setIsAdminCenterOpen(false);
     setIsBarcodeScannerOpen(false);
     setPendingClearCategory(null);
+    setPendingPinAction(null);
     setScannedItemResult(null);
     setZoomedImgUrl(null);
     setPreviewImage(null);
@@ -861,15 +887,130 @@ export default function App() {
     setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
   };
 
-  const handleDrugsChange = async (nextDrugs: DrugItem[]) => {
-    const channelId = activeChannelId || 'channel_master';
-    const isMaster = channelId === 'channel_master';
+  const checkAuditBufferRef = useRef<{
+    timer: ReturnType<typeof setTimeout> | null;
+    events: Array<{
+      categoryOrRoomId: string;
+      itemKey: string;
+      itemName: string;
+      oldVal: string;
+      newVal: string;
+      week?: number;
+    }>;
+  }>({ timer: null, events: [] });
+
+  useEffect(() => {
+    return () => {
+      if (checkAuditBufferRef.current.timer) {
+        clearTimeout(checkAuditBufferRef.current.timer);
+      }
+    };
+  }, []);
+
+  const queueCheckAudit = useCallback(
+    (entry: {
+      categoryOrRoomId: string;
+      itemKey: string;
+      itemName: string;
+      oldVal: string;
+      newVal: string;
+      week?: number;
+    }) => {
+      const buf = checkAuditBufferRef.current;
+      buf.events.push(entry);
+      if (buf.timer) return;
+      buf.timer = setTimeout(() => {
+        const batch = buf.events.splice(0, buf.events.length);
+        buf.timer = null;
+        if (batch.length === 0) return;
+
+        if (batch.length === 1) {
+          const ev = batch[0];
+          const catLabel =
+            ev.categoryOrRoomId === 'bag'
+              ? 'กระเป๋าฉุกเฉิน'
+              : ev.categoryOrRoomId === 'cart'
+              ? 'รถฉุกเฉิน'
+              : ev.categoryOrRoomId === 'ambulance'
+              ? 'รถพยาบาลฉุกเฉิน'
+              : `ครุภัณฑ์ · ${ev.categoryOrRoomId.toUpperCase()}`;
+          void logAuditEvent({
+            action: 'CHECK',
+            targetCollection: ev.categoryOrRoomId,
+            targetId: ev.itemKey,
+            itemName: ev.itemName || ev.itemKey,
+            category: catLabel,
+            oldValue: ev.oldVal || 'ยังไม่ตรวจ',
+            newValue: ev.newVal || 'ล้างผลตรวจ',
+            details: {
+              channelId: activeChannelId,
+              itemName: ev.itemName,
+              week: ev.week,
+              result: ev.newVal,
+            },
+            currentUser,
+          });
+        } else {
+          const cat = batch[0].categoryOrRoomId;
+          const catLabel =
+            cat === 'bag'
+              ? 'กระเป๋าฉุกเฉิน'
+              : cat === 'cart'
+              ? 'รถฉุกเฉิน'
+              : cat === 'ambulance'
+              ? 'รถพยาบาลฉุกเฉิน'
+              : `ครุภัณฑ์ · ${cat.toUpperCase()}`;
+          const lastVal = batch[batch.length - 1].newVal || 'ล้างผลตรวจ';
+          void logAuditEvent({
+            action: 'CHECK',
+            targetCollection: cat,
+            targetId: `${cat}_batch_${Date.now()}`,
+            itemName: `ตรวจเช็กแบบกลุ่ม (${batch.length} รายการ)`,
+            category: catLabel,
+            oldValue: '-',
+            newValue: `${lastVal} (${batch.length} รายการ)`,
+            details: {
+              channelId: activeChannelId,
+              count: batch.length,
+              week: batch[0].week,
+              result: lastVal,
+            },
+            currentUser,
+          });
+        }
+      }, 60);
+    },
+    [activeChannelId, currentUser]
+  );
+
+  const executeDrugsChange = async (nextDrugs: DrugItem[]) => {
+    const channelId = resolveWardId(activeChannelId);
+    const isMaster = isDefaultWard(channelId);
     const chKeys = getChannelStorageKeys(channelId);
 
     const nextIdSet = new Set(nextDrugs.map((d) => d.id));
     const prevIdSet = new Set(drugs.map((d) => d.id));
+    const prevById = new Map(drugs.map((d) => [d.id, d] as const));
     const removedDrugs = drugs.filter((d) => d.id && !nextIdSet.has(d.id));
     const addedDrugs = nextDrugs.filter((d) => d.id && !prevIdSet.has(d.id));
+    const updatedDrugs = nextDrugs.filter((d) => {
+      if (!d.id) return false;
+      const old = prevById.get(d.id);
+      if (!old) return false;
+      return (
+        old.remaining !== d.remaining ||
+        (old.expDate || old.exp || '') !== (d.expDate || d.exp || '') ||
+        old.name !== d.name ||
+        old.minStock !== d.minStock ||
+        (old.lotNumber || '') !== (d.lotNumber || '') ||
+        old.category !== d.category
+      );
+    });
+
+    if (removedDrugs.length > 0 && !canDelete) {
+      triggerGameToast('ผู้ดูแลระบบล็อกสิทธิ์การลบรายการไว้');
+      return;
+    }
 
     if (removedDrugs.length > 0) {
       const removedTokens = removedDrugs.flatMap((d) =>
@@ -896,7 +1037,33 @@ export default function App() {
     try {
       if (removedDrugs.length > 0) {
         await Promise.all(
-          removedDrugs.map((d) => deleteChannelDrugItemInFirebase(channelId, d.id).catch(() => false))
+          removedDrugs.map(async (d) => {
+            const tokens = makeItemTombstoneTokens('drug', d as any, d.id);
+            const trashId = await archiveDeletedItemToTrash({
+              wardId: channelId,
+              targetType: 'drug',
+              category: 'คลังยา & สารน้ำ',
+              groupOrRoomId: d.category,
+              itemName: d.name,
+              payload: { ...d },
+              tombstoneTokens: tokens,
+              currentUser,
+            });
+            await deleteChannelDrugItemInFirebase(channelId, d.id).catch(() => false);
+            void logAuditEvent({
+              action: 'DELETE',
+              targetCollection: 'drugs',
+              targetId: d.id,
+              itemName: d.name,
+              category: 'คลังยา & สารน้ำ',
+              oldValue: `คงเหลือ ${d.remaining} ${d.unit || ''} · EXP ${d.expDate || d.exp || '-'}`,
+              newValue: 'ถูกลบ (ย้ายไปถังขยะ)',
+              trashId: trashId || undefined,
+              restorablePayload: trashId ? undefined : { ...d },
+              details: { channelId, drugId: d.id, category: d.category },
+              currentUser,
+            });
+          })
         );
       }
       if (nextDrugs.length === 0) {
@@ -917,12 +1084,54 @@ export default function App() {
     } catch (err) {
       console.warn('Failed to sync drugs to Cloud Firestore:', err);
     }
-    logAuditEvent({
-      action: 'UPDATE_DRUG_STOCK',
-      targetCollection: 'drugs',
-      targetId: channelId,
-      details: { count: nextDrugs.length, channelId, reason: 'ปรับปรุงข้อมูลคลังยาและสารน้ำ' },
-      currentUser,
+
+    addedDrugs.forEach((d) => {
+      void logAuditEvent({
+        action: 'ADD',
+        targetCollection: 'drugs',
+        targetId: d.id,
+        itemName: d.name,
+        category: 'คลังยา & สารน้ำ',
+        oldValue: '-',
+        newValue: `คงเหลือ ${d.remaining} ${d.unit || ''} · EXP ${d.expDate || d.exp || '-'}`,
+        details: { channelId, drugId: d.id, category: d.category },
+        currentUser,
+      });
+    });
+
+    updatedDrugs.forEach((d) => {
+      const old = prevById.get(d.id)!;
+      void logAuditEvent({
+        action: 'UPDATE',
+        targetCollection: 'drugs',
+        targetId: d.id,
+        itemName: d.name,
+        category: 'คลังยา & สารน้ำ',
+        oldValue: `คงเหลือ ${old.remaining} ${old.unit || ''} · EXP ${old.expDate || old.exp || '-'}`,
+        newValue: `คงเหลือ ${d.remaining} ${d.unit || ''} · EXP ${d.expDate || d.exp || '-'}`,
+        details: { channelId, drugId: d.id, category: d.category },
+        currentUser,
+      });
+    });
+
+    if (removedDrugs.length === 0 && addedDrugs.length === 0 && updatedDrugs.length === 0) {
+      void logAuditEvent({
+        action: 'UPDATE',
+        targetCollection: 'drugs',
+        targetId: channelId,
+        itemName: 'รายการคลังยาและสารน้ำ',
+        category: 'คลังยา & สารน้ำ',
+        oldValue: '-',
+        newValue: `ปรับปรุงคลังยา (${nextDrugs.length} รายการ)`,
+        details: { count: nextDrugs.length, channelId },
+        currentUser,
+      });
+    }
+  };
+
+  const handleDrugsChange = (nextDrugs: DrugItem[]) => {
+    guardWithPin('แก้ไข/ปรับปรุงคลังยาและสารน้ำ', () => {
+      void executeDrugsChange(nextDrugs);
     });
   };
 
@@ -938,6 +1147,28 @@ export default function App() {
   ) => {
     const isResetToUnchecked = (result as string) === '' || (isMassAction && customValue === '');
     const normalizedResult = isResetToUnchecked ? '' : normalizeCheckResultStatus(result);
+
+    // Compute old vs next status cleanly outside React state updater so audit logging runs once
+    const prevCategory = globalChecks[categoryOrRoomId] || {};
+    const prevExisting = prevCategory[itemKey] || { result: '', weekVals: {} };
+    let auditNextResult: 'ปกติ' | 'ผิดปกติ' | '' = '';
+    if (isResetToUnchecked) {
+      auditNextResult = '';
+    } else if (isMassAction) {
+      auditNextResult = normalizedResult as 'ปกติ' | 'ผิดปกติ';
+    } else {
+      auditNextResult = (prevExisting?.result === normalizedResult ? '' : normalizedResult) as 'ปกติ' | 'ผิดปกติ' | '';
+    }
+
+    queueCheckAudit({
+      categoryOrRoomId,
+      itemKey,
+      itemName: _itemName,
+      oldVal: prevExisting.result || 'ยังไม่ตรวจ',
+      newVal: auditNextResult || 'ล้างผลตรวจ',
+      week,
+    });
+
     setGlobalChecks((prev) => {
       const currentCategory = prev[categoryOrRoomId] || {};
       const existing = currentCategory[itemKey] || { result: '', weekVals: {} };
@@ -949,16 +1180,6 @@ export default function App() {
         nextResult = normalizedResult as 'ปกติ' | 'ผิดปกติ';
       } else {
         nextResult = (existing?.result === normalizedResult ? '' : normalizedResult) as 'ปกติ' | 'ผิดปกติ' | '';
-      }
-
-      if (nextResult === 'ผิดปกติ') {
-        logAuditEvent({
-          action: 'DEFECTIVE_FLAG',
-          targetCollection: categoryOrRoomId,
-          targetId: itemKey,
-          details: { itemName: _itemName, result: 'ผิดปกติ', week, customValue },
-          currentUser,
-        });
       }
 
       let nextWeekVals = { ...(existing.weekVals || {}) };
@@ -1054,40 +1275,42 @@ export default function App() {
 
   // Atomic Clear All Checks for a specific week in Emergency Bag, Crash Cart, or Ambulance
   const handleClearEmergencyWeek = (type: 'bag' | 'cart' | 'ambulance' | string, week: number) => {
-    setGlobalChecks((prev) => {
-      const currentCategory = prev[type] || {};
-      const clearedCategory: Record<string, CheckItemState> = {};
+    guardWithPin(`ล้างผลตรวจสัปดาห์ที่ ${week}`, () => {
+      setGlobalChecks((prev) => {
+        const currentCategory = prev[type] || {};
+        const clearedCategory: Record<string, CheckItemState> = {};
 
-      Object.entries(currentCategory).forEach(([key, state]) => {
-        if (!state) return;
-        const nextWeekVals = { ...(state.weekVals || {}) };
-        delete nextWeekVals[week];
+        Object.entries(currentCategory).forEach(([key, state]) => {
+          if (!state) return;
+          const nextWeekVals = { ...(state.weekVals || {}) };
+          delete nextWeekVals[week];
 
-        const remainingVals = Object.values(nextWeekVals).filter(
-          (v) => v !== undefined && String(v).trim() !== ''
-        );
-        const nextResult: 'ปกติ' | 'ผิดปกติ' | '' =
-          remainingVals.length === 0
-            ? ''
-            : remainingVals.some((v) => v === '0' || v === '✗')
-            ? 'ผิดปกติ'
-            : 'ปกติ';
+          const remainingVals = Object.values(nextWeekVals).filter(
+            (v) => v !== undefined && String(v).trim() !== ''
+          );
+          const nextResult: 'ปกติ' | 'ผิดปกติ' | '' =
+            remainingVals.length === 0
+              ? ''
+              : remainingVals.some((v) => v === '0' || v === '✗')
+              ? 'ผิดปกติ'
+              : 'ปกติ';
 
-        clearedCategory[key] = {
-          ...state,
-          result: nextResult,
-          weekVals: nextWeekVals,
-          ...(nextResult === '' ? { val: '', note: '' } : {}),
+          clearedCategory[key] = {
+            ...state,
+            result: nextResult,
+            weekVals: nextWeekVals,
+            ...(nextResult === '' ? { val: '', note: '' } : {}),
+          };
+        });
+
+        const updatedGlobal = {
+          ...prev,
+          [type]: clearedCategory,
         };
+
+        setStored(getChannelChecksKey(activeChannelId), updatedGlobal);
+        return updatedGlobal;
       });
-
-      const updatedGlobal = {
-        ...prev,
-        [type]: clearedCategory,
-      };
-
-      setStored(getChannelChecksKey(activeChannelId), updatedGlobal);
-      return updatedGlobal;
     });
   };
 
@@ -1126,7 +1349,7 @@ export default function App() {
   };
 
   // Add New Item to Emergency Bag, Crash Cart, or Ambulance Checklist
-  const handleAddItem = async (
+  const executeAddItem = async (
     type: 'bag' | 'cart' | 'ambulance' | string,
     newItem: {
       name: string;
@@ -1141,8 +1364,14 @@ export default function App() {
       subExps?: Array<{ label?: string; exp?: string; qty?: number; hasNoExp?: boolean }>;
     }
   ) => {
-    const channelId = activeChannelId || 'channel_master';
-    const isMaster = channelId === 'channel_master';
+    if (!canEditStructure) {
+      triggerGameToast('ผู้ดูแลระบบล็อกสิทธิ์การเพิ่ม/แก้ไขโครงสร้างรายการไว้');
+      return;
+    }
+    const channelId = resolveWardId(activeChannelId);
+    const isMaster = isDefaultWard(channelId);
+    const typeLabel =
+      type === 'bag' ? 'กระเป๋าฉุกเฉิน' : type === 'ambulance' ? 'รถพยาบาลฉุกเฉิน' : 'รถฉุกเฉิน';
     const itemKey = `${type}_${newItem.groupName}_${Date.now()}`;
     const itemObject: EquipmentItem = {
       id: itemKey,
@@ -1168,9 +1397,6 @@ export default function App() {
     );
 
     const saved = await saveChannelEquipmentItemToFirebase(channelId, itemObject).catch(() => null);
-    if (isMaster) {
-      saveEquipmentItemToFirebase(itemObject).catch(() => null);
-    }
     const persistedItem = saved || itemObject;
     const clearPatch =
       type === 'bag'
@@ -1180,17 +1406,21 @@ export default function App() {
         : { cartCleared: false };
     persistClearedFlags(clearPatch, channelId).catch(() => {});
 
-    logAuditEvent({
-      action: 'ADD_EQUIPMENT',
+    void logAuditEvent({
+      action: 'ADD',
       targetCollection: type,
-      targetId: itemKey,
-      details: { name: newItem.name, location: newItem.groupName, qty: newItem.qty },
+      targetId: persistedItem.id || itemKey,
+      itemName: newItem.name,
+      category: `${typeLabel} · ${newItem.groupName}`,
+      oldValue: '-',
+      newValue: `จำนวน ${newItem.qty || '1'} · EXP ${newItem.exp || '-'}`,
+      details: { channelId, name: newItem.name, location: newItem.groupName, qty: newItem.qty },
       currentUser,
     });
 
     updateChannelData((prev) => {
       const currentList = prev.lists[type] || {
-        title: type === 'bag' ? 'กระเป๋าฉุกเฉิน' : type === 'ambulance' ? 'รถพยาบาลฉุกเฉิน' : 'รถฉุกเฉิน',
+        title: typeLabel,
         groups: {},
       };
       const groups = { ...(currentList.groups || {}) };
@@ -1215,10 +1445,40 @@ export default function App() {
     });
   };
 
-  // Delete Item from Emergency Bag, Crash Cart, or Ambulance Checklist (Guaranteed state + localStorage + tombstone + cloud)
-  const handleDeleteItem = async (type: 'bag' | 'cart' | 'ambulance' | string, itemKey: string) => {
-    const channelId = activeChannelId || 'channel_master';
-    const isMaster = channelId === 'channel_master';
+  const handleAddItem = (
+    type: 'bag' | 'cart' | 'ambulance' | string,
+    newItem: {
+      name: string;
+      groupName: string;
+      spec?: string;
+      qty?: string;
+      exp?: string;
+      img?: string;
+      checkType?: 'single' | 'sub_items';
+      subItems?: string[];
+      subItemQuantities?: number[];
+      subExps?: Array<{ label?: string; exp?: string; qty?: number; hasNoExp?: boolean }>;
+    }
+  ) => {
+    if (!canEditStructure) {
+      triggerGameToast('ผู้ดูแลระบบล็อกสิทธิ์การเพิ่มรายการไว้');
+      return;
+    }
+    guardWithPin(`เพิ่มรายการ ${newItem.name}`, () => {
+      void executeAddItem(type, newItem);
+    });
+  };
+
+  // Delete Item from Emergency Bag, Crash Cart, or Ambulance Checklist (Guaranteed state + localStorage + tombstone + Trash + cloud)
+  const executeDeleteItem = async (type: 'bag' | 'cart' | 'ambulance' | string, itemKey: string) => {
+    if (!canDelete) {
+      triggerGameToast('ผู้ดูแลระบบล็อกสิทธิ์การลบรายการไว้');
+      return;
+    }
+    const channelId = resolveWardId(activeChannelId);
+    const isMaster = isDefaultWard(channelId);
+    const typeLabel =
+      type === 'bag' ? 'กระเป๋าฉุกเฉิน' : type === 'ambulance' ? 'รถพยาบาลฉุกเฉิน' : 'รถฉุกเฉิน';
 
     let matchedItem: EquipmentItem | undefined;
     let matchedGroup = '';
@@ -1245,6 +1505,34 @@ export default function App() {
         : []),
     ];
     const persistedTombstones = addDeletedItemIds(channelId, tombstoneTokens);
+
+    const trashTargetType: TrashItemRecord['targetType'] =
+      type === 'bag' ? 'bag' : type === 'ambulance' ? 'ambulance' : 'cart';
+    const trashPayload = matchedItem
+      ? {
+          ...matchedItem,
+          type: trashTargetType,
+          category: matchedItem.category || matchedGroup,
+          location: matchedItem.location || matchedGroup,
+        }
+      : {
+          id: itemKey,
+          name: itemKey,
+          type: trashTargetType,
+          category: matchedGroup,
+          location: matchedGroup,
+        };
+
+    const trashId = await archiveDeletedItemToTrash({
+      wardId: channelId,
+      targetType: trashTargetType,
+      category: matchedGroup ? `${typeLabel} · ${matchedGroup}` : typeLabel,
+      groupOrRoomId: matchedGroup,
+      itemName: matchedItem?.name || itemKey,
+      payload: trashPayload,
+      tombstoneTokens,
+      currentUser,
+    });
 
     updateChannelData((prev) => {
       const currentList = prev.lists[type];
@@ -1295,30 +1583,101 @@ export default function App() {
 
     const cloudId = matchedItem?.id || itemKey;
     deleteChannelEquipmentItemInFirebase(channelId, cloudId).catch(() => {});
-    if (isMaster) {
-      deleteEquipmentItemInFirebase(cloudId).catch(() => {});
-    }
 
-    logAuditEvent({
-      action: 'DELETE_EQUIPMENT',
+    void logAuditEvent({
+      action: 'DELETE',
       targetCollection: type,
       targetId: cloudId,
-      details: { type, name: matchedItem?.name || itemKey, channelId },
+      itemName: matchedItem?.name || itemKey,
+      category: matchedGroup ? `${typeLabel} · ${matchedGroup}` : typeLabel,
+      oldValue: matchedItem
+        ? `จำนวน ${matchedItem.unitText || matchedItem.qty || '1'} · EXP ${matchedItem.exp || '-'}`
+        : undefined,
+      newValue: 'ถูกลบ (ย้ายไปถังขยะ)',
+      trashId: trashId || undefined,
+      restorablePayload: trashId ? undefined : trashPayload,
+      details: { type, name: matchedItem?.name || itemKey, groupName: matchedGroup, channelId },
       currentUser,
     });
     triggerGameToast('ลบรายการเรียบร้อยแล้ว');
   };
 
+  const handleDeleteItem = (type: 'bag' | 'cart' | 'ambulance' | string, itemKey: string) => {
+    if (!canDelete) {
+      triggerGameToast('ผู้ดูแลระบบล็อกสิทธิ์การลบรายการไว้');
+      return;
+    }
+    guardWithPin('ลบรายการอุปกรณ์', () => {
+      void executeDeleteItem(type, itemKey);
+    });
+  };
+
   // Edit Item in Emergency Bag or Crash Cart Checklist (Instant Optimistic Sync to Lists & PDF)
-  const handleEditItem = (type: 'bag' | 'cart' | 'ambulance' | string, updatedItem: EquipmentItem) => {
-    const channelId = activeChannelId || 'channel_master';
-    const isMaster = channelId === 'channel_master';
+  const executeEditItem = (type: 'bag' | 'cart' | 'ambulance' | string, updatedItem: EquipmentItem) => {
+    const channelId = resolveWardId(activeChannelId);
+    const isMaster = isDefaultWard(channelId);
+    const typeLabel =
+      type === 'bag' ? 'กระเป๋าฉุกเฉิน' : type === 'ambulance' ? 'รถพยาบาลฉุกเฉิน' : 'รถฉุกเฉิน';
     const itemId = updatedItem.id || (updatedItem.code ? `${type}_${updatedItem.code}` : `eq_${Date.now()}`);
+
+    // Find existing item snapshot before update for audit diff & structure lock guard
+    let prevItem: EquipmentItem | undefined;
+    let prevGroup = '';
+    const listSnapshot = lists[type];
+    if (listSnapshot?.groups) {
+      Object.entries(listSnapshot.groups).forEach(([groupName, items]) => {
+        if (prevItem) return;
+        const found = (items || []).find((it, idx) => {
+          const itKey = it.id || `${type}_${groupName}_${idx}`;
+          return (
+            (it.id && it.id === itemId) ||
+            itKey === itemId ||
+            (it.code && updatedItem.code && it.code === updatedItem.code) ||
+            (it.name === updatedItem.name && (groupName === updatedItem.category || !updatedItem.category))
+          );
+        });
+        if (found) {
+          prevItem = found;
+          prevGroup = groupName;
+        }
+      });
+    }
+
+    // Enforce structure lock if staff lacks Admin/structure permission (EXP/subExps/img/note remain editable)
+    const guardedItem: EquipmentItem =
+      !canEditStructure && prevItem
+        ? {
+            ...updatedItem,
+            name: prevItem.name,
+            category: prevItem.category || prevGroup,
+            location: prevItem.location || prevGroup,
+            qty: prevItem.qty,
+            unitText: prevItem.unitText,
+            spec: prevItem.spec,
+            subItems: prevItem.subItems,
+            subItemQuantities: prevItem.subItemQuantities,
+          }
+        : updatedItem;
+
     const finalItem: EquipmentItem = {
-      ...updatedItem,
+      ...guardedItem,
       id: itemId,
       type,
     };
+
+    void logAuditEvent({
+      action: 'UPDATE',
+      targetCollection: type,
+      targetId: itemId,
+      itemName: finalItem.name,
+      category: `${typeLabel} · ${finalItem.category || finalItem.location || prevGroup || 'ทั่วไป'}`,
+      oldValue: prevItem
+        ? `${prevItem.name} · จำนวน ${prevItem.unitText || prevItem.qty || '1'} · EXP ${prevItem.exp || '-'}`
+        : '-',
+      newValue: `${finalItem.name} · จำนวน ${finalItem.unitText || finalItem.qty || '1'} · EXP ${finalItem.exp || '-'}`,
+      details: { channelId, type, groupName: finalItem.category || prevGroup },
+      currentUser,
+    });
 
     // 1. Optimistically update local state & channel persistence immediately so PDF and Checklist reflect changes!
     setLists((prev) => {
@@ -1384,27 +1743,56 @@ export default function App() {
       return updatedLists;
     });
 
-    // 2. Persist to Firebase in background without blocking state
+    // 2. Persist to Firebase Shared Ward Workspace in background without blocking state
     saveChannelEquipmentItemToFirebase(channelId, finalItem).catch((err) =>
       console.warn('Firebase saveChannelEquipmentItem error:', err)
     );
-    if (isMaster) {
-      saveEquipmentItemToFirebase(finalItem).catch((err) =>
-        console.warn('Firebase saveEquipmentItem error:', err)
-      );
-    }
+  };
+
+  const handleEditItem = (type: 'bag' | 'cart' | 'ambulance' | string, updatedItem: EquipmentItem) => {
+    guardWithPin(`แก้ไขรายการ ${updatedItem.name}`, () => {
+      executeEditItem(type, updatedItem);
+    });
   };
 
   // Edit / Add / Move Room Equipment directly from FloorMap OR Drawer
-  const handleEditRoomEquipment = (sourceRoomId: string, updatedItem: EquipmentItem) => {
+  const executeEditRoomEquipment = (sourceRoomId: string, updatedItem: EquipmentItem) => {
+    const channelId = resolveWardId(activeChannelId);
+    const isMaster = isDefaultWard(channelId);
     const targetRoomId = updatedItem.roomId || sourceRoomId;
     const itemId = updatedItem.id || `eq_${targetRoomId}_${Date.now()}`;
+    const existingList = equipment[sourceRoomId] || equipment[targetRoomId] || [];
+    const prevItem = existingList.find(
+      (it, idx) =>
+        (it.id && it.id === itemId) ||
+        `${sourceRoomId}_${idx}` === itemId ||
+        `${targetRoomId}_${idx}` === itemId ||
+        (it.code && updatedItem.code && it.code === updatedItem.code)
+    );
+    if (!canEditStructure && !prevItem) {
+      triggerGameToast('ผู้ดูแลระบบล็อกสิทธิ์การเพิ่ม/แก้ไขครุภัณฑ์ไว้');
+      return;
+    }
+
     const finalItem: EquipmentItem = {
       ...updatedItem,
       id: itemId,
       type: 'room',
       roomId: targetRoomId,
     };
+
+    const roomLabel = ROOMS.find((r) => r.id === targetRoomId)?.n || targetRoomId.toUpperCase();
+    void logAuditEvent({
+      action: prevItem ? 'UPDATE' : 'ADD',
+      targetCollection: 'equipment',
+      targetId: itemId,
+      itemName: finalItem.name,
+      category: `ครุภัณฑ์ · ${roomLabel}`,
+      oldValue: prevItem ? `${prevItem.name} · จำนวน ${prevItem.qty || '1'}` : '-',
+      newValue: `${finalItem.name} · จำนวน ${finalItem.qty || '1'}`,
+      details: { channelId, sourceRoomId, targetRoomId },
+      currentUser,
+    });
 
     setEquipment((prev) => {
       const nextEq: Record<string, EquipmentItem[]> = { ...prev };
@@ -1451,18 +1839,28 @@ export default function App() {
       });
 
       nextEq[targetRoomId] = updatedTargetList;
-      const chKeys = getChannelStorageKeys(activeChannelId || 'channel_master');
+      const chKeys = getChannelStorageKeys(channelId);
       setStored(chKeys.EQ, nextEq);
-      if (!activeChannelId || activeChannelId === 'channel_master') {
+      if (isMaster) {
         setStored(STORAGE_KEYS.EQ, nextEq);
       }
       return nextEq;
     });
 
-    persistClearedFlags({ equipmentCleared: false }, activeChannelId).catch(() => {});
-    saveChannelEquipmentItemToFirebase(activeChannelId || 'channel_master', finalItem).catch((err) =>
+    persistClearedFlags({ equipmentCleared: false }, channelId).catch(() => {});
+    saveChannelEquipmentItemToFirebase(channelId, finalItem).catch((err) =>
       console.warn('Firebase saveRoomEquipment error:', err)
     );
+  };
+
+  const handleEditRoomEquipment = (sourceRoomId: string, updatedItem: EquipmentItem) => {
+    if (!canEditStructure) {
+      triggerGameToast('ผู้ดูแลระบบล็อกสิทธิ์การแก้ไขโครงสร้างครุภัณฑ์ไว้');
+      return;
+    }
+    guardWithPin(`แก้ไขครุภัณฑ์ ${updatedItem.name}`, () => {
+      executeEditRoomEquipment(sourceRoomId, updatedItem);
+    });
   };
 
   const handleSaveRotatedImage = async (newImageUrl: string) => {
@@ -1508,9 +1906,13 @@ export default function App() {
     }
   };
 
-  const handleDeleteRoomEquipment = async (roomId: string, itemKeyOrId: string) => {
-    const channelId = activeChannelId || 'channel_master';
-    const isMaster = channelId === 'channel_master';
+  const executeDeleteRoomEquipment = async (roomId: string, itemKeyOrId: string) => {
+    if (!canDelete) {
+      triggerGameToast('ผู้ดูแลระบบล็อกสิทธิ์การลบรายการไว้');
+      return;
+    }
+    const channelId = resolveWardId(activeChannelId);
+    const isMaster = isDefaultWard(channelId);
     const roomObj = ROOMS.find((r) => r.id === roomId);
     const roomName = roomObj?.n || roomId;
 
@@ -1527,6 +1929,21 @@ export default function App() {
       ...makeItemTombstoneTokens(roomId, { ...(targetItem || { id: itemKeyOrId, name: itemKeyOrId }), category: roomId }, itemKeyOrId),
     ];
     const persistedTombstones = addDeletedItemIds(channelId, tombstoneTokens);
+
+    const trashPayload = targetItem
+      ? { ...targetItem, type: 'room', roomId }
+      : { id: resolvedFirestoreId || itemKeyOrId, name: itemKeyOrId, type: 'room', roomId };
+
+    const trashId = await archiveDeletedItemToTrash({
+      wardId: channelId,
+      targetType: 'room',
+      category: `ครุภัณฑ์ · ${roomName}`,
+      groupOrRoomId: roomId,
+      itemName: targetItem?.name || itemKeyOrId,
+      payload: trashPayload,
+      tombstoneTokens,
+      currentUser,
+    });
 
     setEquipment((prev) => {
       const list = prev[roomId] || [];
@@ -1571,20 +1988,335 @@ export default function App() {
 
     if (resolvedFirestoreId) {
       deleteChannelEquipmentItemInFirebase(channelId, resolvedFirestoreId).catch(() => {});
-      if (isMaster) {
-        deleteEquipmentItemInFirebase(resolvedFirestoreId).catch(() => {});
-      }
     }
 
-    logAuditEvent({
-      action: 'DELETE_EQUIPMENT',
+    void logAuditEvent({
+      action: 'DELETE',
       targetCollection: 'equipment',
       targetId: resolvedFirestoreId || itemKeyOrId,
-      details: { roomId, name: targetItem?.name, channelId },
+      itemName: targetItem?.name || itemKeyOrId,
+      category: `ครุภัณฑ์ · ${roomName}`,
+      oldValue: targetItem ? `จำนวน ${targetItem.qty || '1'} · ${targetItem.code || '-'}` : undefined,
+      newValue: 'ถูกลบ (ย้ายไปถังขยะ)',
+      trashId: trashId || undefined,
+      restorablePayload: trashId ? undefined : trashPayload,
+      details: { roomId, roomName, name: targetItem?.name, channelId },
       currentUser,
     });
     triggerGameToast('ลบรายการเรียบร้อยแล้ว');
   };
+
+  const handleDeleteRoomEquipment = (roomId: string, itemKeyOrId: string) => {
+    if (!canDelete) {
+      triggerGameToast('ผู้ดูแลระบบล็อกสิทธิ์การลบรายการไว้');
+      return;
+    }
+    guardWithPin('ลบครุภัณฑ์ประจำห้อง', () => {
+      void executeDeleteRoomEquipment(roomId, itemKeyOrId);
+    });
+  };
+
+  // 🔄 One-Click Restore from Admin Control Center Trash / Audit Log
+  const handleRestoreTrashItem = useCallback(
+    async (
+      trashItem: TrashItemRecord,
+      linkedAuditLogId?: string
+    ): Promise<{ ok: boolean; message: string }> => {
+      const channelId = resolveWardId(trashItem.wardId || activeChannelId);
+      const isMaster = isDefaultWard(channelId);
+      const chKeys = getChannelStorageKeys(channelId);
+
+      try {
+        const tokens =
+          Array.isArray(trashItem.tombstoneTokens) && trashItem.tombstoneTokens.length > 0
+            ? trashItem.tombstoneTokens
+            : makeItemTombstoneTokens(
+                trashItem.targetType,
+                trashItem.payload || { id: trashItem.id, name: trashItem.itemName },
+                trashItem.payload?.id
+              );
+        const persistedTombstones = removeDeletedItemIds(channelId, tokens);
+
+        let restoredId = String(trashItem.payload?.id || '');
+
+        if (trashItem.targetType === 'drug') {
+          const drugData: DrugItem = {
+            ...(trashItem.payload as DrugItem),
+            id:
+              trashItem.payload?.id ||
+              `drug_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+            name: trashItem.payload?.name || trashItem.itemName,
+            category:
+              trashItem.payload?.category === 'quarterly' || trashItem.payload?.category === 'adhoc'
+                ? trashItem.payload.category
+                : 'monthly',
+            remaining: Number(trashItem.payload?.remaining ?? 0),
+            minStock: Number(trashItem.payload?.minStock ?? 1),
+            unit: trashItem.payload?.unit || 'ชิ้น',
+          };
+          restoredId = drugData.id;
+
+          setDrugs((prev) => {
+            const exists = prev.some((d) => d.id === drugData.id);
+            const nextDrugs = exists
+              ? prev.map((d) => (d.id === drugData.id ? drugData : d))
+              : [...prev, drugData];
+            setStored(chKeys.DRUGS, nextDrugs);
+            if (isMaster) setStored(STORAGE_KEYS.DRUGS, nextDrugs);
+            return nextDrugs;
+          });
+
+          await persistClearedFlags({ drugsCleared: false }, channelId);
+          await saveChannelDrugItemToFirebase(channelId, drugData);
+          updateChannelData((prev) => {
+            const nextPayload = {
+              lists: prev.lists,
+              globalChecks: prev.globalChecks || {},
+              emergencyWeekDates: prev.emergencyWeekDates || {},
+              deletedItemIds: persistedTombstones,
+            };
+            setStored(getChannelDbKey(channelId), nextPayload);
+            saveChannelDataToFirebase(channelId, nextPayload).catch(() => {});
+            return { deletedItemIds: persistedTombstones };
+          });
+        } else if (trashItem.targetType === 'room') {
+          const targetRoomId = String(
+            trashItem.payload?.roomId || trashItem.groupOrRoomId || 'or1'
+          );
+          const roomItem: EquipmentItem = {
+            ...(trashItem.payload as EquipmentItem),
+            id:
+              trashItem.payload?.id ||
+              `eq_${targetRoomId}_${Date.now()}_${Math.random().toString(36).slice(2, 5)}`,
+            name: trashItem.payload?.name || trashItem.itemName,
+            type: 'room',
+            roomId: targetRoomId,
+          };
+          restoredId = roomItem.id || '';
+
+          setEquipment((prev) => {
+            const roomList = Array.isArray(prev[targetRoomId]) ? [...prev[targetRoomId]] : [];
+            const idx = roomList.findIndex((it) => it.id && it.id === roomItem.id);
+            if (idx >= 0) roomList[idx] = roomItem;
+            else roomList.push(roomItem);
+            const nextEq = { ...prev, [targetRoomId]: roomList };
+            setStored(chKeys.EQ, nextEq);
+            if (isMaster) setStored(STORAGE_KEYS.EQ, nextEq);
+            return nextEq;
+          });
+
+          await persistClearedFlags({ equipmentCleared: false }, channelId);
+          await saveChannelEquipmentItemToFirebase(channelId, roomItem);
+          updateChannelData((prev) => {
+            const nextPayload = {
+              lists: prev.lists,
+              globalChecks: prev.globalChecks || {},
+              emergencyWeekDates: prev.emergencyWeekDates || {},
+              deletedItemIds: persistedTombstones,
+            };
+            setStored(getChannelDbKey(channelId), nextPayload);
+            saveChannelDataToFirebase(channelId, nextPayload).catch(() => {});
+            return { deletedItemIds: persistedTombstones };
+          });
+        } else {
+          const catType =
+            trashItem.targetType === 'bag' ||
+            trashItem.targetType === 'ambulance' ||
+            trashItem.targetType === 'cart'
+              ? trashItem.targetType
+              : 'bag';
+          const groupName = String(
+            trashItem.groupOrRoomId ||
+              trashItem.payload?.category ||
+              trashItem.payload?.location ||
+              'ทั่วไป'
+          );
+          const eqItem: EquipmentItem = {
+            ...(trashItem.payload as EquipmentItem),
+            id:
+              trashItem.payload?.id ||
+              `${catType}_${groupName}_${Date.now()}_${Math.random().toString(36).slice(2, 5)}`,
+            name: trashItem.payload?.name || trashItem.itemName,
+            type: catType,
+            category: groupName,
+            location: groupName,
+          };
+          restoredId = eqItem.id || '';
+
+          const clearPatch =
+            catType === 'bag'
+              ? { bagCleared: false }
+              : catType === 'ambulance'
+              ? { ambulanceCleared: false }
+              : { cartCleared: false };
+          await persistClearedFlags(clearPatch, channelId);
+          await saveChannelEquipmentItemToFirebase(channelId, eqItem);
+
+          updateChannelData((prev) => {
+            const defaultTitle =
+              catType === 'bag'
+                ? 'กระเป๋าฉุกเฉิน'
+                : catType === 'ambulance'
+                ? 'รถพยาบาลฉุกเฉิน'
+                : 'รถฉุกเฉิน';
+            const currentList = prev.lists[catType] || { title: defaultTitle, groups: {} };
+            const groups = { ...(currentList.groups || {}) };
+            const existingArr = Array.isArray(groups[groupName]) ? [...groups[groupName]] : [];
+            const alreadyIdx = existingArr.findIndex((it) => it.id && it.id === eqItem.id);
+            if (alreadyIdx >= 0) existingArr[alreadyIdx] = eqItem;
+            else existingArr.push(eqItem);
+            groups[groupName] = existingArr;
+
+            const updatedLists = { ...prev.lists, [catType]: { ...currentList, groups } };
+            setStored(getChannelListsKey(channelId), updatedLists);
+            if (isMaster) setStored(STORAGE_KEYS.CUSTOM_LISTS, updatedLists);
+
+            const nextPayload = {
+              lists: updatedLists,
+              globalChecks: prev.globalChecks || {},
+              emergencyWeekDates: prev.emergencyWeekDates || {},
+              deletedItemIds: persistedTombstones,
+            };
+            setStored(getChannelDbKey(channelId), nextPayload);
+            saveChannelDataToFirebase(channelId, nextPayload).catch(() => {});
+            return { lists: updatedLists, deletedItemIds: persistedTombstones };
+          });
+        }
+
+        const operator = currentUser?.name || 'Admin';
+        if (trashItem.id && trashItem.id.startsWith('trash_')) {
+          await markTrashRestoredInFirebase(channelId, trashItem.id, operator).catch(() => {});
+        }
+        if (linkedAuditLogId) {
+          await markAuditLogRestoredInFirebase(channelId, linkedAuditLogId, operator).catch(() => {});
+        }
+
+        void logAuditEvent({
+          action: 'RESTORE',
+          targetCollection: trashItem.targetType,
+          targetId: restoredId || trashItem.id,
+          itemName: trashItem.itemName,
+          category: trashItem.category || trashItem.targetType,
+          oldValue: 'อยู่ในถังขยะ',
+          newValue: 'กู้คืนกลับเข้าคลังแล้ว',
+          details: { channelId, trashId: trashItem.id, linkedAuditLogId },
+          currentUser,
+        });
+
+        triggerGameToast(`กู้คืน "${trashItem.itemName}" สำเร็จ`);
+        return { ok: true, message: `กู้คืน "${trashItem.itemName}" กลับเข้าคลังเรียบร้อยแล้ว` };
+      } catch (err: any) {
+        return { ok: false, message: err?.message || 'ไม่สามารถกู้คืนรายการได้' };
+      }
+    },
+    [activeChannelId, currentUser, updateChannelData]
+  );
+
+  // 📥 Import Validated JSON Backup from Admin Control Center
+  const handleImportBackupJson = useCallback(
+    async (payload: WardBackupPayload): Promise<{ ok: boolean; message: string }> => {
+      const channelId = resolveWardId(activeChannelId);
+      const isMaster = isDefaultWard(channelId);
+      const chKeys = getChannelStorageKeys(channelId);
+
+      try {
+        const nextDrugs = Array.isArray(payload.drugs) ? payload.drugs : [];
+        const nextEquipment =
+          payload.equipment && typeof payload.equipment === 'object' ? payload.equipment : {};
+        const nextLists =
+          payload.lists && typeof payload.lists === 'object' ? payload.lists : lists;
+        const nextChecks =
+          payload.globalChecks && typeof payload.globalChecks === 'object'
+            ? payload.globalChecks
+            : {};
+        const nextWeekDates =
+          payload.emergencyWeekDates && typeof payload.emergencyWeekDates === 'object'
+            ? payload.emergencyWeekDates
+            : {};
+
+        setDrugs(nextDrugs);
+        setStored(chKeys.DRUGS, nextDrugs);
+        if (isMaster) setStored(STORAGE_KEYS.DRUGS, nextDrugs);
+
+        setEquipment(nextEquipment);
+        setStored(chKeys.EQ, nextEquipment);
+        if (isMaster) setStored(STORAGE_KEYS.EQ, nextEquipment);
+
+        setStored(getChannelListsKey(channelId), nextLists);
+        if (isMaster) setStored(STORAGE_KEYS.CUSTOM_LISTS, nextLists);
+        setStored(getChannelChecksKey(channelId), nextChecks);
+        setStored(getChannelWeekDatesKey(channelId), nextWeekDates);
+
+        const nextDbPayload = {
+          lists: nextLists,
+          globalChecks: nextChecks,
+          emergencyWeekDates: nextWeekDates,
+          deletedItemIds: [],
+        };
+        setStored(getChannelDbKey(channelId), nextDbPayload);
+        updateChannelData({
+          lists: nextLists,
+          globalChecks: nextChecks,
+          emergencyWeekDates: nextWeekDates,
+          deletedItemIds: [],
+        });
+
+        // Push to Firestore
+        if (nextDrugs.length > 0) {
+          await saveChannelBatchDrugsToFirebase(channelId, nextDrugs);
+        }
+        const flatEq: EquipmentItem[] = [];
+        Object.entries(nextEquipment).forEach(([roomId, items]) => {
+          (items || []).forEach((it) => {
+            flatEq.push({ ...it, type: 'room', roomId });
+          });
+        });
+        (['bag', 'cart', 'ambulance'] as const).forEach((cat) => {
+          const groups = nextLists?.[cat]?.groups || {};
+          Object.entries(groups).forEach(([groupName, items]) => {
+            (items || []).forEach((it) => {
+              flatEq.push({ ...it, type: cat, category: groupName, location: groupName });
+            });
+          });
+        });
+        if (flatEq.length > 0) {
+          await saveChannelBatchEquipmentToFirebase(channelId, flatEq);
+        }
+        await saveChannelDataToFirebase(channelId, nextDbPayload);
+        await persistClearedFlags(
+          {
+            drugsCleared: nextDrugs.length === 0,
+            equipmentCleared: Object.values(nextEquipment).every((arr) => (arr || []).length === 0),
+            bagCleared: false,
+            cartCleared: false,
+            ambulanceCleared: false,
+          },
+          channelId
+        );
+
+        void logAuditEvent({
+          action: 'RESTORE',
+          targetCollection: 'wards',
+          targetId: channelId,
+          itemName: `กู้คืนไฟล์สำรองข้อมูลทั้งวอร์ด (${channelId})`,
+          category: 'สำรองและกู้คืนข้อมูล',
+          oldValue: '-',
+          newValue: `ยา ${nextDrugs.length} · ครุภัณฑ์ ${flatEq.length} รายการ`,
+          details: { channelId, drugs: nextDrugs.length, equipmentItems: flatEq.length },
+          currentUser,
+        });
+
+        triggerGameToast(`นำเข้าข้อมูลสำรองวอร์ด ${channelId} สำเร็จ`);
+        return {
+          ok: true,
+          message: `นำเข้าข้อมูลสำรองสำเร็จ (ยา ${nextDrugs.length} รายการ, อุปกรณ์ ${flatEq.length} รายการ)`,
+        };
+      } catch (err: any) {
+        return { ok: false, message: err?.message || 'เกิดข้อผิดพลาดในการนำเข้าไฟล์สำรอง' };
+      }
+    },
+    [activeChannelId, currentUser, lists, updateChannelData]
+  );
 
   // Calculate Expiry Alerts (Strict Asia/Bangkok UTC+7 + Buddhist Era normalization)
   const expiryAlerts = useMemo<ExpiryAlertItem[]>(() => {
@@ -2036,7 +2768,7 @@ export default function App() {
           return [...recordsToArchive, ...prev.filter((r) => !existingIds.has(r.id))].slice(0, 50);
         });
         recordsToArchive.forEach((rec) => {
-          saveInspectionToFirebase(rec).catch(() => {});
+          saveInspectionToFirebase(rec, activeChannelId).catch(() => {});
         });
       }
 
@@ -2091,6 +2823,8 @@ export default function App() {
     restoreAuraSnapshot,
     handleAuraDirectClear,
     handleAuraUpdateItem,
+    handleAuraBatchUpdateItems,
+    handleAuraSaveWardMemory,
     handleAuraDeleteSpecificItems,
     handleAuraAddNewItem,
     handleAutoFillChecks,
@@ -2119,6 +2853,9 @@ export default function App() {
     setHistoryRecords,
     setPendingClearCategory,
     reRenderData,
+    canDelete,
+    canEditStructure,
+    canExportSheets,
   });
 
     const isSavingReportRef = useRef<boolean>(false);
@@ -2183,7 +2920,7 @@ export default function App() {
           rows: formattedEqItems,
         };
         setHistoryRecords((prev) => [newRecord, ...prev.filter((r) => r.id !== newRecord.id)].slice(0, 50));
-        await saveInspectionToFirebase(newRecord).catch(() => {});
+        await saveInspectionToFirebase(newRecord, activeChannelId).catch(() => {});
 
         // 3. Open OfficialReportModal with 'eq' tab active and eqItems populated
         setReportInitialRoundId(newRecord.id);
@@ -2213,7 +2950,7 @@ export default function App() {
           rows: snapshotRows,
         };
         setHistoryRecords((prev) => [newRecord, ...prev.filter((r) => r.id !== newRecord.id)].slice(0, 50));
-        await saveInspectionToFirebase(newRecord).catch(() => {});
+        await saveInspectionToFirebase(newRecord, activeChannelId).catch(() => {});
 
         // Reset all room equipment check states back to unchecked ('') for the next round
         setGlobalChecks((prev) => {
@@ -2296,7 +3033,7 @@ export default function App() {
         };
 
         setHistoryRecords((prev) => [newRecord, ...prev.filter((r) => r.id !== newRecord.id)].slice(0, 50));
-        await saveInspectionToFirebase(newRecord).catch(() => {});
+        await saveInspectionToFirebase(newRecord, activeChannelId).catch(() => {});
 
         // 2. Open Modal
         setReportInitialRoundId(newRecord.id);
@@ -2325,13 +3062,35 @@ export default function App() {
     setInputApiUrl(apiUrl);
   }, [sheetUrl, apiUrl, isDrawerOpen]);
 
+  const saveSheetsConfigWithAudit = useCallback(
+    (newApi: string, newSheet: string) => {
+      const trimmedSheet = newSheet.trim();
+      const trimmedApi = newApi.trim();
+      const prevSheet = sheetUrl;
+      const prevApi = apiUrl;
+      setSheetUrl(trimmedSheet);
+      setStoredString(STORAGE_KEYS.SHEET_URL, trimmedSheet);
+      setApiUrl(trimmedApi);
+      setStoredString(STORAGE_KEYS.API_URL, trimmedApi);
+      setInputSheetUrl(trimmedSheet);
+      setInputApiUrl(trimmedApi);
+      void logAuditEvent({
+        action: 'SHEETS_SYNC',
+        targetCollection: 'settings',
+        targetId: resolveWardId(activeChannelId),
+        itemName: 'การตั้งค่าเชื่อมต่อ Google Sheets / Apps Script',
+        category: 'Google Sheets & GAS',
+        oldValue: prevSheet || prevApi ? `Sheet: ${prevSheet || '-'} | GAS: ${prevApi || '-'}` : '-',
+        newValue: `Sheet: ${trimmedSheet || '-'} | GAS: ${trimmedApi || '-'}`,
+        details: { channelId: activeChannelId, sheetUrl: trimmedSheet, apiUrl: trimmedApi },
+        currentUser,
+      });
+    },
+    [activeChannelId, apiUrl, currentUser, sheetUrl]
+  );
+
   const handleSaveSheetsConfig = () => {
-    const trimmedSheet = inputSheetUrl.trim();
-    const trimmedApi = inputApiUrl.trim();
-    setSheetUrl(trimmedSheet);
-    setStoredString(STORAGE_KEYS.SHEET_URL, trimmedSheet);
-    setApiUrl(trimmedApi);
-    setStoredString(STORAGE_KEYS.API_URL, trimmedApi);
+    saveSheetsConfigWithAudit(inputApiUrl, inputSheetUrl);
     setSavedConfigMsg(true);
     setTimeout(() => setSavedConfigMsg(false), 3000);
   };
@@ -2415,6 +3174,10 @@ export default function App() {
         setScannedItemResult(null);
         return;
       }
+      if (pendingPinAction) {
+        setPendingPinAction(null);
+        return;
+      }
       if (pendingClearCategory) {
         setPendingClearCategory(null);
         return;
@@ -2442,6 +3205,10 @@ export default function App() {
       }
       if (isHaAuditModalOpen) {
         setIsHaAuditModalOpen(false);
+        return;
+      }
+      if (isAdminCenterOpen) {
+        setIsAdminCenterOpen(false);
         return;
       }
       if (isChannelModalOpen) {
@@ -2483,6 +3250,7 @@ export default function App() {
     isNotificationOpen,
     isHaAuditModalOpen,
     isChannelModalOpen,
+    isAdminCenterOpen,
     isDrawerOpen,
     previewImage,
     zoomedImgUrl,
@@ -2525,10 +3293,12 @@ export default function App() {
     previewImage ||
     zoomedImgUrl ||
     isChannelModalOpen ||
+    isAdminCenterOpen ||
     isAuraOpen ||
     isHaAuditModalOpen ||
     scannedItemResult ||
-    pendingClearCategory
+    pendingClearCategory ||
+    pendingPinAction
   );
 
   const isAnyModalActive = Boolean(isTopLevelModalActive || isExternalModalOpen);
@@ -2655,29 +3425,43 @@ export default function App() {
                 <span>พรีวิวรายงาน (PDF)</span>
               </button>
 
-              {sheetUrl?.trim() ? (
-                <a
-                  href={sheetUrl.trim()}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-500/15 dark:hover:bg-emerald-500/25 text-emerald-700 dark:text-emerald-300 border border-emerald-200/80 dark:border-emerald-500/30 text-xs lg:text-sm font-bold transition-colors cursor-pointer whitespace-nowrap shrink-0"
-                  title="เปิด Google Sheets"
-                >
-                  <FileSpreadsheet className="w-4 h-4 shrink-0" />
-                  <span>เปิด Google Sheets</span>
-                </a>
-              ) : (
+              {canExportSheets && (
+                sheetUrl?.trim() ? (
+                  <a
+                    href={sheetUrl.trim()}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-500/15 dark:hover:bg-emerald-500/25 text-emerald-700 dark:text-emerald-300 border border-emerald-200/80 dark:border-emerald-500/30 text-xs lg:text-sm font-bold transition-colors cursor-pointer whitespace-nowrap shrink-0"
+                    title="เปิด Google Sheets"
+                  >
+                    <FileSpreadsheet className="w-4 h-4 shrink-0" />
+                    <span>เปิด Google Sheets</span>
+                  </a>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsSheetsAccordionOpen(true);
+                      setIsDrawerOpen(true);
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-500/15 dark:hover:bg-emerald-500/25 text-emerald-700 dark:text-emerald-300 border border-emerald-200/80 dark:border-emerald-500/30 text-xs lg:text-sm font-bold transition-colors cursor-pointer whitespace-nowrap shrink-0"
+                    title="ตั้งค่าและเปิด Google Sheets"
+                  >
+                    <FileSpreadsheet className="w-4 h-4 shrink-0" />
+                    <span>เปิด Google Sheets</span>
+                  </button>
+                )
+              )}
+
+              {hasAdminAccess && (
                 <button
                   type="button"
-                  onClick={() => {
-                    setIsSheetsAccordionOpen(true);
-                    setIsDrawerOpen(true);
-                  }}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-500/15 dark:hover:bg-emerald-500/25 text-emerald-700 dark:text-emerald-300 border border-emerald-200/80 dark:border-emerald-500/30 text-xs lg:text-sm font-bold transition-colors cursor-pointer whitespace-nowrap shrink-0"
-                  title="ตั้งค่าและเปิด Google Sheets"
+                  onClick={() => setIsAdminCenterOpen(true)}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-700 dark:text-indigo-300 border border-indigo-400/30 text-xs font-bold transition-colors cursor-pointer whitespace-nowrap shrink-0"
+                  title="ศูนย์ควบคุมหลังบ้าน (Admin Center)"
                 >
-                  <FileSpreadsheet className="w-4 h-4 shrink-0" />
-                  <span>เปิด Google Sheets</span>
+                  <Shield className="w-4 h-4 shrink-0" />
+                  <span>Admin Center</span>
                 </button>
               )}
 
@@ -2770,6 +3554,7 @@ export default function App() {
             onToggleCheck={handleToggleCheck}
             onOpenBarcodeScan={() => setIsBarcodeScannerOpen(true)}
             overallStats={overallStats}
+            canExportSheets={canExportSheets}
           />
         )}
 
@@ -2786,6 +3571,8 @@ export default function App() {
               setReportCategory('drug');
               setIsOfficialReportOpen(true);
             }}
+            canDelete={canDelete}
+            canEditStructure={canEditStructure}
           />
         )}
 
@@ -2811,13 +3598,15 @@ export default function App() {
             onWeekDatesChange={(dates) => {
               const updated = { ...emergencyWeekDates, bag: dates };
               setEmergencyWeekDates(updated);
-              setStored(STORAGE_KEYS.EMER_WEEK_DATES, updated);
+              setStored(getChannelWeekDatesKey(activeChannelId), updated);
             }}
             onSaveByWeek={(week, dates) => handleSaveEmergencyAndPreview('bag', week, dates)}
             onClearWeekChecks={(week) => handleClearEmergencyWeek('bag', week)}
             isSavingReport={isSavingReport}
             onClearAll={handleAuraClearInventory}
             isVisible={isBottomBarVisible}
+            canDelete={canDelete}
+            canEditStructure={canEditStructure}
           />
         )}
 
@@ -2843,13 +3632,15 @@ export default function App() {
             onWeekDatesChange={(dates) => {
               const updated = { ...emergencyWeekDates, cart: dates };
               setEmergencyWeekDates(updated);
-              setStored(STORAGE_KEYS.EMER_WEEK_DATES, updated);
+              setStored(getChannelWeekDatesKey(activeChannelId), updated);
             }}
             onSaveByWeek={(week, dates) => handleSaveEmergencyAndPreview('cart', week, dates)}
             onClearWeekChecks={(week) => handleClearEmergencyWeek('cart', week)}
             isSavingReport={isSavingReport}
             onClearAll={handleAuraClearInventory}
             isVisible={isBottomBarVisible}
+            canDelete={canDelete}
+            canEditStructure={canEditStructure}
           />
         )}
 
@@ -2875,13 +3666,15 @@ export default function App() {
             onWeekDatesChange={(dates) => {
               const updated = { ...emergencyWeekDates, ambulance: dates };
               setEmergencyWeekDates(updated);
-              setStored(STORAGE_KEYS.EMER_WEEK_DATES, updated);
+              setStored(getChannelWeekDatesKey(activeChannelId), updated);
             }}
             onSaveByWeek={(week, dates) => handleSaveEmergencyAndPreview('ambulance', week, dates)}
             onClearWeekChecks={(week) => handleClearEmergencyWeek('ambulance', week)}
             isSavingReport={isSavingReport}
             onClearAll={handleAuraClearInventory}
             isVisible={isBottomBarVisible}
+            canDelete={canDelete}
+            canEditStructure={canEditStructure}
           />
         )}
 
@@ -2902,9 +3695,9 @@ export default function App() {
               onPreviewAndReset={handleConfirmEquipmentPreviewAndReset}
               isDrawerOpen={isRoomDrawerOpen}
               onDrawerOpenChange={handleRoomDrawerOpenChange}
-              onEditEquipment={handleEditRoomEquipment}
-              onDeleteEquipment={handleDeleteRoomEquipment}
-              onClearAllEquipment={() => handleAuraClearInventory('ครุภัณฑ์')}
+              onEditEquipment={canEditStructure ? handleEditRoomEquipment : undefined}
+              onDeleteEquipment={canDelete ? handleDeleteRoomEquipment : undefined}
+              onClearAllEquipment={canDelete ? () => handleAuraClearInventory('ครุภัณฑ์') : undefined}
             />
           </div>
         )}
@@ -3002,41 +3795,63 @@ export default function App() {
             {/* Menu Content - Scrollable Body (flex-1 overflow-y-auto overscroll-contain) */}
             {drawerView === 'main' ? (
               <div className="p-6 overflow-y-auto flex-1 overscroll-contain space-y-3.5">
-                {/* 1. Accordion Toggle Button สำหรับ "ตั้งค่าการเชื่อมต่อ Google Sheets" */}
-                <button
-                  type="button"
-                  onClick={() => setIsSheetsAccordionOpen((prev) => !prev)}
-                  className="w-full flex items-center justify-between p-3.5 rounded-2xl text-sm font-bold bg-white dark:bg-slate-800/90 text-slate-900 dark:text-white border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700/80 shadow-xs transition cursor-pointer"
-                >
-                  <div className="flex items-center gap-3.5">
-                    <FileSpreadsheet size={18} className="text-emerald-500" />
-                    <span>ตั้งค่าการเชื่อมต่อ Google Sheets</span>
-                  </div>
-                  <ChevronDown
-                    size={18}
-                    className={`text-slate-400 transition-transform duration-200 ${
-                      isSheetsAccordionOpen ? 'rotate-180 text-blue-500' : ''
-                    }`}
-                  />
-                </button>
+                {/* 1. Accordion Toggle Button สำหรับ "ตั้งค่าการเชื่อมต่อ Google Sheets" (ซ่อนเมื่อ Admin ล็อกการส่งออก) */}
+                {canExportSheets && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setIsSheetsAccordionOpen((prev) => !prev)}
+                      className="w-full flex items-center justify-between p-3.5 rounded-2xl text-sm font-bold bg-white dark:bg-slate-800/90 text-slate-900 dark:text-white border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700/80 shadow-xs transition cursor-pointer"
+                    >
+                      <div className="flex items-center gap-3.5">
+                        <FileSpreadsheet size={18} className="text-emerald-500" />
+                        <span>ตั้งค่าการเชื่อมต่อ Google Sheets</span>
+                      </div>
+                      <ChevronDown
+                        size={18}
+                        className={`text-slate-400 transition-transform duration-200 ${
+                          isSheetsAccordionOpen ? 'rotate-180 text-blue-500' : ''
+                        }`}
+                      />
+                    </button>
 
-                {/* Accordion Collapsible Content */}
-                {isSheetsAccordionOpen && (
-                  <div className="rounded-2xl overflow-hidden border border-slate-300 dark:border-slate-800 shadow-md">
-                    <GoogleSheetsSettings
-                      sheetUrl={sheetUrl}
-                      apiUrl={apiUrl}
-                      isDark={isDark}
-                      onSave={(newApi: string, newSheet: string) => {
-                        setSheetUrl(newSheet);
-                        setStoredString(STORAGE_KEYS.SHEET_URL, newSheet);
-                        setApiUrl(newApi);
-                        setStoredString(STORAGE_KEYS.API_URL, newApi);
-                        setInputSheetUrl(newSheet);
-                        setInputApiUrl(newApi);
-                      }}
-                    />
-                  </div>
+                    {/* Accordion Collapsible Content */}
+                    {isSheetsAccordionOpen && (
+                      <div className="rounded-2xl overflow-hidden border border-slate-300 dark:border-slate-800 shadow-md">
+                        <GoogleSheetsSettings
+                          sheetUrl={sheetUrl}
+                          apiUrl={apiUrl}
+                          isDark={isDark}
+                          onSave={saveSheetsConfigWithAudit}
+                        />
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {/* ปุ่มทางลัดเข้า Admin Control Center (แสดงเฉพาะเมื่อ Owner/Admin ปลดล็อกแล้วเท่านั้น) */}
+                {hasAdminAccess && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsDrawerOpen(false);
+                      setIsAdminCenterOpen(true);
+                    }}
+                    className="w-full flex items-center justify-between gap-3 p-3.5 rounded-2xl text-sm font-bold bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border border-indigo-400/30 hover:bg-indigo-500/20 shadow-xs transition cursor-pointer"
+                  >
+                    <div className="flex items-center gap-3.5 min-w-0">
+                      <div className="p-2 rounded-xl bg-indigo-500/20 text-indigo-500 shrink-0">
+                        <Shield size={18} />
+                      </div>
+                      <div className="text-left min-w-0">
+                        <div className="truncate">ศูนย์ควบคุมหลังบ้าน (Admin Center)</div>
+                        <div className="text-[11px] font-medium text-indigo-600/80 dark:text-indigo-300/75 truncate">
+                          สิทธิ์วอร์ด • Audit Log & กู้คืนข้อมูล
+                        </div>
+                      </div>
+                    </div>
+                    <ChevronRight size={18} className="shrink-0" />
+                  </button>
                 )}
 
                 {/* 3. หัวข้อหลัก Cloud สำหรับกดเข้าไปดูรายละเอียด & เชื่อมต่อ */}
@@ -3044,7 +3859,7 @@ export default function App() {
                   type="button"
                   onClick={() => {
                     setDrawerView('cloud');
-                    if (firebaseUser && !firebaseTestResult) {
+                    if (!firebaseTestResult) {
                       void handleTestFirebaseConnection();
                     } else {
                       void fetchStorageUsage();
@@ -3059,7 +3874,7 @@ export default function App() {
                     <div className="text-left min-w-0">
                       <div className="truncate">ระบบคลาวด์ (Cloud)</div>
                       <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400 truncate">
-                        ซิงค์ข้อมูล & พื้นที่จัดเก็บ
+                        วอร์ดกลาง {activeChannelId} • ซิงค์ Real-time
                       </div>
                     </div>
                   </div>
@@ -3068,16 +3883,12 @@ export default function App() {
                       className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
                         firebaseTestResult?.status === 'offline' || firebaseTestResult?.status === 'error'
                           ? 'bg-rose-500/15 text-rose-500'
-                          : isAuthenticated
-                          ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
-                          : 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
+                          : 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
                       }`}
                     >
                       {firebaseTestResult?.status === 'offline' || firebaseTestResult?.status === 'error'
                         ? 'Offline'
-                        : isAuthenticated
-                        ? 'Online'
-                        : 'ยังไม่ล็อกอิน'}
+                        : 'Online'}
                     </span>
                     <ChevronRight size={18} className="text-slate-400" />
                   </div>
@@ -3103,11 +3914,11 @@ export default function App() {
                 <div className="px-1">
                   <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
                     <div className="w-1.5 h-1.5 bg-blue-500 rounded-full shrink-0" />
-                    <span>Google Cloud Account & Sync</span>
+                    <span>Shared Ward Sync ({activeChannelId}) & Google Account</span>
                   </h4>
                 </div>
 
-                {/* Google Sign-In / Sign-Out Card */}
+                {/* Optional Google Sign-In / Sign-Out Card */}
                 <div className={`p-4 rounded-2xl border transition-colors ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
                   {isAuthenticated && firebaseUser ? (
                     <div className="space-y-2.5">
@@ -3134,7 +3945,7 @@ export default function App() {
                           </div>
                         </div>
                         <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 shrink-0">
-                          {isAdmin ? 'Admin' : 'Cloud'}
+                          {isAdmin ? 'Admin' : 'Google'}
                         </span>
                       </div>
                       <button
@@ -3149,13 +3960,15 @@ export default function App() {
                   ) : (
                     <div className="space-y-2.5">
                       <div className="flex items-center gap-2.5">
-                        <div className="p-2 rounded-xl bg-amber-500/15 text-amber-500 shrink-0">
-                          <UserIcon size={16} />
+                        <div className="p-2 rounded-xl bg-emerald-500/15 text-emerald-500 shrink-0">
+                          <Cloud size={16} />
                         </div>
                         <div>
-                          <p className="text-xs font-bold dark:text-white">โหมดออฟไลน์</p>
+                          <p className="text-xs font-bold dark:text-white">
+                            เชื่อมต่อห้องวอร์ด {activeChannelId} อัตโนมัติ
+                          </p>
                           <p className="text-[10px] text-slate-500 dark:text-slate-400">
-                            ล็อกอิน Google เพื่อซิงค์ Cloud
+                            ซิงค์ Real-time ไม่บังคับล็อกอิน (ล็อกอิน Google เป็นทางเลือกสำหรับ Admin)
                           </p>
                         </div>
                       </div>
@@ -3168,9 +3981,9 @@ export default function App() {
                             await handleTestFirebaseConnection();
                           }
                         }}
-                        className="w-full py-2.5 px-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition shadow-md active:scale-95 cursor-pointer disabled:opacity-50"
+                        className="w-full py-2 px-3 rounded-xl bg-slate-200/80 hover:bg-slate-300/80 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-100 text-xs font-bold transition active:scale-95 cursor-pointer disabled:opacity-50"
                       >
-                        {authLoading ? 'กำลังเชื่อมต่อ...' : 'เข้าสู่ระบบด้วย Google'}
+                        {authLoading ? 'กำลังเชื่อมต่อ...' : 'เข้าสู่ระบบด้วย Google (ไม่บังคับ)'}
                       </button>
                     </div>
                   )}
@@ -3187,8 +4000,8 @@ export default function App() {
                         <RefreshCw size={18} className={isTestingFirebase ? 'animate-spin' : ''} />
                       </div>
                       <div>
-                        <p className="text-xs font-bold dark:text-white">สถานะคลาวด์</p>
-                        <p className="text-[9px] text-slate-500">Firestore Sync</p>
+                        <p className="text-xs font-bold dark:text-white">สถานะคลาวด์ ({activeChannelId})</p>
+                        <p className="text-[9px] text-slate-500">Shared Ward Real-time Sync</p>
                       </div>
                     </div>
                     <span
@@ -3196,23 +4009,17 @@ export default function App() {
                         firebaseTestResult
                           ? firebaseTestResult.ok
                             ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300'
-                            : firebaseTestResult.status === 'needs_auth'
-                            ? 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300'
                             : 'bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300'
-                          : isAuthenticated
-                          ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300'
-                          : 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300'
+                          : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300'
                       }`}
                     >
                       {firebaseTestResult
                         ? firebaseTestResult.ok
                           ? 'Online'
-                          : firebaseTestResult.status === 'needs_auth'
-                          ? 'ยังไม่ล็อกอิน'
+                          : firebaseTestResult.status === 'offline'
+                          ? 'Offline'
                           : 'Error'
-                        : isAuthenticated
-                        ? 'Online'
-                        : 'Local'}
+                        : 'Online'}
                     </span>
                   </div>
 
@@ -3490,6 +4297,7 @@ export default function App() {
         onOpenBarcodeScanner={() => setIsBarcodeScannerOpen(true)}
         isDrawerOpen={isDrawerOpen}
         isVisible={shouldShowBottomBar}
+        canExportSheets={canExportSheets}
       />
 
       {/* FULLSCREEN IMAGE LIGHTBOX PREVIEW MODAL (Aura Chat & Staging Attachments) */}
@@ -3620,7 +4428,7 @@ export default function App() {
           historyRecords={historyRecords}
           onDeleteHistoryRecord={async (recId, recCategory) => {
             setHistoryRecords((prev) => prev.filter((r) => r.id !== recId));
-            await deleteInspectionFromFirebase(recId);
+            await deleteInspectionFromFirebase(recId, activeChannelId);
             const targetCat = recCategory || reportCategory;
             setIsOfficialReportOpen(false);
             setReportInitialWeek(undefined);
@@ -3648,7 +4456,7 @@ export default function App() {
             if (!recordIds || recordIds.length === 0) return;
             const idSet = new Set(recordIds);
             setHistoryRecords((prev) => prev.filter((r) => !idSet.has(r.id)));
-            await deleteBatchInspectionsFromFirebase(recordIds);
+            await deleteBatchInspectionsFromFirebase(recordIds, activeChannelId);
             setIsOfficialReportOpen(false);
             setReportInitialWeek(undefined);
             setReportInitialWeekDates(undefined);
@@ -3682,6 +4490,7 @@ export default function App() {
         drugs={drugs}
         equipment={equipment}
         activeChannelName={activeChannel?.name || 'ห้องผ่าตัด OR (Master)'}
+        wardId={activeChannelId}
       />
 
       {isBarcodeScannerOpen && (
@@ -3716,7 +4525,12 @@ export default function App() {
                 ยกเลิก
               </button>
               <button
-                onClick={() => executeAuraClearInventory(pendingClearCategory)}
+                onClick={() => {
+                  const targetCat = pendingClearCategory;
+                  guardWithPin(`ล้างข้อมูลหมวด "${targetCat}"`, () => {
+                    void executeAuraClearInventory(targetCat);
+                  });
+                }}
                 className="flex-1 py-2.5 px-4 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold transition shadow-lg shadow-rose-600/30 cursor-pointer"
               >
                 ยืนยันการลบ
@@ -3954,6 +4768,11 @@ export default function App() {
           onClose={() => setIsProfileOpen(false)}
           currentUser={currentUser}
           historyRecords={historyRecords}
+          hasAdminAccess={hasAdminAccess}
+          onOpenAdminCenter={() => {
+            setIsProfileOpen(false);
+            setIsAdminCenterOpen(true);
+          }}
           onUpdateAvatar={(newAvatar) => {
             const updated = { ...currentUser, avatar: newAvatar };
             setCurrentUser(updated);
@@ -3995,6 +4814,171 @@ export default function App() {
         />
       )}
 
+      {/* 🛡️ OWNER-ONLY SUPER ADMIN CONTROL CENTER MODAL */}
+      <AdminCenterModal
+        isOpen={isAdminCenterOpen}
+        onClose={() => setIsAdminCenterOpen(false)}
+        wardId={resolveWardId(activeChannelId)}
+        activeChannel={activeChannel}
+        currentUser={currentUser}
+        allUsers={allUsers.length > 0 ? allUsers : [currentUser]}
+        hasAdminAccess={hasAdminAccess}
+        isAdmin={isAdmin}
+        isSuperAdminUnlocked={isSuperAdminUnlocked}
+        adminPasscodeConfigured={adminPasscodeConfigured}
+        fetchAdminPasscodeStatus={fetchAdminPasscodeStatus}
+        onVerifyPasscode={verifyMasterPasscode}
+        onSetupPasscode={setupMasterPasscode}
+        onChangePasscode={changeMasterPasscode}
+        onLockSuperAdmin={() => {
+          lockSuperAdmin();
+          triggerGameToast('ล็อกออกโหมดผู้ดูแลระบบแล้ว');
+        }}
+        onGoogleSignIn={signInWithGoogle}
+        authLoading={authLoading}
+        authError={authError}
+        wardPermissionLocks={wardPermissionLocks}
+        onUpdatePermissionLocks={updatePermissionLocks}
+        superAdminToken={superAdminToken}
+        pinConfig={pinConfig}
+        trashItems={trashItems}
+        onRestoreTrashItem={handleRestoreTrashItem}
+        onDeleteAuditLog={(logId) => deleteAuditLogInFirebase(resolveWardId(activeChannelId), logId)}
+        sheetUrl={sheetUrl}
+        apiUrl={apiUrl}
+        onSaveSheetsConfig={saveSheetsConfigWithAudit}
+        onSwitchWard={async (code, options) => {
+          const res = await switchWard(code, options);
+          if (res.ok) {
+            triggerGameToast(`เชื่อมต่อวอร์ด ${res.wardId} แล้ว`);
+          }
+          return res;
+        }}
+        drugs={drugs}
+        equipment={equipment}
+        lists={lists}
+        globalChecks={globalChecks}
+        emergencyWeekDates={emergencyWeekDates}
+        onImportBackupJson={handleImportBackupJson}
+        onUsersChange={(updatedUsers) => {
+          setAllUsers(updatedUsers);
+          setStored(STORAGE_KEYS.USERS, updatedUsers);
+        }}
+        onAddUser={async (username, name, _password, role: Role) => {
+          const dup = allUsers.some((u) => u.username.toLowerCase() === username.toLowerCase());
+          if (dup) {
+            return { success: false, message: 'ชื่อผู้ใช้นี้มีอยู่ในระบบแล้ว' };
+          }
+          const created: User = {
+            id: `usr_${Date.now()}_${Math.random().toString(36).slice(2, 5)}`,
+            username,
+            name,
+            role,
+            position: role === 'admin' ? 'ผู้ดูแลระบบ' : 'พยาบาลวิสัญญี',
+            active: true,
+            must: false,
+            created: new Date().toISOString(),
+            last: '',
+          };
+          const baseList = allUsers.length > 0 ? allUsers : [currentUser];
+          const next = [...baseList.filter((u) => u.id !== created.id), created];
+          setAllUsers(next);
+          setStored(STORAGE_KEYS.USERS, next);
+          void logAuditEvent({
+            action: 'PERMISSION_CHANGE',
+            targetCollection: 'users',
+            targetId: created.id,
+            itemName: `${created.name} (${created.username})`,
+            category: 'จัดการผู้ใช้งาน',
+            oldValue: '-',
+            newValue: `เพิ่มผู้ใช้สิทธิ์ ${role}`,
+            details: { channelId: activeChannelId, role },
+            currentUser,
+          });
+          return { success: true, message: 'เพิ่มผู้ใช้งานสำเร็จ' };
+        }}
+        onUpdateRole={(userId, role) => {
+          const baseList = allUsers.length > 0 ? allUsers : [currentUser];
+          const target = baseList.find((u) => u.id === userId);
+          const next = baseList.map((u) => (u.id === userId ? { ...u, role } : u));
+          setAllUsers(next);
+          setStored(STORAGE_KEYS.USERS, next);
+          if (target) {
+            void logAuditEvent({
+              action: 'PERMISSION_CHANGE',
+              targetCollection: 'users',
+              targetId: userId,
+              itemName: target.name,
+              category: 'จัดการผู้ใช้งาน',
+              oldValue: `สิทธิ์ ${target.role}`,
+              newValue: `สิทธิ์ ${role}`,
+              details: { channelId: activeChannelId, role },
+              currentUser,
+            });
+          }
+        }}
+        onToggleActive={(userId) => {
+          const baseList = allUsers.length > 0 ? allUsers : [currentUser];
+          const target = baseList.find((u) => u.id === userId);
+          const next = baseList.map((u) => (u.id === userId ? { ...u, active: !u.active } : u));
+          setAllUsers(next);
+          setStored(STORAGE_KEYS.USERS, next);
+          if (target) {
+            void logAuditEvent({
+              action: 'PERMISSION_CHANGE',
+              targetCollection: 'users',
+              targetId: userId,
+              itemName: target.name,
+              category: 'จัดการผู้ใช้งาน',
+              oldValue: target.active ? 'ใช้งานอยู่' : 'ระงับ',
+              newValue: !target.active ? 'ใช้งานอยู่' : 'ระงับ',
+              details: { channelId: activeChannelId, active: !target.active },
+              currentUser,
+            });
+          }
+        }}
+        onResetPassword={async (userId) => {
+          const baseList = allUsers.length > 0 ? allUsers : [currentUser];
+          const target = baseList.find((u) => u.id === userId);
+          const next = baseList.map((u) => (u.id === userId ? { ...u, must: true } : u));
+          setAllUsers(next);
+          setStored(STORAGE_KEYS.USERS, next);
+          if (target) {
+            void logAuditEvent({
+              action: 'PERMISSION_CHANGE',
+              targetCollection: 'users',
+              targetId: userId,
+              itemName: target.name,
+              category: 'จัดการผู้ใช้งาน',
+              oldValue: '-',
+              newValue: 'รีเซ็ตรหัสผ่านชั่วคราว',
+              details: { channelId: activeChannelId },
+              currentUser,
+            });
+          }
+        }}
+        onDeleteUser={(userId) => {
+          const baseList = allUsers.length > 0 ? allUsers : [currentUser];
+          const target = baseList.find((u) => u.id === userId);
+          const next = baseList.filter((u) => u.id !== userId);
+          setAllUsers(next);
+          setStored(STORAGE_KEYS.USERS, next);
+          if (target) {
+            void logAuditEvent({
+              action: 'PERMISSION_CHANGE',
+              targetCollection: 'users',
+              targetId: userId,
+              itemName: target.name,
+              category: 'จัดการผู้ใช้งาน',
+              oldValue: target.role,
+              newValue: 'ลบบัญชีผู้ใช้',
+              details: { channelId: activeChannelId },
+              currentUser,
+            });
+          }
+        }}
+      />
+
       {/* 🌟 AI Assistant "AURA" Voice Chat & Function Calling */}
       <AuraAssistant
         equipment={equipment}
@@ -4019,6 +5003,8 @@ export default function App() {
           setIsDrawerOpen(true);
         }}
         onUpdateInventoryItem={handleAuraUpdateItem}
+        onBatchUpdateInventoryItems={handleAuraBatchUpdateItems}
+        onSaveWardMemory={handleAuraSaveWardMemory}
         onAttachEquipmentPhotos={handleAttachEquipmentPhotos}
         onBulkImportEquipment={handleBulkImportEquipment}
         onOpenReportModal={(category, week) => {
@@ -4075,8 +5061,15 @@ export default function App() {
           setActiveChannelId(id);
           setIsChannelModalOpen(false);
         }}
-        onCreateChannel={(name, duplicate) => {
-          addChannel(name, duplicate);
+        onJoinWardCode={async (code) => {
+          const res = await switchWard(code);
+          if (res.ok) {
+            triggerGameToast(`เชื่อมต่อวอร์ด ${res.wardId} แล้ว`);
+          }
+          return res;
+        }}
+        onCreateChannel={(name, duplicate, customCode) => {
+          addChannel(name, duplicate, customCode);
         }}
         onRenameChannel={(id, newName) => {
           renameChannel(id, newName);
@@ -4084,6 +5077,22 @@ export default function App() {
         onDeleteChannel={(id) => {
           removeChannel(id);
         }}
+      />
+
+      {/* 🔐 Optional 4-Digit Ward PIN Unlock Modal */}
+      <PinUnlockModal
+        isOpen={Boolean(pendingPinAction)}
+        wardId={activeChannelId}
+        actionLabel={pendingPinAction?.label}
+        onVerifyPin={pinConfig.unlockWithPin}
+        onUnlocked={() => {
+          const nextRun = pendingPinAction?.run;
+          setPendingPinAction(null);
+          if (nextRun) {
+            nextRun();
+          }
+        }}
+        onCancel={() => setPendingPinAction(null)}
       />
 
       {/* 📍 Floating Quick Controls (Scroll to Top, Scroll to Bottom) */}

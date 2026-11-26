@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { X, Save, Trash2, Upload, Image as ImageIcon, Plus, Minus, Layers, Hash, Calendar, RotateCcw, RotateCw } from 'lucide-react';
 import { EquipmentItem } from '../types';
 import { getItemSubItemsInfo, getItemSizes, resolveItemUnitText } from '../utils/itemUtils';
+import { normalizeExpDateToIso } from '../utils/dateUtils';
 import { compressImageForFirestore } from '../utils/helpers';
 import { MinimalExpiryDatePicker } from './MinimalExpiryDatePicker';
 
@@ -22,6 +23,7 @@ export interface EditItemModalProps {
   type?: 'bag' | 'cart' | 'ambulance' | string;
   onSave: (updatedItem: EquipmentItem) => void;
   onDelete?: (itemId: string) => void;
+  canEditStructure?: boolean;
 }
 
 const rotateImageBy90 = (dataUrl: string, clockwise: boolean): Promise<string> => {
@@ -60,22 +62,8 @@ function toIsoDate(str?: string): string {
   if (!str) return '';
   const s = str.trim();
   if (!s || s === '-' || s.toLowerCase() === 'no exp') return '';
-  const isoMatch = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
-  if (isoMatch) {
-    let y = parseInt(isoMatch[1], 10);
-    if (y > 2400) y -= 543;
-    const m = String(parseInt(isoMatch[2], 10)).padStart(2, '0');
-    const d = String(parseInt(isoMatch[3], 10)).padStart(2, '0');
-    return `${y}-${m}-${d}`;
-  }
-  const dmyMatch = s.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})/);
-  if (dmyMatch) {
-    const d = String(parseInt(dmyMatch[1], 10)).padStart(2, '0');
-    const m = String(parseInt(dmyMatch[2], 10)).padStart(2, '0');
-    let y = parseInt(dmyMatch[3], 10);
-    if (y > 2400) y -= 543;
-    return `${y}-${m}-${d}`;
-  }
+  const normalized = normalizeExpDateToIso(s);
+  if (normalized) return normalized;
   return s;
 }
 
@@ -88,8 +76,10 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
   type = 'cart',
   onSave,
   onDelete,
+  canEditStructure = true,
 }) => {
   const isAddMode = mode === 'add' || !item || !item.id;
+  const structureLocked = !isAddMode && !canEditStructure;
 
   // Form Fields
   const [name, setName] = useState(item?.name || '');
@@ -125,15 +115,16 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
   const [noExp, setNoExp] = useState<boolean>(() => {
     if (!item?.exp) return false;
     const expStr = item.exp.trim();
-    return expStr === '-' || expStr.toLowerCase() === 'no exp' || !expStr.match(/^\d{4}-\d{2}-\d{2}$/);
+    if (!expStr || expStr === '-' || expStr.toLowerCase() === 'no exp' || /ไม่มี/i.test(expStr)) return true;
+    if (expStr.includes(',') || expStr.includes(':')) return false;
+    return !normalizeExpDateToIso(expStr);
   });
   const [singleExp, setSingleExp] = useState<string>(() => {
-    if (!item?.exp) return '-';
+    if (!item?.exp) return '';
     const expStr = item.exp.trim();
     if (expStr.includes(',') || expStr.includes(':')) return '';
-    if (expStr === '-' || expStr.toLowerCase() === 'no exp') return '-';
-    if (!expStr.match(/^\d{4}-\d{2}-\d{2}$/)) return expStr;
-    return toIsoDate(expStr);
+    if (expStr === '-' || expStr.toLowerCase() === 'no exp' || /ไม่มี/i.test(expStr)) return '-';
+    return normalizeExpDateToIso(expStr) || expStr;
   });
 
   // Multiple Sub-items fields (แบบที่ 2)
@@ -150,11 +141,16 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
 
     if (info.isMulti) {
       info.subItems.forEach((se, idx) => {
-        const isNoExp = se.hasNoExp ?? (!se.date || se.date === '-' || se.date.toLowerCase() === 'no exp' || !se.date.match(/^\d{4}-\d{2}-\d{2}$/));
+        const rawDate = (se.date || '').trim();
+        const isoSubDate = normalizeExpDateToIso(rawDate);
+        const isNoExp =
+          se.hasNoExp === true && !isoSubDate
+            ? true
+            : !rawDate || rawDate === '-' || rawDate.toLowerCase() === 'no exp' || /ไม่มี/i.test(rawDate) || !isoSubDate;
         fields.push({
           id: `sub_${idx}_${Date.now()}_${Math.random().toString(36).substring(2, 5)}`,
           label: se.label,
-          date: isNoExp ? (se.date || '-') : toIsoDate(se.date),
+          date: isNoExp ? (rawDate || '-') : isoSubDate,
           qty: se.qty,
           hasNoExp: isNoExp,
         });
@@ -172,20 +168,22 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
           if (trimmed.includes(':')) {
             const colonIdx = trimmed.indexOf(':');
             const rawDate = trimmed.substring(colonIdx + 1).trim();
-            const isNoExp = !rawDate || rawDate === '-' || rawDate.toLowerCase() === 'no exp';
+            const isoSub = normalizeExpDateToIso(rawDate);
+            const isNoExp = !rawDate || rawDate === '-' || rawDate.toLowerCase() === 'no exp' || !isoSub;
             fields.push({
               id: `sub_${idx}_${Date.now()}_${idx}`,
               label: trimmed.substring(0, colonIdx).trim(),
-              date: isNoExp ? '' : toIsoDate(rawDate),
+              date: isNoExp ? (rawDate === '-' ? '-' : '') : isoSub,
               qty: info.quantities[idx] || 1,
               hasNoExp: isNoExp,
             });
           } else {
-            const isNoExp = !trimmed || trimmed === '-' || trimmed.toLowerCase() === 'no exp';
+            const isoSub = normalizeExpDateToIso(trimmed);
+            const isNoExp = !trimmed || trimmed === '-' || trimmed.toLowerCase() === 'no exp' || !isoSub;
             fields.push({
               id: `sub_${idx}_${Date.now()}_${idx}`,
               label: `ชิ้นที่ ${idx + 1}`,
-              date: isNoExp ? '' : toIsoDate(trimmed),
+              date: isNoExp ? (trimmed === '-' ? '-' : '') : isoSub,
               qty: info.quantities[idx] || 1,
               hasNoExp: isNoExp,
             });
@@ -227,9 +225,12 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
       setImg(item.img || '');
       setQty(item.qty !== undefined && item.qty !== null ? String(item.qty) : '1');
       setUnitText(resolveItemUnitText(item as any));
-      setNoExp(item.exp === '-' || !item.exp || item.exp.toLowerCase() === 'no exp');
-      if (item.exp && !item.exp.includes(',') && !item.exp.includes(':')) {
-        setSingleExp(toIsoDate(item.exp));
+      const expRaw = (item.exp || '').trim();
+      const isoSingle = normalizeExpDateToIso(expRaw);
+      const isExplicitNoExp = !expRaw || expRaw === '-' || expRaw.toLowerCase() === 'no exp' || /ไม่มี/i.test(expRaw);
+      setNoExp(isExplicitNoExp || (!expRaw.includes(',') && !expRaw.includes(':') && !isoSingle));
+      if (expRaw && !expRaw.includes(',') && !expRaw.includes(':')) {
+        setSingleExp(isExplicitNoExp ? '-' : (isoSingle || expRaw));
       }
     }
   }, [item, groups]);
@@ -442,6 +443,11 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
         {/* Modal Body Form */}
         <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0 overflow-hidden">
           <div className="flex-1 overflow-y-auto p-5 space-y-4 text-xs min-h-0">
+            {structureLocked && (
+              <div className="px-3.5 py-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-700 dark:text-amber-300 text-[11px] font-semibold">
+                ผู้ดูแลระบบเปิดล็อกโครงสร้างรายการไว้ — คุณสามารถอัปเดตวันหมดอายุ (EXP), สเปก และรูปภาพได้ตามปกติ
+              </div>
+            )}
             {/* 1. Item Name */}
             <div>
               <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1">
@@ -450,9 +456,10 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
               <input
                 type="text"
                 value={name}
+                disabled={structureLocked}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="เช่น Laryngoscope set, Ambu bag, IV Catheter, 0.9% NSS"
-                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-white/10 bg-white dark:bg-black/20 text-slate-900 dark:text-white outline-none focus:border-blue-500 transition font-bold"
+                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-white/10 bg-white dark:bg-black/20 text-slate-900 dark:text-white outline-none focus:border-blue-500 transition font-bold disabled:opacity-60 disabled:cursor-not-allowed"
                 required
               />
             </div>
@@ -464,8 +471,9 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
               </label>
               <select
                 value={category}
+                disabled={structureLocked}
                 onChange={(e) => setCategory(e.target.value)}
-                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-white/10 bg-white dark:bg-black/20 text-slate-900 dark:text-white outline-none focus:border-blue-500 transition font-bold"
+                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-white/10 bg-white dark:bg-black/20 text-slate-900 dark:text-white outline-none focus:border-blue-500 transition font-bold disabled:opacity-60 disabled:cursor-not-allowed"
               >
                 {groups.map((g) => (
                   <option key={g} value={g}>{g}</option>
@@ -476,9 +484,10 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
                 <input
                   type="text"
                   value={customCategory}
+                  disabled={structureLocked}
                   onChange={(e) => setCustomCategory(e.target.value)}
                   placeholder="พิมพ์ชื่อหมวดหมู่ใหม่..."
-                  className="w-full mt-2 px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-white/10 bg-white dark:bg-black/20 text-slate-900 dark:text-white outline-none focus:border-blue-500 font-bold"
+                  className="w-full mt-2 px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-white/10 bg-white dark:bg-black/20 text-slate-900 dark:text-white outline-none focus:border-blue-500 font-bold disabled:opacity-60"
                   required
                 />
               )}
@@ -495,8 +504,9 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
                 {/* Option 1: Single Count */}
                 <button
                   type="button"
+                  disabled={structureLocked}
                   onClick={() => setCheckType('single')}
-                  className={`p-3 rounded-xl border text-left transition cursor-pointer flex flex-col justify-between ${
+                  className={`p-3 rounded-xl border text-left transition cursor-pointer flex flex-col justify-between disabled:opacity-60 disabled:cursor-not-allowed ${
                     checkType === 'single'
                       ? 'bg-blue-50/90 dark:bg-blue-950/40 border-blue-500 dark:border-blue-500 text-blue-950 dark:text-blue-100 ring-2 ring-blue-500/20 shadow-xs'
                       : 'bg-white dark:bg-black/20 border-slate-200 dark:border-white/10 text-slate-700 dark:text-slate-300 hover:border-slate-300'
@@ -521,8 +531,9 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
                 {/* Option 2: Multiple Sub-items */}
                 <button
                   type="button"
+                  disabled={structureLocked}
                   onClick={() => setCheckType('sub_items')}
-                  className={`p-3 rounded-xl border text-left transition cursor-pointer flex flex-col justify-between ${
+                  className={`p-3 rounded-xl border text-left transition cursor-pointer flex flex-col justify-between disabled:opacity-60 disabled:cursor-not-allowed ${
                     checkType === 'sub_items'
                       ? 'bg-purple-50/90 dark:bg-purple-950/40 border-purple-500 dark:border-purple-500 text-purple-950 dark:text-purple-100 ring-2 ring-purple-500/20 shadow-xs'
                       : 'bg-white dark:bg-black/20 border-slate-200 dark:border-white/10 text-slate-700 dark:text-slate-300 hover:border-slate-300'
@@ -556,31 +567,34 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
                 <input
                   type="text"
                   value={unitText}
+                  disabled={structureLocked}
                   onChange={(e) => setUnitText(e.target.value)}
                   placeholder="เช่น อย่างละ 2, 1 set (1, 1, 2 อัน), 3 ขวด"
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-white/10 bg-white dark:bg-black/20 text-slate-900 dark:text-white outline-none focus:border-blue-500 font-bold text-sm"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-white/10 bg-white dark:bg-black/20 text-slate-900 dark:text-white outline-none focus:border-blue-500 font-bold text-sm disabled:opacity-60 disabled:cursor-not-allowed"
                 />
                 <p className="text-[10px] text-slate-500 dark:text-slate-400">
                   * ข้อความนี้จะแสดงในคอลัมน์ "จำนวน" ของ PDF (เช่น "อย่างละ 2")
                 </p>
                 {/* Quick Unit Presets */}
-                <div className="flex items-center gap-1 flex-wrap pt-0.5">
-                  <span className="text-[9px] text-slate-400 font-bold">ป้ายกำกับด่วน:</span>
-                  {['1', '2', 'อย่างละ 2', '1 set', '2 set'].map((p) => (
-                    <button
-                      key={p}
-                      type="button"
-                      onClick={() => setUnitText(p)}
-                      className={`px-1.5 py-0.5 rounded text-[9px] font-bold border transition cursor-pointer ${
-                        unitText === p
-                          ? 'bg-blue-600 text-white border-blue-600'
-                          : 'bg-white dark:bg-white/5 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-white/10'
-                      }`}
-                    >
-                      {p}
-                    </button>
-                  ))}
-                </div>
+                {!structureLocked && (
+                  <div className="flex items-center gap-1 flex-wrap pt-0.5">
+                    <span className="text-[9px] text-slate-400 font-bold">ป้ายกำกับด่วน:</span>
+                    {['1', '2', 'อย่างละ 2', '1 set', '2 set'].map((p) => (
+                      <button
+                        key={p}
+                        type="button"
+                        onClick={() => setUnitText(p)}
+                        className={`px-1.5 py-0.5 rounded text-[9px] font-bold border transition cursor-pointer ${
+                          unitText === p
+                            ? 'bg-blue-600 text-white border-blue-600'
+                            : 'bg-white dark:bg-white/5 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-white/10'
+                        }`}
+                      >
+                        {p}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -597,28 +611,31 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
                       <input
                         type="text"
                         value={qty}
+                        disabled={structureLocked}
                         onChange={(e) => setQty(e.target.value)}
                         placeholder="ระบุตัวเลข เช่น 1, 2, 5"
-                        className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-white/10 bg-white dark:bg-black/20 text-slate-900 dark:text-white outline-none focus:border-blue-500 font-bold text-sm"
+                        className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-white/10 bg-white dark:bg-black/20 text-slate-900 dark:text-white outline-none focus:border-blue-500 font-bold text-sm disabled:opacity-60 disabled:cursor-not-allowed"
                       />
                       {/* Presets */}
-                      <div className="flex items-center gap-1 flex-wrap">
-                        <span className="text-[10px] text-slate-400 font-bold">ยอดด่วน:</span>
-                        {['1', '2', '3', '4', '5', '10'].map((p) => (
-                          <button
-                            key={p}
-                            type="button"
-                            onClick={() => setQty(p)}
-                            className={`px-2 py-0.5 rounded-md text-[10px] font-bold border transition cursor-pointer ${
-                              qty === p
-                                ? 'bg-blue-600 text-white border-blue-600'
-                                : 'bg-slate-100 dark:bg-white/10 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-white/10 hover:bg-slate-200'
-                            }`}
-                          >
-                            {p}
-                          </button>
-                        ))}
-                      </div>
+                      {!structureLocked && (
+                        <div className="flex items-center gap-1 flex-wrap">
+                          <span className="text-[10px] text-slate-400 font-bold">ยอดด่วน:</span>
+                          {['1', '2', '3', '4', '5', '10'].map((p) => (
+                            <button
+                              key={p}
+                              type="button"
+                              onClick={() => setQty(p)}
+                              className={`px-2 py-0.5 rounded-md text-[10px] font-bold border transition cursor-pointer ${
+                                qty === p
+                                  ? 'bg-blue-600 text-white border-blue-600'
+                                  : 'bg-slate-100 dark:bg-white/10 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-white/10 hover:bg-slate-200'
+                              }`}
+                            >
+                              {p}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -695,18 +712,22 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
                   </div>
 
                   {/* Button + เพิ่มชิ้นย่อย/เบอร์ */}
-                  <button
-                    type="button"
-                    onClick={handleAddSubExp}
-                    className="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold text-[11px] flex items-center gap-1.5 transition cursor-pointer shadow-xs active:scale-95"
-                  >
-                    <Plus size={14} className="stroke-[3]" />
-                    <span>+ เพิ่มชิ้นย่อย/เบอร์</span>
-                  </button>
+                  {!structureLocked && (
+                    <button
+                      type="button"
+                      onClick={handleAddSubExp}
+                      className="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold text-[11px] flex items-center gap-1.5 transition cursor-pointer shadow-xs active:scale-95"
+                    >
+                      <Plus size={14} className="stroke-[3]" />
+                      <span>+ เพิ่มชิ้นย่อย/เบอร์</span>
+                    </button>
+                  )}
                 </div>
 
                 <p className="text-[10.5px] text-slate-500 dark:text-slate-400 font-medium leading-relaxed">
-                  ระบุชื่อย่อย/เบอร์, จำนวนตั้งต้นของชิ้นนั้น และวันหมดอายุ (EXP) ของแต่ละชิ้นได้แยกกันอย่างอิสระ:
+                  {structureLocked
+                    ? 'สามารถอัปเดตวันหมดอายุ (EXP) และสเปกเพิ่มเติมของแต่ละชิ้นได้ตามปกติ:'
+                    : 'ระบุชื่อย่อย/เบอร์, จำนวนตั้งต้นของชิ้นนั้น และวันหมดอายุ (EXP) ของแต่ละชิ้นได้แยกกันอย่างอิสระ:'}
                 </p>
 
                 {/* Sub-items List */}
@@ -725,9 +746,10 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
                         <input
                           type="text"
                           value={sub.label}
+                          disabled={structureLocked}
                           onChange={(e) => handleSubExpChange(sub.id, 'label', e.target.value)}
                           placeholder="ชื่อย่อย/เบอร์ เช่น เบอร์ 3.0, ชิ้นที่ 1"
-                          className="flex-1 min-w-[120px] px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-white/10 bg-white dark:bg-black/20 text-[11px] text-slate-900 dark:text-white outline-none focus:border-purple-500 font-bold"
+                          className="flex-1 min-w-[120px] px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-white/10 bg-white dark:bg-black/20 text-[11px] text-slate-900 dark:text-white outline-none focus:border-purple-500 font-bold disabled:opacity-60 disabled:cursor-not-allowed"
                           required
                         />
 
@@ -735,25 +757,27 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
                         <div className="flex items-center bg-slate-100 dark:bg-white/10 rounded-lg p-0.5 border border-slate-200 dark:border-white/10 shrink-0">
                           <button
                             type="button"
+                            disabled={structureLocked}
                             onClick={() => {
                               const curr = parseInt(String(sub.qty || '1'), 10) || 1;
                               if (curr > 1) handleSubExpChange(sub.id, 'qty', curr - 1);
                             }}
-                            className="w-6 h-6 rounded bg-white dark:bg-black/30 hover:bg-slate-200 text-slate-700 dark:text-white flex items-center justify-center font-bold text-xs cursor-pointer active:scale-95"
+                            className="w-6 h-6 rounded bg-white dark:bg-black/30 hover:bg-slate-200 text-slate-700 dark:text-white flex items-center justify-center font-bold text-xs cursor-pointer active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
                             title="ลดจำนวน"
                           >
                             -
                           </button>
-                          <span className="w-7 text-center font-bold text-xs text-purple-700 dark:text-purple-300">
+                          <span className="w-7 text-center font-bold text-xs text-purple-700 dark:text-purple-300 tabular-nums">
                             {sub.qty}
                           </span>
                           <button
                             type="button"
+                            disabled={structureLocked}
                             onClick={() => {
                               const curr = parseInt(String(sub.qty || '1'), 10) || 1;
                               handleSubExpChange(sub.id, 'qty', curr + 1);
                             }}
-                            className="w-6 h-6 rounded bg-white dark:bg-black/30 hover:bg-slate-200 text-slate-700 dark:text-white flex items-center justify-center font-bold text-xs cursor-pointer active:scale-95"
+                            className="w-6 h-6 rounded bg-white dark:bg-black/30 hover:bg-slate-200 text-slate-700 dark:text-white flex items-center justify-center font-bold text-xs cursor-pointer active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
                             title="เพิ่มจำนวน"
                           >
                             +
@@ -761,14 +785,16 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
                         </div>
 
                         {/* Delete sub-item */}
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveSubExp(sub.id)}
-                          className="p-1.5 rounded-lg bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-500/20 transition cursor-pointer shrink-0"
-                          title="ลบชิ้นย่อยนี้"
-                        >
-                          <Minus size={14} className="stroke-[2.5]" />
-                        </button>
+                        {!structureLocked && (
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveSubExp(sub.id)}
+                            className="p-1.5 rounded-lg bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-500/20 transition cursor-pointer shrink-0"
+                            title="ลบชิ้นย่อยนี้"
+                          >
+                            <Minus size={14} className="stroke-[2.5]" />
+                          </button>
+                        )}
                       </div>
 
                       {/* Sub-item Row 2: EXP Date Picker + No EXP Toggle */}

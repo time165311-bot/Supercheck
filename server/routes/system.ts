@@ -98,6 +98,19 @@ function computeEmbeddedMediaStats(
   return { fileCount, usedBytes };
 }
 
+const DEFAULT_WARD_ID = 'ANES-MASTER';
+
+function resolveWardIdServer(rawId?: string | null): string {
+  const cleaned = String(rawId || '')
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9_-]/g, '');
+  if (!cleaned || cleaned === 'CHANNEL_MASTER' || cleaned === 'MASTER' || cleaned === 'DEFAULT') {
+    return DEFAULT_WARD_ID;
+  }
+  return cleaned.slice(0, 48);
+}
+
 async function fetchFirestoreViaAdmin(extraChannelIds: string[] = []): Promise<{
   rawBytes: number;
   docCount: number;
@@ -116,6 +129,7 @@ async function fetchFirestoreViaAdmin(extraChannelIds: string[] = []): Promise<{
   let firstError: any = null;
 
   let rootCollectionNames = [
+    'wards',
     'drugs',
     'equipment',
     'channels',
@@ -141,6 +155,10 @@ async function fetchFirestoreViaAdmin(extraChannelIds: string[] = []): Promise<{
     }
   }
 
+  const wardIds = new Set<string>([
+    DEFAULT_WARD_ID,
+    ...extraChannelIds.filter(Boolean).map((id) => resolveWardIdServer(id)),
+  ]);
   const channelIds = new Set<string>(['channel_master', ...extraChannelIds.filter(Boolean)]);
 
   for (const colName of rootCollectionNames) {
@@ -154,12 +172,18 @@ async function fetchFirestoreViaAdmin(extraChannelIds: string[] = []): Promise<{
         const media = computeEmbeddedMediaStats(data);
         embeddedMediaCount += media.fileCount;
         embeddedMediaBytes += media.usedBytes;
+        if (colName === 'wards') {
+          wardIds.add(docSnap.id);
+        }
         if (colName === 'channels') {
           channelIds.add(docSnap.id);
         }
         if (colName === 'settings' && docSnap.id === 'channels' && Array.isArray(data.channels)) {
           data.channels.forEach((ch: any) => {
-            if (ch?.id) channelIds.add(String(ch.id));
+            if (ch?.id) {
+              channelIds.add(String(ch.id));
+              wardIds.add(resolveWardIdServer(String(ch.id)));
+            }
           });
         }
       });
@@ -177,7 +201,15 @@ async function fetchFirestoreViaAdmin(extraChannelIds: string[] = []): Promise<{
     throw firstError;
   }
 
-  // Also check phantom channel document references that may only have subcollections
+  // Also check phantom ward & channel document references that may only have subcollections
+  try {
+    const wardDocRefs = await adminDb.collection('wards').listDocuments();
+    wardDocRefs.forEach((ref) => {
+      if (ref.id) wardIds.add(ref.id);
+    });
+  } catch {
+    // ignore
+  }
   try {
     const channelDocRefs = await adminDb.collection('channels').listDocuments();
     channelDocRefs.forEach((ref) => {
@@ -185,6 +217,42 @@ async function fetchFirestoreViaAdmin(extraChannelIds: string[] = []): Promise<{
     });
   } catch {
     // ignore
+  }
+
+  const wardSubCollections = [
+    'drugs',
+    'equipment',
+    'inspection_records',
+    'restock_requisitions',
+    'audit_logs',
+  ];
+  for (const wardId of wardIds) {
+    let subCollections = [...wardSubCollections];
+    try {
+      const subCols = await adminDb.collection('wards').doc(wardId).listCollections();
+      const discoveredSubs = subCols.map((c) => c.id).filter(Boolean);
+      if (discoveredSubs.length > 0) {
+        subCollections = Array.from(new Set([...discoveredSubs, ...wardSubCollections]));
+      }
+    } catch {
+      // use default subcollections
+    }
+
+    for (const subName of subCollections) {
+      try {
+        const subSnap = await adminDb.collection('wards').doc(wardId).collection(subName).get();
+        subSnap.forEach((docSnap) => {
+          docCount += 1;
+          const data = docSnap.data() || {};
+          rawBytes += computeDocBytes(docSnap.ref.path, data);
+          const media = computeEmbeddedMediaStats(data);
+          embeddedMediaCount += media.fileCount;
+          embeddedMediaBytes += media.usedBytes;
+        });
+      } catch {
+        // Continue scanning
+      }
+    }
   }
 
   const defaultSubCollections = ['drugs', 'equipment', 'inspection_records', 'restock_requisitions'];
@@ -314,6 +382,10 @@ async function fetchFirestoreViaRest(
   let docCount = 0;
   let embeddedMediaCount = 0;
   let embeddedMediaBytes = 0;
+  const wardIds = new Set<string>([
+    DEFAULT_WARD_ID,
+    ...extraChannelIds.filter(Boolean).map((id) => resolveWardIdServer(id)),
+  ]);
   const channelIds = new Set<string>(['channel_master', ...extraChannelIds.filter(Boolean)]);
 
   const listableCollections = [
@@ -339,6 +411,7 @@ async function fetchFirestoreViaRest(
             embeddedMediaBytes += docItem.embeddedMediaBytes;
             if (colName === 'channels' && docItem.id) {
               channelIds.add(docItem.id);
+              wardIds.add(resolveWardIdServer(docItem.id));
             }
           });
         }
@@ -368,7 +441,10 @@ async function fetchFirestoreViaRest(
             embeddedMediaBytes += media.usedBytes;
             if (docId === 'channels' && Array.isArray(data.channels)) {
               data.channels.forEach((ch: any) => {
-                if (ch?.id) channelIds.add(String(ch.id));
+                if (ch?.id) {
+                  channelIds.add(String(ch.id));
+                  wardIds.add(resolveWardIdServer(String(ch.id)));
+                }
               });
             }
           }
@@ -378,6 +454,54 @@ async function fetchFirestoreViaRest(
       }
     })
   );
+
+  // Individual readable wards/{wardId} workspace docs + their subcollections
+  const wardSubCollections = ['drugs', 'equipment', 'inspection_records', 'restock_requisitions', 'audit_logs'];
+  for (const wardId of wardIds) {
+    try {
+      const wardUrl = `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(projectId)}/databases/${encodeURIComponent(databaseId)}/documents/wards/${encodeURIComponent(wardId)}`;
+      const wardRes = await fetch(wardUrl, {
+        cache: 'no-store',
+        headers: { Authorization: `Bearer ${idToken}` },
+      });
+      if (wardRes.ok) {
+        const wardJson: any = await wardRes.json();
+        if (wardJson?.fields) {
+          const data = unwrapFirestoreRestFields(wardJson.fields);
+          docCount += 1;
+          rawBytes += computeDocBytes(`wards/${wardId}`, data);
+          const media = computeEmbeddedMediaStats(data);
+          embeddedMediaCount += media.fileCount;
+          embeddedMediaBytes += media.usedBytes;
+        }
+      }
+    } catch {
+      // ignore missing ward workspace doc
+    }
+
+    await Promise.all(
+      wardSubCollections.map(async (subName) => {
+        try {
+          const subRes = await fetchFirestoreRestCollection(
+            projectId,
+            databaseId,
+            `wards/${encodeURIComponent(wardId)}/${subName}`,
+            idToken
+          );
+          if (!subRes.forbidden) {
+            subRes.docs.forEach((docItem) => {
+              docCount += 1;
+              rawBytes += docItem.bytes;
+              embeddedMediaCount += docItem.embeddedMediaCount;
+              embeddedMediaBytes += docItem.embeddedMediaBytes;
+            });
+          }
+        } catch {
+          // ignore subcollection read issues
+        }
+      })
+    );
+  }
 
   const subCollections = ['drugs', 'equipment', 'inspection_records', 'restock_requisitions'];
   for (const channelId of channelIds) {

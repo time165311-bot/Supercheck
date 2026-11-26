@@ -38,6 +38,7 @@ import {
 } from '../services/firestoreService';
 import { useDataContext } from '../context/DataContext';
 import { DrugItemCard } from './ItemCard';
+import { resolveWardId } from '../utils/wardUtils';
 import { MinimalExpiryDatePicker } from './MinimalExpiryDatePicker';
 
 interface DrugInventoryViewProps {
@@ -49,6 +50,8 @@ interface DrugInventoryViewProps {
   drugs?: DrugItem[];
   onDrugsChange?: (drugs: DrugItem[]) => void;
   onCelebrate?: () => void;
+  canDelete?: boolean;
+  canEditStructure?: boolean;
 }
 
 export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
@@ -59,6 +62,8 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
   drugs: externalDrugs,
   onDrugsChange,
   onCelebrate,
+  canDelete = true,
+  canEditStructure = true,
 }) => {
   const { activeChannelId } = useDataContext();
   const canApprove = canApproveRequisition(_currentUser);
@@ -126,7 +131,7 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
   };
 
   useEffect(() => {
-    const unsub = subscribeRestockRequisitions(activeChannelId || 'channel_master', (items) => {
+    const unsub = subscribeRestockRequisitions(resolveWardId(activeChannelId), (items) => {
       setRequisitions(items);
     });
     return () => {
@@ -359,7 +364,7 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
       const nowIso = new Date().toISOString();
       const newReq: RestockRequisition = {
         id: `REQ-${Date.now()}`,
-        channelId: activeChannelId || 'channel_master',
+        channelId: resolveWardId(activeChannelId),
         targetCategory: activeTab,
         requestedBy: _currentUser?.name || 'พยาบาลวิสัญญี',
         requestedById: _currentUser?.id,
@@ -389,7 +394,7 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
     setIsReqBusy(true);
     try {
       const res = await transitionRestockRequisitionStatus({
-        channelId: activeChannelId || 'channel_master',
+        channelId: resolveWardId(activeChannelId),
         reqId: req.id,
         nextStatus,
         actor: _currentUser,
@@ -409,7 +414,7 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
     setIsReqBusy(true);
     try {
       const res = await receiveRestockRequisitionTransaction({
-        channelId: activeChannelId || 'channel_master',
+        channelId: resolveWardId(activeChannelId),
         reqId: req.id,
         receivedItems: req.items,
         currentDrugs: drugs,
@@ -480,16 +485,18 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
             </button>
           )}
 
-          <button
-            onClick={() => {
-              setFormError('');
-              handleOpenAdd();
-            }}
-            className="px-3.5 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-700 text-white font-bold text-xs md:text-sm flex items-center gap-1.5 transition shadow-xs cursor-pointer active:scale-95"
-          >
-            <Plus className="w-4 h-4" />
-            <span>เพิ่มรายการยาใหม่</span>
-          </button>
+          {canEditStructure && (
+            <button
+              onClick={() => {
+                setFormError('');
+                handleOpenAdd();
+              }}
+              className="px-3.5 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-700 text-white font-bold text-xs md:text-sm flex items-center gap-1.5 transition shadow-xs cursor-pointer active:scale-95"
+            >
+              <Plus className="w-4 h-4" />
+              <span>เพิ่มรายการยาใหม่</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -604,15 +611,17 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
           </span>
 
           <div className="flex items-center gap-2">
-            <button
-              onClick={handleClearAllCategory}
-              disabled={displayedDrugs.length === 0}
-              className="px-3.5 py-1.5 rounded-xl bg-rose-50 dark:bg-rose-500/15 hover:bg-rose-100 dark:hover:bg-rose-500/25 text-rose-600 dark:text-[#F28B82] font-bold flex items-center gap-1.5 transition cursor-pointer active:scale-95 border border-rose-200 dark:border-rose-500/30 disabled:opacity-30"
-              title="ลบรายการทั้งหมดในหมวดนี้"
-            >
-              <Trash2 className="w-4 h-4 shrink-0" />
-              <span className="hidden sm:inline">ลบทั้งหมด</span>
-            </button>
+            {canDelete && (
+              <button
+                onClick={handleClearAllCategory}
+                disabled={displayedDrugs.length === 0}
+                className="px-3.5 py-1.5 rounded-xl bg-rose-50 dark:bg-rose-500/15 hover:bg-rose-100 dark:hover:bg-rose-500/25 text-rose-600 dark:text-[#F28B82] font-bold flex items-center gap-1.5 transition cursor-pointer active:scale-95 border border-rose-200 dark:border-rose-500/30 disabled:opacity-30"
+                title="ลบรายการทั้งหมดในหมวดนี้"
+              >
+                <Trash2 className="w-4 h-4 shrink-0" />
+                <span className="hidden sm:inline">ลบทั้งหมด</span>
+              </button>
+            )}
 
             <button
               onClick={handleBatchCheckAll}
@@ -652,6 +661,7 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
                 onDeltaQty={handleDeltaQty}
                 onEdit={handleOpenEdit}
                 onDelete={setItemToDelete}
+                canDelete={canDelete}
               />
             );
           })}
@@ -765,14 +775,20 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
                   {formError}
                 </div>
               )}
+              {!canEditStructure && editingDrug && (
+                <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 font-semibold text-[11px]">
+                  ล็อกโครงสร้างชื่อยา/หน่วยนับโดย Admin — สามารถอัปเดตจำนวนคงเหลือ, วันหมดอายุ (EXP) และ Lot ได้ตามปกติ
+                </div>
+              )}
               <div>
                 <label className="block text-slate-700 font-bold mb-1">ชื่อยา / สารน้ำ <span className="text-rose-500">*</span></label>
                 <input
                   type="text"
                   value={formName}
+                  disabled={!canEditStructure && Boolean(editingDrug)}
                   onChange={(e) => setFormName(e.target.value)}
                   placeholder="เช่น Atropine 0.6 mg/ml"
-                  className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-slate-100 disabled:cursor-not-allowed"
                   required
                 />
               </div>
@@ -781,8 +797,9 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
                 <label className="block text-slate-700 font-bold mb-1">หมวดหมู่ยา</label>
                 <select
                   value={formCategory}
+                  disabled={!canEditStructure && Boolean(editingDrug)}
                   onChange={(e) => setFormCategory(e.target.value as DrugCategory)}
-                  className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-slate-900 outline-none focus:border-blue-500"
+                  className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-slate-900 outline-none focus:border-blue-500 disabled:bg-slate-100 disabled:cursor-not-allowed"
                 >
                   <option value="monthly">💊 ยาและสารน้ำประจำเดือน</option>
                   <option value="quarterly">🚨 ยาความเสี่ยงสูง/กู้ชีพ (3 เดือน)</option>
@@ -805,8 +822,9 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
                   <input
                     type="number"
                     value={formMinStock}
+                    disabled={!canEditStructure && Boolean(editingDrug)}
                     onChange={(e) => setFormMinStock(Number(e.target.value))}
-                    className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-slate-900 outline-none focus:border-blue-500"
+                    className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-slate-900 outline-none focus:border-blue-500 disabled:bg-slate-100 disabled:cursor-not-allowed"
                   />
                 </div>
               </div>
@@ -817,9 +835,10 @@ export const DrugInventoryView: React.FC<DrugInventoryViewProps> = ({
                   <input
                     type="text"
                     value={formUnit}
+                    disabled={!canEditStructure && Boolean(editingDrug)}
                     onChange={(e) => setFormUnit(e.target.value)}
                     placeholder="เช่น amp, vial, bottle"
-                    className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-slate-900 outline-none focus:border-blue-500"
+                    className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-slate-900 outline-none focus:border-blue-500 disabled:bg-slate-100 disabled:cursor-not-allowed"
                   />
                 </div>
                 <div>

@@ -109,6 +109,8 @@ export interface EmergencyChecklistProps {
   isSavingReport?: boolean;
   onClearAll?: (type: 'bag' | 'cart' | 'ambulance' | string) => void;
   isVisible?: boolean;
+  canDelete?: boolean;
+  canEditStructure?: boolean;
 }
 
 export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
@@ -132,6 +134,8 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
   isSavingReport = false,
   onClearAll,
   isVisible = true,
+  canDelete = true,
+  canEditStructure = true,
 }) => {
   const [selectedGroup, setSelectedGroup] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -546,29 +550,33 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
 
           <div className="flex items-center gap-2 flex-wrap">
             {/* ปุ่ม + เพิ่มรายการ */}
-            <button
-              type="button"
-              onClick={() => {
-                setNewItemGroup(groups[0] || 'ทั่วไป');
-                setIsAddItemModalOpen(true);
-              }}
-              className="px-3 py-2 rounded-xl bg-white text-blue-700 hover:bg-blue-50 font-bold text-xs md:text-sm shadow-xs transition flex items-center gap-1 cursor-pointer active:scale-95"
-              title="เพิ่มรายการอุปกรณ์ใหม่"
-            >
-              <Plus size={15} className="stroke-[2.5]" />
-              <span>เพิ่มรายการ</span>
-            </button>
+            {canEditStructure && (
+              <button
+                type="button"
+                onClick={() => {
+                  setNewItemGroup(groups[0] || 'ทั่วไป');
+                  setIsAddItemModalOpen(true);
+                }}
+                className="px-3 py-2 rounded-xl bg-white text-blue-700 hover:bg-blue-50 font-bold text-xs md:text-sm shadow-xs transition flex items-center gap-1 cursor-pointer active:scale-95"
+                title="เพิ่มรายการอุปกรณ์ใหม่"
+              >
+                <Plus size={15} className="stroke-[2.5]" />
+                <span>เพิ่มรายการ</span>
+              </button>
+            )}
 
             {/* Bulk Clear Inventory Items */}
-            <button
-              type="button"
-              onClick={() => setPendingBulkAction('clear_all')}
-              className="px-3 py-2 rounded-xl bg-red-600/20 text-red-100 hover:bg-red-600/30 font-bold text-xs md:text-sm shadow-xs transition flex items-center gap-1 cursor-pointer active:scale-95 border border-red-500/30"
-              title="ลบรายการอุปกรณ์ทั้งหมดในหน้านี้"
-            >
-              <Trash2 size={15} />
-              <span className="hidden sm:inline">ลบทั้งหมด</span>
-            </button>
+            {canDelete && (
+              <button
+                type="button"
+                onClick={() => setPendingBulkAction('clear_all')}
+                className="px-3 py-2 rounded-xl bg-red-600/20 text-red-100 hover:bg-red-600/30 font-bold text-xs md:text-sm shadow-xs transition flex items-center gap-1 cursor-pointer active:scale-95 border border-red-500/30"
+                title="ลบรายการอุปกรณ์ทั้งหมดในหน้านี้"
+              >
+                <Trash2 size={15} />
+                <span className="hidden sm:inline">ลบทั้งหมด</span>
+              </button>
+            )}
 
             {/* 2-State Toggle Pass All / Cancel All Button */}
             <button
@@ -1405,7 +1413,7 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
       </div>
 
       {/* ➕ Modal เพิ่มรายการอุปกรณ์ใหม่ */}
-      {isAddItemModalOpen && (
+      {isAddItemModalOpen && canEditStructure && (
         <EditItemModal
           isOpen={isAddItemModalOpen}
           mode="add"
@@ -1426,7 +1434,8 @@ export const EmergencyChecklistView: React.FC<EmergencyChecklistProps> = ({
           item={itemToEdit as any}
           groups={groups}
           onSave={handleSaveEdit}
-          onDelete={handleDeleteItemInEdit}
+          onDelete={canDelete ? handleDeleteItemInEdit : undefined}
+          canEditStructure={canEditStructure}
         />
       )}
 

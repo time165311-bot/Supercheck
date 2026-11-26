@@ -23,11 +23,12 @@ import {
 } from 'lucide-react';
 import { User, DrugItem, EquipmentItem, HaAuditLogEntry, FhirMedicationDispensePayload } from '../types';
 import { logAuditEvent } from '../services/auditLogger';
-import { auth, fetchHaAuditLogs, subscribeHaAuditLogs } from '../services/firebase';
+import { fetchHaAuditLogs, subscribeHaAuditLogs } from '../services/firebase';
 import { exportHaAuditExcel } from '../utils/exportExcel';
 import { exportHaAuditPdf } from '../utils/exportPdf';
 import { authorizedFetch } from '../services/aiService';
 import { getBangkokTodayIso } from '../utils/dateUtils';
+import { getActiveWardIdFromStorage, resolveWardId } from '../utils/wardUtils';
 
 export interface HaAuditReportModalProps {
   isOpen: boolean;
@@ -36,6 +37,7 @@ export interface HaAuditReportModalProps {
   drugs: DrugItem[];
   equipment: { [key: string]: EquipmentItem[] };
   activeChannelName?: string;
+  wardId?: string;
 }
 
 export type HaReportType = 'daily_cart' | 'controlled_drugs' | 'equipment_calibration' | 'audit_trail' | 'fhir_bridge';
@@ -47,6 +49,7 @@ export const HaAuditReportModal: React.FC<HaAuditReportModalProps> = ({
   drugs = [],
   equipment = {},
   activeChannelName = 'ห้องผ่าตัด OR (Master)',
+  wardId,
 }) => {
   const [activeTab, setActiveTab] = useState<HaReportType>('daily_cart');
   const [selectedDate, setSelectedDate] = useState<string>(() => getBangkokTodayIso());
@@ -80,33 +83,30 @@ export const HaAuditReportModal: React.FC<HaAuditReportModalProps> = ({
     }
   }, [currentUser]);
 
-  // Load audit logs on open or tab switch (only hit Firestore when Firebase Auth user is signed in)
+  // Load audit logs on open or tab switch from Shared Ward Workspace (no Google sign-in required)
   useEffect(() => {
     if (!isOpen) return;
 
+    const resolvedWard = resolveWardId(wardId || getActiveWardIdFromStorage());
     let unsubscribe: (() => void) | undefined;
 
-    if (auth.currentUser) {
-      setIsLoadingLogs(true);
-      fetchHaAuditLogs(80)
-        .then((logs) => {
-          if (logs && logs.length > 0) {
-            setAuditLogs(logs);
-          }
-        })
-        .catch((err) => {
-          console.warn('Audit logs fetch warning:', err);
-        })
-        .finally(() => setIsLoadingLogs(false));
-
-      unsubscribe = subscribeHaAuditLogs((updatedLogs) => {
-        if (updatedLogs && updatedLogs.length > 0) {
-          setAuditLogs(updatedLogs);
+    setIsLoadingLogs(true);
+    fetchHaAuditLogs(80, resolvedWard)
+      .then((logs) => {
+        if (logs && logs.length > 0) {
+          setAuditLogs(logs);
         }
-      }, 80);
-    } else {
-      setIsLoadingLogs(false);
-    }
+      })
+      .catch((err) => {
+        console.warn('Audit logs fetch warning:', err);
+      })
+      .finally(() => setIsLoadingLogs(false));
+
+    unsubscribe = subscribeHaAuditLogs((updatedLogs) => {
+      if (updatedLogs && updatedLogs.length > 0) {
+        setAuditLogs(updatedLogs);
+      }
+    }, 80, resolvedWard);
 
     const handleLocalAudit = (e: any) => {
       if (e.detail) {
@@ -119,7 +119,7 @@ export const HaAuditReportModal: React.FC<HaAuditReportModalProps> = ({
       if (typeof unsubscribe === 'function') unsubscribe();
       window.removeEventListener('ha_audit_log_added', handleLocalAudit);
     };
-  }, [isOpen, activeTab]);
+  }, [isOpen, activeTab, wardId]);
 
   // Daily Crash Cart Checklist Standard Dataset
   const dailyCartChecklist = useMemo(() => {
@@ -364,7 +364,8 @@ export const HaAuditReportModal: React.FC<HaAuditReportModalProps> = ({
       setFhirSimStatus(data);
 
       // Refresh Audit Trail
-      const updated = await fetchHaAuditLogs(50);
+      const resolvedWard = resolveWardId(wardId || getActiveWardIdFromStorage());
+      const updated = await fetchHaAuditLogs(50, resolvedWard);
       setAuditLogs(updated);
 
       if (res.ok) {

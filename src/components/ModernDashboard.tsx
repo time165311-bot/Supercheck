@@ -75,6 +75,7 @@ interface ModernDashboardProps {
     grandDefective: number;
     completionPct: number;
   };
+  canExportSheets?: boolean;
 }
 
 const CATEGORY_ORDER: Array<'medicine' | 'equipment' | 'bag' | 'cart'> = [
@@ -106,6 +107,7 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
   sheetUrl = '',
   onOpenChannelSelector,
   overallStats,
+  canExportSheets = true,
 }) => {
   const { activeChannel } = useDataContext();
   const isDarkMode = theme ? theme === 'dark' : true;
@@ -602,7 +604,7 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
               )}
 
               {/* Desktop Quick Action: Open Google Sheets */}
-              {sheetUrl?.trim() ? (
+              {canExportSheets && (sheetUrl?.trim() ? (
                 <a
                   href={sheetUrl.trim()}
                   target="_blank"
@@ -623,7 +625,7 @@ export const ModernDashboard: React.FC<ModernDashboardProps> = ({
                   <FileSpreadsheet size={16} className="shrink-0 text-emerald-200" />
                   <span>เปิด Google Sheets</span>
                 </button>
-              ) : null}
+              ) : null)}
 
               {/* User Profile */}
               {currentUser && onOpenProfile && (

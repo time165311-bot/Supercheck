@@ -12,6 +12,7 @@ import {
 import { DEFAULT_LISTS, ROOMS, INITIAL_MASTER_DATA } from '../constants/initialData';
 import { INITIAL_DRUGS_DATA } from '../constants/initialDrugs';
 import { diffDaysFromBangkokToday, getBangkokTodayIso } from '../utils/dateUtils';
+import { DEFAULT_WARD_ID, resolveWardId } from '../utils/wardUtils';
 
 export const STORAGE_KEYS = {
   API_URL: 'anesthesia_api_url',
@@ -30,36 +31,37 @@ export const STORAGE_KEYS = {
   HISTORY: 'inspection_history',
   ACCENT_COLOR: 'anesthesia_accent_color',
   CHANNELS: 'anesthesia_channels',
-  ACTIVE_CHANNEL_ID: 'anesthesia_active_channel_id',
+  ACTIVE_CHANNEL_ID: 'anesthesia_ward_id',
 };
 
 export function getChannelDbKey(channelId: string): string {
-  if (!channelId || channelId === 'channel_master') return 'server_db_master_data';
-  return `server_db_${channelId}_data`;
+  const resolved = resolveWardId(channelId);
+  if (resolved === DEFAULT_WARD_ID) return 'server_db_master_data';
+  return `server_db_${resolved}_data`;
 }
 
 export function getChannelListsKey(channelId: string): string {
-  return `server_db_${channelId}_lists`;
+  return `server_db_${resolveWardId(channelId)}_lists`;
 }
 
 export function getChannelChecksKey(channelId: string): string {
-  return `server_db_${channelId}_checks`;
+  return `server_db_${resolveWardId(channelId)}_checks`;
 }
 
 export function getChannelWeekDatesKey(channelId: string): string {
-  return `server_db_${channelId}_week_dates`;
+  return `server_db_${resolveWardId(channelId)}_week_dates`;
 }
 
 export function getChannelDeletedItemsKey(channelId: string): string {
-  return `server_db_${channelId || 'channel_master'}_deleted_items`;
+  return `server_db_${resolveWardId(channelId)}_deleted_items`;
 }
 
-export function getDeletedItemIds(channelId: string = 'channel_master'): string[] {
+export function getDeletedItemIds(channelId: string = DEFAULT_WARD_ID): string[] {
   const list = getStored<string[]>(getChannelDeletedItemsKey(channelId), []);
   return Array.isArray(list) ? list.filter((x) => typeof x === 'string' && x.trim().length > 0) : [];
 }
 
-export function setDeletedItemIds(channelId: string = 'channel_master', ids: string[]): string[] {
+export function setDeletedItemIds(channelId: string = DEFAULT_WARD_ID, ids: string[]): string[] {
   const deduped = Array.from(
     new Set((ids || []).map((x) => String(x || '').trim()).filter(Boolean))
   ).slice(-500);
@@ -90,13 +92,13 @@ export function makeItemTombstoneTokens(
   return Array.from(new Set(tokens));
 }
 
-export function addDeletedItemIds(channelId: string = 'channel_master', newTokens: string[]): string[] {
+export function addDeletedItemIds(channelId: string = DEFAULT_WARD_ID, newTokens: string[]): string[] {
   if (!newTokens || newTokens.length === 0) return getDeletedItemIds(channelId);
   const existing = getDeletedItemIds(channelId);
   return setDeletedItemIds(channelId, [...existing, ...newTokens]);
 }
 
-export function removeDeletedItemIds(channelId: string = 'channel_master', tokensToRemove: string[]): string[] {
+export function removeDeletedItemIds(channelId: string = DEFAULT_WARD_ID, tokensToRemove: string[]): string[] {
   if (!tokensToRemove || tokensToRemove.length === 0) return getDeletedItemIds(channelId);
   const removeSet = new Set(tokensToRemove.map((t) => String(t || '').trim()).filter(Boolean));
   const filtered = getDeletedItemIds(channelId).filter((t) => !removeSet.has(t));
@@ -185,7 +187,7 @@ export interface ChannelCyclePeriods {
 }
 
 export function getChannelCyclePeriodsKey(channelId: string): string {
-  return `server_db_${channelId || 'channel_master'}_cycle_periods`;
+  return `server_db_${resolveWardId(channelId)}_cycle_periods`;
 }
 
 export function getBangkokPeriodKeys(): { monthKey: string; yearKey: string } {
@@ -280,7 +282,7 @@ export function setStoredString(key: string, value: string): void {
 
 // Initialise Equipment dataset (Guarantees local master persistence & tombstones respected)
 export function getInitialEquipment(): Record<string, EquipmentItem[]> {
-  const tombstones = new Set(getDeletedItemIds('channel_master'));
+  const tombstones = new Set(getDeletedItemIds(DEFAULT_WARD_ID));
   const stored = getStored<Record<string, EquipmentItem[]> | null>(STORAGE_KEYS.EQ, null);
   if (stored && typeof stored === 'object' && Object.keys(stored).length > 0) {
     return filterEquipmentMapByTombstones(stored, tombstones);
@@ -358,7 +360,7 @@ export function getInitialEquipment(): Record<string, EquipmentItem[]> {
 
 // Initialise Lists (Bag, Cart & Ambulance) - Preserves user modifications, custom groups & deleted tombstones 100%
 export function getInitialLists(): Record<'bag' | 'cart' | string, ListConfig> {
-  const tombstones = new Set(getDeletedItemIds('channel_master'));
+  const tombstones = new Set(getDeletedItemIds(DEFAULT_WARD_ID));
   const ensureAmbulance = (map: Record<string, ListConfig>): Record<string, ListConfig> => {
     if (map.ambulance && map.ambulance.groups) return map;
     return {
@@ -399,7 +401,7 @@ export function getInitialLists(): Record<'bag' | 'cart' | string, ListConfig> {
 
 // Initialise Drugs dataset
 export function getInitialDrugs(): DrugItem[] {
-  const tombstones = new Set(getDeletedItemIds('channel_master'));
+  const tombstones = new Set(getDeletedItemIds(DEFAULT_WARD_ID));
   const stored = getStored<DrugItem[] | null>(STORAGE_KEYS.DRUGS, null);
   if (stored && Array.isArray(stored) && stored.length > 0) {
     return filterDrugsByTombstones(stored, tombstones);

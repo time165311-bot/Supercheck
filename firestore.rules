@@ -30,6 +30,14 @@ service cloud.firestore {
       return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
 
+    function isValidWardId(wardId) {
+      return wardId is string && wardId.size() >= 2 && wardId.size() <= 48 && wardId.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function wardExists(wardId) {
+      return exists(/databases/$(database)/documents/wards/$(wardId));
+    }
+
     function incoming() {
       return request.resource.data;
     }
@@ -54,6 +62,10 @@ service cloud.firestore {
       return !(key in data) || data[key] == null || (data[key] is list && data[key].size() <= maxLen);
     }
 
+    function isOptionalMap(data, key) {
+      return !(key in data) || data[key] == null || (data[key] is map);
+    }
+
     // Enforce bounded base64/URL image sizes (< 500,000 chars) to protect document quota
     function isValidImageSize(data) {
       return isOptionalString(data, 'img', 500000) &&
@@ -76,8 +88,8 @@ service cloud.firestore {
           'id', 'name', 'code', 'sap', 'spec', 'source', 'date', 'qty', 'tax', 'price',
           'location', 'img', 'no', 'exp', 'note', 'type', 'category', 'groupName', 'roomId',
           'barcode', 'serialNumber', 'subExps', 'subItemQuantities', 'checkType',
-          'subItems', 'unitText', 'initialQtyText', 'channelId',
-          'orderNumber', 'assetCode', 'sapCode', 'brandModel', 'status', 'isMarked'
+          'subItems', 'unitText', 'initialQtyText', 'channelId', 'wardId',
+          'orderNumber', 'assetCode', 'sapCode', 'brandModel', 'status', 'isMarked', 'updatedAt'
         ]) &&
         isValidId(data.id) &&
         data.name is string && data.name.size() >= 1 && data.name.size() <= 300 &&
@@ -103,11 +115,13 @@ service cloud.firestore {
         isOptionalString(data, 'unitText', 100) &&
         isOptionalString(data, 'initialQtyText', 100) &&
         isOptionalString(data, 'channelId', 128) &&
+        isOptionalString(data, 'wardId', 48) &&
         isOptionalString(data, 'orderNumber', 50) &&
         isOptionalString(data, 'assetCode', 150) &&
         isOptionalString(data, 'sapCode', 150) &&
         isOptionalString(data, 'brandModel', 500) &&
         isOptionalString(data, 'status', 50) &&
+        isOptionalString(data, 'updatedAt', 100) &&
         isOptionalBool(data, 'isMarked') &&
         isOptionalList(data, 'subItems', 100) &&
         isOptionalList(data, 'subItemQuantities', 100) &&
@@ -121,7 +135,7 @@ service cloud.firestore {
           'id', 'category', 'name', 'remaining', 'totalQty', 'receivedDate',
           'receivedQty', 'minStock', 'batchRequest', 'unit', 'expDate', 'exp',
           'lotNumber', 'lots', 'batches', 'tmtCode', 'hospitalDrugCode',
-          'spec', 'note', 'img', 'barcode', 'channelId', 'updatedAt'
+          'spec', 'note', 'img', 'barcode', 'channelId', 'wardId', 'updatedAt'
         ]) &&
         isValidId(data.id) &&
         data.name is string && data.name.size() >= 1 && data.name.size() <= 300 &&
@@ -142,6 +156,7 @@ service cloud.firestore {
         isOptionalString(data, 'note', 1000) &&
         isOptionalString(data, 'barcode', 150) &&
         isOptionalString(data, 'channelId', 128) &&
+        isOptionalString(data, 'wardId', 48) &&
         isOptionalString(data, 'updatedAt', 100) &&
         isOptionalList(data, 'lots', 100) &&
         isOptionalList(data, 'batches', 100) &&
@@ -150,7 +165,7 @@ service cloud.firestore {
 
     function isValidInspectionRecord(data) {
       return data.keys().hasAll(['id', 'timestamp', 'date', 'who', 'type']) &&
-        data.keys().hasOnly(['id', 'timestamp', 'date', 'time', 'who', 'type', 'title', 'rows', 'weekDates', 'channelId']) &&
+        data.keys().hasOnly(['id', 'timestamp', 'date', 'time', 'who', 'type', 'title', 'rows', 'weekDates', 'channelId', 'wardId']) &&
         isValidId(data.id) &&
         data.timestamp is string && data.timestamp.size() <= 100 &&
         data.date is string && data.date.size() <= 100 &&
@@ -159,6 +174,8 @@ service cloud.firestore {
         isOptionalString(data, 'time', 100) &&
         isOptionalString(data, 'title', 300) &&
         isOptionalString(data, 'channelId', 128) &&
+        isOptionalString(data, 'wardId', 48) &&
+        isOptionalMap(data, 'weekDates') &&
         isOptionalList(data, 'rows', 500);
     }
 
@@ -214,10 +231,41 @@ service cloud.firestore {
         isOptionalString(data, 'updatedAt', 100);
     }
 
+    function isValidWardDoc(data) {
+      return data.keys().hasAll(['id']) &&
+        data.keys().hasOnly([
+          'id', 'name', 'lists', 'globalChecks', 'emergencyWeekDates',
+          'deletedItemIds', 'drugsCleared', 'equipmentCleared',
+          'bagCleared', 'cartCleared', 'ambulanceCleared',
+          'equipmentSeeded', 'drugsSeeded', 'migratedFromLegacy',
+          'pinEnabled', 'pinHash', 'pinSalt', 'sheetUrl', 'apiUrl', 'updatedAt'
+        ]) &&
+        isValidWardId(data.id) &&
+        isOptionalString(data, 'name', 150) &&
+        isOptionalMap(data, 'lists') &&
+        isOptionalMap(data, 'globalChecks') &&
+        isOptionalMap(data, 'emergencyWeekDates') &&
+        isOptionalList(data, 'deletedItemIds', 500) &&
+        isOptionalBool(data, 'drugsCleared') &&
+        isOptionalBool(data, 'equipmentCleared') &&
+        isOptionalBool(data, 'bagCleared') &&
+        isOptionalBool(data, 'cartCleared') &&
+        isOptionalBool(data, 'ambulanceCleared') &&
+        isOptionalBool(data, 'equipmentSeeded') &&
+        isOptionalBool(data, 'drugsSeeded') &&
+        isOptionalBool(data, 'migratedFromLegacy') &&
+        isOptionalBool(data, 'pinEnabled') &&
+        isOptionalString(data, 'pinHash', 128) &&
+        isOptionalString(data, 'pinSalt', 64) &&
+        isOptionalString(data, 'sheetUrl', 1000) &&
+        isOptionalString(data, 'apiUrl', 1000) &&
+        isOptionalString(data, 'updatedAt', 100);
+    }
+
     function isValidRestockRequisition(data) {
       return data.keys().hasAll(['id', 'createdAt', 'items']) &&
         data.keys().hasOnly([
-          'id', 'channelId', 'targetCategory', 'requestedBy', 'requestedById',
+          'id', 'channelId', 'wardId', 'targetCategory', 'requestedBy', 'requestedById',
           'status', 'notes', 'items', 'createdAt', 'updatedAt',
           'approvedBy', 'approvedAt', 'rejectedReason', 'receivedBy', 'receivedAt'
         ]) &&
@@ -225,6 +273,7 @@ service cloud.firestore {
         data.createdAt is string && data.createdAt.size() <= 100 &&
         data.items is list && data.items.size() >= 1 && data.items.size() <= 200 &&
         isOptionalString(data, 'channelId', 128) &&
+        isOptionalString(data, 'wardId', 48) &&
         isOptionalString(data, 'targetCategory', 100) &&
         isOptionalString(data, 'requestedBy', 150) &&
         isOptionalString(data, 'requestedById', 128) &&
@@ -246,8 +295,10 @@ service cloud.firestore {
     function isValidAuditLog(data) {
       return data.keys().hasAll(['timestamp', 'userId', 'action', 'targetCollection']) &&
         data.keys().hasOnly([
-          'id', 'timestamp', 'userId', 'userName', 'role', 'action',
-          'targetCollection', 'targetId', 'details', 'ipAddress'
+          'id', 'timestamp', 'userId', 'userName', 'operatorName', 'role', 'action',
+          'targetCollection', 'targetId', 'wardId', 'itemName', 'category',
+          'oldValue', 'newValue', 'trashId', 'restorablePayload',
+          'restoredAt', 'restoredBy', 'details', 'ipAddress'
         ]) &&
         data.timestamp is string && data.timestamp.size() <= 100 &&
         data.userId is string && data.userId.size() <= 128 &&
@@ -255,9 +306,201 @@ service cloud.firestore {
         data.targetCollection is string && data.targetCollection.size() <= 100 &&
         isOptionalString(data, 'id', 128) &&
         isOptionalString(data, 'userName', 150) &&
+        isOptionalString(data, 'operatorName', 150) &&
         isOptionalString(data, 'role', 50) &&
         isOptionalString(data, 'targetId', 128) &&
+        isOptionalString(data, 'wardId', 48) &&
+        isOptionalString(data, 'itemName', 300) &&
+        isOptionalString(data, 'category', 150) &&
+        isOptionalString(data, 'oldValue', 2000) &&
+        isOptionalString(data, 'newValue', 2000) &&
+        isOptionalString(data, 'trashId', 128) &&
+        isOptionalMap(data, 'restorablePayload') &&
+        isOptionalString(data, 'restoredAt', 100) &&
+        isOptionalString(data, 'restoredBy', 150) &&
+        isOptionalMap(data, 'details') &&
         isOptionalString(data, 'ipAddress', 100);
+    }
+
+    function isValidWardAdminConfig(data) {
+      return data.keys().hasAll([
+          'id', 'wardId', 'lockStaffDeleteItems', 'lockStaffEditStructure', 'lockGoogleSheetsExport'
+        ]) &&
+        data.keys().hasOnly([
+          'id', 'wardId', 'lockStaffDeleteItems', 'lockStaffEditStructure',
+          'lockGoogleSheetsExport', 'updatedAt', 'updatedBy'
+        ]) &&
+        isValidId(data.id) &&
+        isValidWardId(data.wardId) &&
+        data.lockStaffDeleteItems is bool &&
+        data.lockStaffEditStructure is bool &&
+        data.lockGoogleSheetsExport is bool &&
+        isOptionalString(data, 'updatedAt', 100) &&
+        isOptionalString(data, 'updatedBy', 150);
+    }
+
+    function isValidTrashItem(data) {
+      return data.keys().hasAll([
+          'id', 'wardId', 'targetType', 'itemName', 'payload', 'deletedBy', 'deletedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'id', 'wardId', 'targetType', 'category', 'groupOrRoomId', 'itemName',
+          'payload', 'tombstoneTokens', 'deletedBy', 'deletedAt', 'restoredAt', 'restoredBy'
+        ]) &&
+        isValidId(data.id) &&
+        isValidWardId(data.wardId) &&
+        data.targetType is string && data.targetType in ['drug', 'bag', 'cart', 'ambulance', 'room'] &&
+        isOptionalString(data, 'category', 150) &&
+        isOptionalString(data, 'groupOrRoomId', 200) &&
+        data.itemName is string && data.itemName.size() >= 1 && data.itemName.size() <= 300 &&
+        data.payload is map &&
+        isOptionalList(data, 'tombstoneTokens', 20) &&
+        data.deletedBy is string && data.deletedBy.size() <= 150 &&
+        data.deletedAt is string && data.deletedAt.size() <= 100 &&
+        isOptionalString(data, 'restoredAt', 100) &&
+        isOptionalString(data, 'restoredBy', 150);
+    }
+
+    function isValidWardAiMemory(data) {
+      return data.keys().hasAll([
+          'id', 'wardId', 'triggerPhrase', 'meaning', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'id', 'wardId', 'triggerPhrase', 'meaning', 'category',
+          'ruleType', 'createdBy', 'createdAt', 'updatedAt'
+        ]) &&
+        isValidId(data.id) &&
+        isValidWardId(data.wardId) &&
+        data.triggerPhrase is string && data.triggerPhrase.size() >= 1 && data.triggerPhrase.size() <= 200 &&
+        data.meaning is string && data.meaning.size() >= 1 && data.meaning.size() <= 500 &&
+        isOptionalString(data, 'category', 100) &&
+        isOptionalString(data, 'ruleType', 50) &&
+        isOptionalString(data, 'createdBy', 150) &&
+        data.createdAt is string && data.createdAt.size() <= 100 &&
+        data.updatedAt is string && data.updatedAt.size() <= 100;
+    }
+
+    // Shared Ward Workspace (Default ANES-MASTER): real-time cross-device sync without login friction
+    match /wards/{wardId} {
+      allow get: if isValidWardId(wardId);
+      allow list: if false;
+      allow create: if isValidWardId(wardId) && isValidWardDoc(incoming()) && incoming().id == wardId;
+      allow update: if isValidWardId(wardId) && isValidWardDoc(incoming()) &&
+        incoming().id == existing().id &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'name', 'lists', 'globalChecks', 'emergencyWeekDates',
+          'deletedItemIds', 'drugsCleared', 'equipmentCleared',
+          'bagCleared', 'cartCleared', 'ambulanceCleared',
+          'equipmentSeeded', 'drugsSeeded', 'migratedFromLegacy',
+          'pinEnabled', 'pinHash', 'pinSalt', 'sheetUrl', 'apiUrl', 'updatedAt'
+        ]);
+      allow delete: if isAdmin() && isValidWardId(wardId) && wardId != 'ANES-MASTER';
+
+      match /equipment/{itemId} {
+        allow get: if isValidWardId(wardId) && isValidId(itemId) && wardExists(wardId);
+        allow list: if isValidWardId(wardId) && existing().wardId == wardId;
+        allow create: if isValidWardId(wardId) && isValidId(itemId) &&
+          isValidEquipment(incoming()) && incoming().wardId == wardId && wardExists(wardId);
+        allow update: if isValidWardId(wardId) && isValidId(itemId) &&
+          isValidEquipment(incoming()) &&
+          incoming().id == existing().id &&
+          incoming().wardId == wardId &&
+          wardExists(wardId);
+        allow delete: if isValidWardId(wardId) && isValidId(itemId) && wardExists(wardId);
+      }
+
+      match /drugs/{drugId} {
+        allow get: if isValidWardId(wardId) && isValidId(drugId) && wardExists(wardId);
+        allow list: if isValidWardId(wardId) && existing().wardId == wardId;
+        allow create: if isValidWardId(wardId) && isValidId(drugId) &&
+          isValidDrug(incoming()) && incoming().wardId == wardId && wardExists(wardId);
+        allow update: if isValidWardId(wardId) && isValidId(drugId) &&
+          isValidDrug(incoming()) &&
+          incoming().id == existing().id &&
+          incoming().wardId == wardId &&
+          wardExists(wardId);
+        allow delete: if isValidWardId(wardId) && isValidId(drugId) && wardExists(wardId);
+      }
+
+      match /inspection_records/{recordId} {
+        allow get: if isValidWardId(wardId) && isValidId(recordId) && wardExists(wardId);
+        allow list: if isValidWardId(wardId) && existing().wardId == wardId;
+        allow create: if isValidWardId(wardId) && isValidId(recordId) &&
+          isValidInspectionRecord(incoming()) && incoming().wardId == wardId && wardExists(wardId);
+        allow update: if isValidWardId(wardId) && isValidId(recordId) &&
+          isValidInspectionRecord(incoming()) &&
+          incoming().id == existing().id &&
+          incoming().wardId == wardId &&
+          wardExists(wardId);
+        allow delete: if isValidWardId(wardId) && isValidId(recordId) && wardExists(wardId);
+      }
+
+      match /restock_requisitions/{reqId} {
+        allow get: if isValidWardId(wardId) && isValidId(reqId) && wardExists(wardId);
+        allow list: if isValidWardId(wardId) && existing().wardId == wardId;
+        allow create: if isValidWardId(wardId) && isValidId(reqId) &&
+          isValidRestockRequisition(incoming()) && incoming().wardId == wardId && wardExists(wardId) &&
+          (!('status' in incoming()) || incoming().status in ['draft', 'pending']);
+        allow update: if isValidWardId(wardId) && isValidId(reqId) &&
+          isValidRestockRequisition(incoming()) &&
+          incoming().id == existing().id &&
+          incoming().wardId == wardId &&
+          wardExists(wardId) &&
+          existing().status != 'received';
+        allow delete: if isValidWardId(wardId) && isValidId(reqId) &&
+          wardExists(wardId) && existing().status != 'received';
+      }
+
+      match /audit_logs/{logId} {
+        allow get: if isValidWardId(wardId) && isValidId(logId) && wardExists(wardId);
+        allow list: if isValidWardId(wardId) && existing().wardId == wardId;
+        allow create: if isValidWardId(wardId) && isValidId(logId) &&
+          isValidAuditLog(incoming()) && incoming().wardId == wardId && wardExists(wardId);
+        allow update: if isAdmin() && isValidWardId(wardId) && isValidId(logId) &&
+          isValidAuditLog(incoming()) && incoming().wardId == wardId &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['restoredAt', 'restoredBy']) &&
+          wardExists(wardId);
+        allow delete: if isAdmin() && isValidWardId(wardId) && isValidId(logId) && wardExists(wardId);
+      }
+
+      match /admin_config/{configId} {
+        allow get: if isValidWardId(wardId) && isValidId(configId) && wardExists(wardId);
+        allow list: if isValidWardId(wardId) && existing().wardId == wardId;
+        allow create: if isAdmin() && isValidWardId(wardId) && isValidId(configId) &&
+          isValidWardAdminConfig(incoming()) && incoming().wardId == wardId && wardExists(wardId);
+        allow update: if isAdmin() && isValidWardId(wardId) && isValidId(configId) &&
+          isValidWardAdminConfig(incoming()) &&
+          incoming().id == existing().id &&
+          incoming().wardId == wardId &&
+          wardExists(wardId);
+        allow delete: if isAdmin() && isValidWardId(wardId) && isValidId(configId) && wardExists(wardId);
+      }
+
+      match /trash/{trashId} {
+        allow get: if isValidWardId(wardId) && isValidId(trashId) && wardExists(wardId);
+        allow list: if isValidWardId(wardId) && existing().wardId == wardId;
+        allow create: if isValidWardId(wardId) && isValidId(trashId) &&
+          isValidTrashItem(incoming()) && incoming().wardId == wardId && wardExists(wardId);
+        allow update: if isAdmin() && isValidWardId(wardId) && isValidId(trashId) &&
+          isValidTrashItem(incoming()) &&
+          incoming().id == existing().id &&
+          incoming().wardId == wardId &&
+          wardExists(wardId);
+        allow delete: if isAdmin() && isValidWardId(wardId) && isValidId(trashId) && wardExists(wardId);
+      }
+
+      match /ai_memory/{memoryId} {
+        allow get: if isValidWardId(wardId) && isValidId(memoryId) && wardExists(wardId);
+        allow list: if isValidWardId(wardId) && existing().wardId == wardId;
+        allow create: if isValidWardId(wardId) && isValidId(memoryId) &&
+          isValidWardAiMemory(incoming()) && incoming().wardId == wardId && wardExists(wardId);
+        allow update: if isValidWardId(wardId) && isValidId(memoryId) &&
+          isValidWardAiMemory(incoming()) &&
+          incoming().id == existing().id &&
+          incoming().wardId == wardId &&
+          wardExists(wardId);
+        allow delete: if isValidWardId(wardId) && isValidId(memoryId) && wardExists(wardId);
+      }
     }
 
     // Admin Allowlist
@@ -291,7 +534,7 @@ service cloud.firestore {
       allow delete: if isAdmin() && isValidId(userId);
     }
 
-    // Master & Global Inspection Workspace Collections
+    // Legacy Master & Global Inspection Workspace Collections
     match /equipment/{itemId} {
       allow get: if isVerifiedUser() && isValidId(itemId);
       allow list: if isVerifiedUser();
@@ -336,7 +579,7 @@ service cloud.firestore {
       allow delete: if isAdmin() && isValidId(reqId) && existing().status != 'received';
     }
 
-    // Channel-Isolated Ward Documents & Subcollections
+    // Legacy Channel-Isolated Ward Documents & Subcollections
     match /channels/{channelId} {
       allow get: if isVerifiedUser() && isValidId(channelId);
       allow list: if isVerifiedUser();

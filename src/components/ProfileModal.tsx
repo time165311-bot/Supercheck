@@ -3,17 +3,23 @@ import {
   Camera,
   Check,
   CheckCircle2,
+  Copy,
   Crop,
   Download,
   Eraser,
   HeartPulse,
   Key,
+  Layers,
+  Lock,
   LogOut,
   PenTool,
+  Radio,
   RotateCw,
+  ShieldCheck,
   Sparkles,
   Stethoscope,
   Trash2,
+  Unlock,
   Upload,
   User as UserIcon,
   X,
@@ -25,6 +31,8 @@ import { UserAvatarBadge } from './UserAvatarBadge';
 import { AvatarRingKey, getEffectiveAvatarRing, RING_CONFIGS } from '../utils/avatarRings';
 import { saveUserToFirebase } from '../services/firebase';
 import { compressImageForFirestore } from '../utils/helpers';
+import { useDataContext } from '../context/DataContext';
+import { DEFAULT_WARD_ID, isValidFourDigitPin, isValidWardCodeInput } from '../utils/wardUtils';
 
 const PRESET_AVATARS = [
   {
@@ -72,6 +80,8 @@ interface ProfileModalProps {
   onUpdatePosition?: (newPosition: string) => void;
   onOpenPasswordModal?: () => void;
   onLogout?: () => void;
+  hasAdminAccess?: boolean;
+  onOpenAdminCenter?: () => void;
 }
 
 export const ProfileModal: React.FC<ProfileModalProps> = ({
@@ -85,6 +95,8 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
   onUpdatePosition,
   onOpenPasswordModal,
   onLogout,
+  hasAdminAccess = false,
+  onOpenAdminCenter,
 }) => {
   const [name, setName] = useState<string>(() => {
     if (typeof window !== 'undefined') {
@@ -133,6 +145,27 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
   // Active section tab: 'overview' | 'signature' | 'avatar'
   const [activeTab, setActiveTab] = useState<'overview' | 'signature' | 'avatar'>('overview');
 
+  // Shared Ward Workspace & Optional PIN Protection from DataContext
+  const {
+    activeChannelId,
+    activeChannel,
+    wardSyncReady,
+    switchWard,
+    pinConfig,
+  } = useDataContext();
+
+  const [wardCodeInput, setWardCodeInput] = useState<string>('');
+  const [wardCopied, setWardCopied] = useState<boolean>(false);
+  const [wardSwitching, setWardSwitching] = useState<boolean>(false);
+  const [wardStatusMsg, setWardStatusMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
+
+  // PIN management form states
+  const [pinMode, setPinMode] = useState<'idle' | 'setup' | 'change' | 'disable' | 'unlock'>('idle');
+  const [pinCurrentInput, setPinCurrentInput] = useState<string>('');
+  const [pinNewInput, setPinNewInput] = useState<string>('');
+  const [pinSaving, setPinSaving] = useState<boolean>(false);
+  const [pinStatusMsg, setPinStatusMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
+
   // Avatar Ring Color State
   const [selectedRingColor, setSelectedRingColor] = useState<AvatarRingKey>(() => {
     return getEffectiveAvatarRing(currentUser);
@@ -142,8 +175,14 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
   // Load user data on open
   useEffect(() => {
     if (isOpen) {
-      const activeName = (typeof window !== 'undefined' ? localStorage.getItem('user_display_name') : null) || currentUser?.name || 'สาธิต';
-      const activePos = (typeof window !== 'undefined' ? localStorage.getItem('user_display_position') : null) || currentUser?.position || 'พยาบาลวิสัญญี';
+      const activeName =
+        (typeof window !== 'undefined' ? localStorage.getItem('user_display_name') : null) ||
+        currentUser?.name ||
+        'สาธิต';
+      const activePos =
+        (typeof window !== 'undefined' ? localStorage.getItem('user_display_position') : null) ||
+        currentUser?.position ||
+        'พยาบาลวิสัญญี';
       setName(activeName);
       setTempName(activeName);
       setPosition(activePos);
@@ -155,6 +194,14 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
       setRawImageForCrop(null);
       setSelectedRingColor(getEffectiveAvatarRing({ ...(currentUser || {}), position: activePos } as any));
 
+      setWardCodeInput('');
+      setWardCopied(false);
+      setWardStatusMsg(null);
+      setPinMode('idle');
+      setPinCurrentInput('');
+      setPinNewInput('');
+      setPinStatusMsg(null);
+
       const savedSig =
         currentUser?.signature ||
         (currentUser?.id ? localStorage.getItem(`user_signature_${currentUser.id}`) : null) ||
@@ -164,6 +211,113 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
       setSignatureSaved(false);
     }
   }, [isOpen, currentUser]);
+
+  const handleCopyWardCode = async () => {
+    const code = activeChannelId || DEFAULT_WARD_ID;
+    try {
+      await navigator.clipboard.writeText(code);
+      setWardCopied(true);
+      setTimeout(() => setWardCopied(false), 2000);
+    } catch {
+      setWardStatusMsg({ type: 'err', text: `รหัสห้องวอร์ดปัจจุบัน: ${code}` });
+    }
+  };
+
+  const handleSwitchWardSubmit = async (targetCode?: string) => {
+    const raw = (targetCode ?? wardCodeInput).trim().toUpperCase();
+    if (!raw) {
+      setWardStatusMsg({ type: 'err', text: 'กรุณากรอกรหัสห้องวอร์ด เช่น ANES-MASTER หรือ OR-2' });
+      return;
+    }
+    if (!isValidWardCodeInput(raw)) {
+      setWardStatusMsg({
+        type: 'err',
+        text: 'รหัสห้องวอร์ดใช้ได้เฉพาะ A-Z, 0-9, _ และ - (2–48 ตัวอักษร)',
+      });
+      return;
+    }
+    setWardSwitching(true);
+    setWardStatusMsg(null);
+    const res = await switchWard(raw);
+    setWardSwitching(false);
+    if (res.ok) {
+      setWardCodeInput('');
+      setWardStatusMsg({
+        type: 'ok',
+        text: `เชื่อมต่อห้องวอร์ด "${res.wardId}" และซิงค์ข้อมูล Real-time เรียบร้อยแล้ว`,
+      });
+    } else {
+      setWardStatusMsg({ type: 'err', text: res.error || 'ไม่สามารถสลับห้องวอร์ดได้' });
+    }
+  };
+
+  const handlePinActionSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPinStatusMsg(null);
+
+    if (pinMode === 'unlock') {
+      if (!isValidFourDigitPin(pinCurrentInput)) {
+        setPinStatusMsg({ type: 'err', text: 'กรุณากรอกรหัส PIN ตัวเลข 4 หลัก' });
+        return;
+      }
+      setPinSaving(true);
+      const ok = await pinConfig.unlockWithPin(pinCurrentInput);
+      setPinSaving(false);
+      if (ok) {
+        setPinCurrentInput('');
+        setPinMode('idle');
+        setPinStatusMsg({ type: 'ok', text: 'ปลดล็อกสิทธิ์การแก้ไขบนเครื่องนี้เรียบร้อยแล้ว' });
+      } else {
+        setPinStatusMsg({ type: 'err', text: 'รหัส PIN ไม่ถูกต้อง' });
+      }
+      return;
+    }
+
+    if (pinMode === 'setup' || pinMode === 'change') {
+      if (!isValidFourDigitPin(pinNewInput)) {
+        setPinStatusMsg({ type: 'err', text: 'กรุณากำหนดรหัส PIN เป็นตัวเลข 4 หลัก' });
+        return;
+      }
+      setPinSaving(true);
+      const res = await pinConfig.enableOrChangePin(
+        pinNewInput,
+        pinMode === 'change' ? pinCurrentInput : undefined
+      );
+      setPinSaving(false);
+      if (res.ok) {
+        setPinCurrentInput('');
+        setPinNewInput('');
+        setPinMode('idle');
+        setPinStatusMsg({
+          type: 'ok',
+          text:
+            pinMode === 'setup'
+              ? 'ตั้งรหัส PIN ป้องกันการแก้ไขสำหรับห้องวอร์ดนี้เรียบร้อยแล้ว'
+              : 'เปลี่ยนรหัส PIN เรียบร้อยแล้ว',
+        });
+      } else {
+        setPinStatusMsg({ type: 'err', text: res.error || 'ไม่สามารถตั้งค่ารหัส PIN ได้' });
+      }
+      return;
+    }
+
+    if (pinMode === 'disable') {
+      if (!isValidFourDigitPin(pinCurrentInput)) {
+        setPinStatusMsg({ type: 'err', text: 'กรุณากรอกรหัส PIN ปัจจุบัน 4 หลักเพื่อยืนยัน' });
+        return;
+      }
+      setPinSaving(true);
+      const res = await pinConfig.disablePin(pinCurrentInput);
+      setPinSaving(false);
+      if (res.ok) {
+        setPinCurrentInput('');
+        setPinMode('idle');
+        setPinStatusMsg({ type: 'ok', text: 'ปิดการใช้งานรหัส PIN ป้องกันการแก้ไขแล้ว' });
+      } else {
+        setPinStatusMsg({ type: 'err', text: res.error || 'รหัส PIN ไม่ถูกต้อง' });
+      }
+    }
+  };
 
   const handleSaveProfile = async () => {
     const trimmedName = tempName.trim();
@@ -647,10 +801,299 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
 
         {/* Modal Body */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4 text-xs">
-          {/* TAB 1: OVERVIEW & HEALTH APP STATS WIDGET */}
+          {/* TAB 1: OVERVIEW, SHARED WARD CODE, PIN & PERSONAL OPERATOR PROFILE */}
           {activeTab === 'overview' && (
             <div className="space-y-4">
-              {/* User Identity Card & Quick Edit Form */}
+              {/* Shared Ward Workspace Card (Syncs Desktop, Incognito & Mobile 100% Real-Time) */}
+              <div className="p-4 bg-gradient-to-br from-[#e7f3ff]/80 via-white to-indigo-50/70 dark:from-[#1877f2]/15 dark:via-[#1c1e21] dark:to-indigo-950/20 rounded-2xl border border-[#1877f2]/25 dark:border-[#2d88ff]/30 space-y-3 shadow-2xs">
+                <div className="flex items-start justify-between gap-2 flex-wrap">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-9 h-9 rounded-xl bg-[#1877f2] text-white flex items-center justify-center shrink-0 shadow-xs">
+                      <Layers className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h3 className="font-extrabold text-xs sm:text-sm text-[#050505] dark:text-white">
+                          รหัสห้องวอร์ดกลาง (Shared Ward Workspace)
+                        </h3>
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/25">
+                          <Radio className={`w-2.5 h-2.5 ${wardSyncReady ? 'animate-pulse' : ''}`} />
+                          <span>{wardSyncReady ? 'ซิงค์สด Real-time' : 'กำลังเชื่อมต่อ...'}</span>
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-[#65676b] dark:text-[#b0b3b8] mt-0.5">
+                        อุปกรณ์ทุกเครื่อง (คอมพิวเตอร์, โหมดไม่ระบุตัวตน, มือถือ) ที่ใช้รหัสเดียวกันจะเห็นข้อมูลชุดเดียวกันทันที
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Active Ward Code + Copy */}
+                <div className="p-3 bg-white dark:bg-[#242526] rounded-xl border border-[#e4e6eb] dark:border-[#3a3b3c] flex items-center justify-between gap-3 flex-wrap">
+                  <div className="min-w-0">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-[#65676b] dark:text-[#b0b3b8] block">
+                      ห้องวอร์ดที่เชื่อมต่ออยู่ ({activeChannel?.name || 'ห้องวอร์ดกลาง'})
+                    </span>
+                    <span className="font-mono font-black text-base text-[#1877f2] dark:text-[#4ea1ff] tracking-wide">
+                      {activeChannelId || DEFAULT_WARD_ID}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={handleCopyWardCode}
+                      className="px-3 py-1.5 rounded-lg bg-[#f0f2f5] hover:bg-[#e4e6eb] dark:bg-[#3a3b3c] dark:hover:bg-[#4e4f50] text-[#050505] dark:text-white font-bold text-xs flex items-center gap-1.5 transition cursor-pointer"
+                    >
+                      {wardCopied ? (
+                        <>
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                          <span className="text-emerald-600 dark:text-emerald-400">คัดลอกแล้ว</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-3.5 h-3.5" />
+                          <span>คัดลอกรหัส</span>
+                        </>
+                      )}
+                    </button>
+                    {activeChannelId !== DEFAULT_WARD_ID && (
+                      <button
+                        type="button"
+                        disabled={wardSwitching}
+                        onClick={() => handleSwitchWardSubmit(DEFAULT_WARD_ID)}
+                        className="px-3 py-1.5 rounded-lg bg-[#e7f3ff] hover:bg-[#d8ebff] dark:bg-[#1877f2]/20 text-[#1877f2] dark:text-[#4ea1ff] font-bold text-xs transition cursor-pointer"
+                      >
+                        กลับ ANES-MASTER
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Switch / Join / Create Ward Code */}
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={wardCodeInput}
+                    onChange={(e) => setWardCodeInput(e.target.value.toUpperCase())}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        void handleSwitchWardSubmit();
+                      }
+                    }}
+                    placeholder="กรอกรหัสห้องวอร์ด เพื่อสลับหรือสร้างใหม่ เช่น OR-2, ANES-ICU"
+                    className="flex-1 px-3 py-2 rounded-xl bg-white dark:bg-[#242526] border border-[#ccd0d5] dark:border-[#4e4f50] text-[#050505] dark:text-white font-mono font-bold text-xs focus:ring-2 focus:ring-[#1877f2]/20 focus:border-[#1877f2] outline-none uppercase"
+                  />
+                  <button
+                    type="button"
+                    disabled={wardSwitching}
+                    onClick={() => void handleSwitchWardSubmit()}
+                    className="px-3.5 py-2 rounded-xl bg-[#1877f2] hover:bg-[#166fe5] disabled:opacity-60 text-white font-bold text-xs whitespace-nowrap transition cursor-pointer shadow-xs"
+                  >
+                    {wardSwitching ? 'กำลังเชื่อม...' : 'สลับ / สร้างวอร์ด'}
+                  </button>
+                </div>
+
+                {wardStatusMsg && (
+                  <p
+                    className={`text-[11px] font-bold px-3 py-1.5 rounded-lg ${
+                      wardStatusMsg.type === 'ok'
+                        ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+                        : 'bg-rose-500/10 text-rose-700 dark:text-rose-300'
+                    }`}
+                  >
+                    {wardStatusMsg.text}
+                  </p>
+                )}
+              </div>
+
+              {/* Optional 4-Digit Edit Protection PIN Card */}
+              <div className="p-4 bg-[#f0f2f5] dark:bg-[#18191a] rounded-2xl border border-[#e4e6eb] dark:border-[#3a3b3c] space-y-3">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div className="flex items-center gap-2">
+                    <div
+                      className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
+                        pinConfig.pinEnabled
+                          ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
+                          : 'bg-slate-200/70 dark:bg-[#3a3b3c] text-slate-600 dark:text-slate-300'
+                      }`}
+                    >
+                      {pinConfig.pinEnabled ? (
+                        pinConfig.isSessionUnlocked ? (
+                          <Unlock className="w-4 h-4" />
+                        ) : (
+                          <Lock className="w-4 h-4" />
+                        )
+                      ) : (
+                        <ShieldCheck className="w-4 h-4" />
+                      )}
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-xs text-[#050505] dark:text-white">
+                        รหัส PIN ป้องกันการแก้ไข (ตัวเลือกเสริม 4 หลัก)
+                      </h4>
+                      <p className="text-[11px] text-[#65676b] dark:text-[#b0b3b8]">
+                        {pinConfig.pinEnabled
+                          ? pinConfig.isSessionUnlocked
+                            ? 'เปิดใช้งานอยู่ — เครื่องนี้ปลดล็อกสิทธิ์แก้ไขชั่วคราวแล้ว'
+                            : 'เปิดใช้งานอยู่ — ต้องใส่ PIN 4 หลักก่อนเพิ่ม/ลบ/แก้ไขอุปกรณ์หรือยา'
+                          : 'ปิดอยู่ — ทุกคนในห้องวอร์ดนี้สามารถเพิ่มและแก้ไขรายการได้ทันที'}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-1.5">
+                    {!pinConfig.pinEnabled ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPinMode(pinMode === 'setup' ? 'idle' : 'setup');
+                          setPinNewInput('');
+                          setPinCurrentInput('');
+                          setPinStatusMsg(null);
+                        }}
+                        className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs transition cursor-pointer"
+                      >
+                        ตั้งรหัส PIN
+                      </button>
+                    ) : (
+                      <>
+                        {!pinConfig.isSessionUnlocked ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPinMode(pinMode === 'unlock' ? 'idle' : 'unlock');
+                              setPinCurrentInput('');
+                              setPinStatusMsg(null);
+                            }}
+                            className="px-3 py-1.5 rounded-lg bg-[#1877f2] hover:bg-[#166fe5] text-white font-bold text-xs transition cursor-pointer"
+                          >
+                            ปลดล็อกแก้ไข
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              pinConfig.lockSession();
+                              setPinStatusMsg({ type: 'ok', text: 'ล็อกการแก้ไขบนเครื่องนี้แล้ว' });
+                            }}
+                            className="px-2.5 py-1.5 rounded-lg bg-white dark:bg-[#242526] border border-[#ccd0d5] dark:border-[#4e4f50] text-[#050505] dark:text-white font-bold text-xs transition cursor-pointer"
+                          >
+                            ล็อกทันที
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPinMode(pinMode === 'change' ? 'idle' : 'change');
+                            setPinCurrentInput('');
+                            setPinNewInput('');
+                            setPinStatusMsg(null);
+                          }}
+                          className="px-2.5 py-1.5 rounded-lg bg-white dark:bg-[#242526] border border-[#ccd0d5] dark:border-[#4e4f50] text-[#050505] dark:text-white font-bold text-xs transition cursor-pointer"
+                        >
+                          เปลี่ยน PIN
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPinMode(pinMode === 'disable' ? 'idle' : 'disable');
+                            setPinCurrentInput('');
+                            setPinStatusMsg(null);
+                          }}
+                          className="px-2.5 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-700 dark:text-rose-300 font-bold text-xs transition cursor-pointer"
+                        >
+                          ปิด PIN
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                {pinMode !== 'idle' && (
+                  <form
+                    onSubmit={handlePinActionSubmit}
+                    className="p-3 bg-white dark:bg-[#242526] rounded-xl border border-[#e4e6eb] dark:border-[#3a3b3c] space-y-2.5"
+                  >
+                    {(pinMode === 'unlock' || pinMode === 'change' || pinMode === 'disable') && (
+                      <div>
+                        <label className="block text-[11px] font-bold text-[#050505] dark:text-[#e4e6eb] mb-1">
+                          {pinMode === 'unlock'
+                            ? 'กรอกรหัส PIN 4 หลักเพื่อปลดล็อก:'
+                            : 'รหัส PIN ปัจจุบัน (4 หลัก):'}
+                        </label>
+                        <input
+                          type="password"
+                          inputMode="numeric"
+                          maxLength={4}
+                          value={pinCurrentInput}
+                          onChange={(e) =>
+                            setPinCurrentInput(e.target.value.replace(/\D/g, '').slice(0, 4))
+                          }
+                          placeholder="••••"
+                          className="w-full px-3 py-2 rounded-lg bg-[#f0f2f5] dark:bg-[#18191a] border border-[#ccd0d5] dark:border-[#4e4f50] font-mono tracking-[0.4em] text-center font-bold text-sm outline-none focus:border-[#1877f2]"
+                          autoFocus
+                        />
+                      </div>
+                    )}
+
+                    {(pinMode === 'setup' || pinMode === 'change') && (
+                      <div>
+                        <label className="block text-[11px] font-bold text-[#050505] dark:text-[#e4e6eb] mb-1">
+                          {pinMode === 'setup' ? 'กำหนดรหัส PIN ใหม่ (4 หลัก):' : 'รหัส PIN ใหม่ (4 หลัก):'}
+                        </label>
+                        <input
+                          type="password"
+                          inputMode="numeric"
+                          maxLength={4}
+                          value={pinNewInput}
+                          onChange={(e) =>
+                            setPinNewInput(e.target.value.replace(/\D/g, '').slice(0, 4))
+                          }
+                          placeholder="••••"
+                          className="w-full px-3 py-2 rounded-lg bg-[#f0f2f5] dark:bg-[#18191a] border border-[#ccd0d5] dark:border-[#4e4f50] font-mono tracking-[0.4em] text-center font-bold text-sm outline-none focus:border-[#1877f2]"
+                          autoFocus={pinMode === 'setup'}
+                        />
+                      </div>
+                    )}
+
+                    <div className="flex items-center justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPinMode('idle');
+                          setPinCurrentInput('');
+                          setPinNewInput('');
+                        }}
+                        className="px-3 py-1.5 rounded-lg bg-[#e4e6eb] dark:bg-[#3a3b3c] text-[#050505] dark:text-white font-bold text-xs cursor-pointer"
+                      >
+                        ยกเลิก
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={pinSaving}
+                        className="px-3.5 py-1.5 rounded-lg bg-[#1877f2] hover:bg-[#166fe5] disabled:opacity-60 text-white font-bold text-xs cursor-pointer"
+                      >
+                        {pinSaving ? 'กำลังบันทึก...' : 'ยืนยัน'}
+                      </button>
+                    </div>
+                  </form>
+                )}
+
+                {pinStatusMsg && (
+                  <p
+                    className={`text-[11px] font-bold px-3 py-1.5 rounded-lg ${
+                      pinStatusMsg.type === 'ok'
+                        ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+                        : 'bg-rose-500/10 text-rose-700 dark:text-rose-300'
+                    }`}
+                  >
+                    {pinStatusMsg.text}
+                  </p>
+                )}
+              </div>
+
+              {/* Device-Local Operator Identity Card & Quick Edit Form */}
               <div className="p-4 bg-[#f0f2f5] dark:bg-[#18191a] rounded-2xl border border-[#e4e6eb] dark:border-[#3a3b3c] space-y-3">
                 <div className="flex items-center gap-4">
                   <UserAvatarBadge
@@ -664,36 +1107,30 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                       <h3 className="font-extrabold text-sm sm:text-base text-[#050505] dark:text-white truncate">
                         {tempName || name || currentUser.name}
                       </h3>
-                      <span
-                        className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                          currentUser.role === 'admin'
-                            ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/80 dark:text-amber-200 border border-amber-300'
-                            : 'bg-[#e7f3ff] text-[#1877f2] dark:bg-[#1877f2]/20 dark:text-[#2d88ff]'
-                        }`}
-                      >
-                        {currentUser.role === 'admin' ? 'ผู้ดูแลระบบ (Admin)' : 'พยาบาลวิสัญญี (Staff)'}
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#e7f3ff] text-[#1877f2] dark:bg-[#1877f2]/20 dark:text-[#2d88ff]">
+                        ผู้ปฏิบัติงานประจำเครื่องนี้
                       </span>
                     </div>
                     <p className="text-[11px] text-[#65676b] dark:text-[#b0b3b8] mt-0.5">
-                      @{currentUser.username} · ตำแหน่ง: <span className="font-semibold text-[#050505] dark:text-[#e4e6eb]">{tempPosition || position}</span>
+                      ตำแหน่ง: <span className="font-semibold text-[#050505] dark:text-[#e4e6eb]">{tempPosition || position}</span>
                     </p>
                     <p className="text-[10px] text-slate-400 mt-1">
-                      เข้าสู่ระบบล่าสุด: {currentUser.last || 'วันนี้'}
+                      บันทึกชื่อและตำแหน่งไว้ในอุปกรณ์นี้สำหรับช่อง &ldquo;ผู้ตรวจสอบ&rdquo; ในรายงาน PDF
                     </p>
                   </div>
                 </div>
 
-                {/* Editable Profile Inputs */}
+                {/* Editable Operator Inputs */}
                 <div className="pt-2 border-t border-[#e4e6eb] dark:border-[#3a3b3c] space-y-3">
                   <div className="space-y-1">
                     <label className="block text-[11px] font-bold text-[#050505] dark:text-[#e4e6eb]">
-                      ชื่อ-นามสกุล ผู้ใช้งาน (แสดงผลในรายงาน A4):
+                      ชื่อผู้ปฏิบัติงาน (สำหรับพิมพ์ในช่อง &ldquo;ผู้ตรวจสอบ&rdquo; ในรายงาน A4 / PDF):
                     </label>
                     <input
                       type="text"
                       value={tempName}
                       onChange={(e) => setTempName(e.target.value)}
-                      placeholder="ระบุชื่อ-นามสกุล เช่น สาธิต"
+                      placeholder="ระบุชื่อผู้ปฏิบัติงาน เช่น สาธิต"
                       className="w-full px-3 py-2 rounded-xl bg-white dark:bg-[#242526] border border-[#ccd0d5] dark:border-[#4e4f50] text-[#050505] dark:text-white font-medium text-xs focus:ring-2 focus:ring-[#1877f2]/20 focus:border-[#1877f2] outline-none"
                     />
                   </div>
@@ -718,11 +1155,11 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                     {profileSaved ? (
                       <span className="text-emerald-600 dark:text-emerald-400 font-bold text-xs flex items-center gap-1.5 animate-in fade-in">
                         <CheckCircle2 className="w-4 h-4" />
-                        <span>บันทึกข้อมูลส่วนตัวเรียบร้อยแล้ว</span>
+                        <span>บันทึกชื่อผู้ปฏิบัติงานบนเครื่องนี้เรียบร้อยแล้ว</span>
                       </span>
                     ) : (
                       <span className="text-[11px] text-[#65676b] dark:text-[#b0b3b8]">
-                        บันทึกชื่อและตำแหน่งเพื่อใช้ออกรายงานทางการ
+                        ข้อมูลชื่อและลายเซ็นเก็บแยกอิสระเฉพาะเครื่องนี้
                       </span>
                     )}
                     <button
@@ -731,7 +1168,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                       className="px-4 py-2 rounded-xl bg-[#1877f2] hover:bg-[#166fe5] text-white font-bold text-xs flex items-center gap-1.5 transition cursor-pointer shadow-xs active:scale-95"
                     >
                       <Check className="w-4 h-4" />
-                      <span>บันทึกข้อมูลโปรไฟล์</span>
+                      <span>บันทึกชื่อผู้ปฏิบัติงาน</span>
                     </button>
                   </div>
                 </div>
@@ -926,6 +1363,48 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                   ))}
                 </div>
               </div>
+
+              {/* Discreet Owner / Super Admin Control Center Entry (Always protected behind 6-digit Passcode or Owner Auth) */}
+              {onOpenAdminCenter && (
+                <div className="p-3.5 rounded-2xl border border-[#e4e6eb] dark:border-white/10 bg-slate-50/80 dark:bg-[#141517] flex items-center justify-between gap-3 flex-wrap">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div
+                      className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
+                        hasAdminAccess
+                          ? 'bg-indigo-500/20 text-indigo-500 dark:text-indigo-400'
+                          : 'bg-slate-200/80 dark:bg-white/10 text-slate-500 dark:text-zinc-400'
+                      }`}
+                    >
+                      {hasAdminAccess ? <ShieldCheck className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="font-bold text-xs text-[#050505] dark:text-[#E3E3E3]">
+                        {hasAdminAccess ? 'โหมดผู้ดูแลระบบ (ปลดล็อกแล้ว)' : 'สิทธิ์ผู้ดูแลระบบ (Owner Access)'}
+                      </div>
+                      <p className="text-[11px] text-[#65676b] dark:text-[#8E918F] truncate">
+                        {hasAdminAccess
+                          ? 'สามารถตั้งค่าสิทธิ์วอร์ด ดู Audit Log และกู้คืนข้อมูลได้'
+                          : 'สำหรับหัวหน้า/ผู้ดูแลระบบเพื่อปลดล็อกด้วยรหัส 6 หลัก'}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      onOpenAdminCenter();
+                    }}
+                    className={`px-3.5 py-2 rounded-xl font-bold text-xs flex items-center gap-1.5 transition cursor-pointer shrink-0 active:scale-95 ${
+                      hasAdminAccess
+                        ? 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-xs'
+                        : 'bg-slate-200/80 hover:bg-slate-300 dark:bg-white/10 dark:hover:bg-white/15 text-slate-700 dark:text-zinc-200'
+                    }`}
+                  >
+                    {hasAdminAccess ? <ShieldCheck className="w-3.5 h-3.5" /> : <Key className="w-3.5 h-3.5" />}
+                    <span>{hasAdminAccess ? 'เปิดศูนย์ควบคุมหลังบ้าน' : 'ปลดล็อกสิทธิ์ Admin'}</span>
+                  </button>
+                </div>
+              )}
 
             </div>
           )}

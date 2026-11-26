@@ -3,13 +3,13 @@ import {
   doc,
   getDocs,
   onSnapshot,
-  orderBy,
   query,
   runTransaction,
   setDoc,
   updateDoc,
+  where,
 } from 'firebase/firestore';
-import { db, sanitizeForFirestore } from './firebase';
+import { db, ensureWardWorkspaceInitialized, sanitizeForFirestore } from './firebase';
 import {
   DrugItem,
   DrugLotBatch,
@@ -21,31 +21,26 @@ import {
 } from '../types';
 import { getBangkokTodayIso, normalizeExpDateToIso } from '../utils/dateUtils';
 import { findFuzzyDrugOrItemMatches, recomputeDrugFromLots } from '../utils/itemUtils';
+import { getActiveWardIdFromStorage, resolveWardId } from '../utils/wardUtils';
 
-const isMasterChannel = (channelId?: string): boolean => !channelId || channelId === 'channel_master';
-
-function getDrugsCollectionPath(channelId?: string) {
-  return isMasterChannel(channelId)
-    ? collection(db, 'drugs')
-    : collection(db, 'channels', channelId!, 'drugs');
+function getDrugsCollectionPath(wardId?: string) {
+  const resolved = resolveWardId(wardId || getActiveWardIdFromStorage());
+  return collection(db, 'wards', resolved, 'drugs');
 }
 
-function getDrugDocRef(channelId: string | undefined, drugId: string) {
-  return isMasterChannel(channelId)
-    ? doc(db, 'drugs', drugId)
-    : doc(db, 'channels', channelId!, 'drugs', drugId);
+function getDrugDocRef(wardId: string | undefined, drugId: string) {
+  const resolved = resolveWardId(wardId || getActiveWardIdFromStorage());
+  return doc(db, 'wards', resolved, 'drugs', drugId);
 }
 
-function getRequisitionsCollectionRef(channelId?: string) {
-  return isMasterChannel(channelId)
-    ? collection(db, 'restock_requisitions')
-    : collection(db, 'channels', channelId!, 'restock_requisitions');
+function getRequisitionsCollectionRef(wardId?: string) {
+  const resolved = resolveWardId(wardId || getActiveWardIdFromStorage());
+  return collection(db, 'wards', resolved, 'restock_requisitions');
 }
 
-function getRequisitionDocRef(channelId: string | undefined, reqId: string) {
-  return isMasterChannel(channelId)
-    ? doc(db, 'restock_requisitions', reqId)
-    : doc(db, 'channels', channelId!, 'restock_requisitions', reqId);
+function getRequisitionDocRef(wardId: string | undefined, reqId: string) {
+  const resolved = resolveWardId(wardId || getActiveWardIdFromStorage());
+  return doc(db, 'wards', resolved, 'restock_requisitions', reqId);
 }
 
 /**
@@ -67,21 +62,23 @@ export function canApproveRequisition(user?: User | null): boolean {
 }
 
 /**
- * Granular single-item equipment field/patch update (avoids rewriting the entire channel document).
+ * Granular single-item equipment field/patch update under wards/{wardId}/equipment/{itemId}.
  */
 export async function saveChannelEquipmentPatch(
-  channelId: string,
+  wardId: string,
   itemId: string,
   patch: Partial<EquipmentItem>
 ): Promise<boolean> {
   try {
-    const ref = isMasterChannel(channelId)
-      ? doc(db, 'equipment', itemId)
-      : doc(db, 'channels', channelId, 'equipment', itemId);
+    const resolved = resolveWardId(wardId);
+    await ensureWardWorkspaceInitialized(resolved);
+    const ref = doc(db, 'wards', resolved, 'equipment', itemId);
     const payload = sanitizeForFirestore({
       ...patch,
       id: itemId,
-      ...(isMasterChannel(channelId) ? {} : { channelId }),
+      wardId: resolved,
+      channelId: resolved,
+      updatedAt: new Date().toISOString(),
     });
     await setDoc(ref, payload, { merge: true });
     return true;
@@ -92,19 +89,22 @@ export async function saveChannelEquipmentPatch(
 }
 
 /**
- * Granular single-drug update with recomputed FEFO lots & earliest expiry date.
+ * Granular single-drug update under wards/{wardId}/drugs/{drugId}.
  */
 export async function saveDrugPatch(
-  channelId: string | undefined,
+  wardId: string | undefined,
   drugId: string,
   patch: Partial<DrugItem>
 ): Promise<boolean> {
   try {
-    const ref = getDrugDocRef(channelId, drugId);
+    const resolved = resolveWardId(wardId || getActiveWardIdFromStorage());
+    await ensureWardWorkspaceInitialized(resolved);
+    const ref = getDrugDocRef(resolved, drugId);
     const payload = sanitizeForFirestore({
       ...patch,
       id: drugId,
-      ...(isMasterChannel(channelId) ? {} : { channelId }),
+      wardId: resolved,
+      channelId: resolved,
       updatedAt: new Date().toISOString(),
     });
     await setDoc(ref, payload, { merge: true });
@@ -116,7 +116,7 @@ export async function saveDrugPatch(
 }
 
 /**
- * Merges remote channel data cleanly without discarding valid local lists/checks.
+ * Merges remote ward data cleanly without discarding valid local lists/checks.
  */
 export function mergeRemoteChannelData<T extends Record<string, any>>(
   localData: T,
@@ -143,33 +143,32 @@ export function mergeRemoteChannelData<T extends Record<string, any>>(
 
 // --- RESTOCK REQUISITION WORKFLOW (draft -> pending -> approved -> received | rejected) ---
 
-export async function fetchRestockRequisitions(channelId?: string): Promise<RestockRequisition[]> {
+export async function fetchRestockRequisitions(wardId?: string): Promise<RestockRequisition[]> {
+  const resolved = resolveWardId(wardId || getActiveWardIdFromStorage());
   try {
-    const q = query(getRequisitionsCollectionRef(channelId), orderBy('createdAt', 'desc'));
+    const q = query(getRequisitionsCollectionRef(resolved), where('wardId', '==', resolved));
     const snap = await getDocs(q);
-    return snap.docs.map((d) => ({ ...d.data(), id: d.id } as RestockRequisition));
+    return snap.docs
+      .map((d) => ({ ...d.data(), id: d.id } as RestockRequisition))
+      .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
   } catch {
-    try {
-      const snap = await getDocs(getRequisitionsCollectionRef(channelId));
-      return snap.docs
-        .map((d) => ({ ...d.data(), id: d.id } as RestockRequisition))
-        .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
-    } catch {
-      return [];
-    }
+    return [];
   }
 }
 
 export function subscribeRestockRequisitions(
-  channelId: string | undefined,
+  wardId: string | undefined,
   callback: (items: RestockRequisition[]) => void
 ): () => void {
+  const resolved = resolveWardId(wardId || getActiveWardIdFromStorage());
   try {
-    const q = query(getRequisitionsCollectionRef(channelId), orderBy('createdAt', 'desc'));
+    const q = query(getRequisitionsCollectionRef(resolved), where('wardId', '==', resolved));
     return onSnapshot(
       q,
       (snap) => {
-        const list = snap.docs.map((d) => ({ ...d.data(), id: d.id } as RestockRequisition));
+        const list = snap.docs
+          .map((d) => ({ ...d.data(), id: d.id } as RestockRequisition))
+          .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
         callback(list);
       },
       (err) => {
@@ -185,10 +184,13 @@ export async function saveRestockRequisitionWorkflow(
   req: RestockRequisition
 ): Promise<boolean> {
   try {
-    const ref = getRequisitionDocRef(req.channelId, req.id);
+    const resolved = resolveWardId((req as any).wardId || req.channelId || getActiveWardIdFromStorage());
+    await ensureWardWorkspaceInitialized(resolved);
+    const ref = getRequisitionDocRef(resolved, req.id);
     const clean = sanitizeForFirestore({
       ...req,
-      channelId: req.channelId || 'channel_master',
+      wardId: resolved,
+      channelId: resolved,
       updatedAt: new Date().toISOString(),
     });
     await setDoc(ref, clean, { merge: true });
@@ -216,6 +218,7 @@ export async function transitionRestockRequisitionStatus(params: {
   itemsPatch?: RestockRequisitionItem[];
 }): Promise<{ ok: boolean; error?: string }> {
   const { channelId, reqId, nextStatus, actor, rejectedReason, itemsPatch } = params;
+  const resolved = resolveWardId(channelId || getActiveWardIdFromStorage());
 
   if ((nextStatus === 'approved' || nextStatus === 'rejected') && !canApproveRequisition(actor)) {
     return {
@@ -225,7 +228,8 @@ export async function transitionRestockRequisitionStatus(params: {
   }
 
   try {
-    const reqRef = getRequisitionDocRef(channelId, reqId);
+    await ensureWardWorkspaceInitialized(resolved);
+    const reqRef = getRequisitionDocRef(resolved, reqId);
     const nowIso = new Date().toISOString();
 
     await runTransaction(db, async (tx) => {
@@ -247,6 +251,7 @@ export async function transitionRestockRequisitionStatus(params: {
 
       const updatePayload: Record<string, any> = {
         status: nextStatus,
+        wardId: resolved,
         updatedAt: nowIso,
       };
       if (itemsPatch) {
@@ -265,20 +270,27 @@ export async function transitionRestockRequisitionStatus(params: {
 
       const auditId = `audit_req_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
       tx.set(
-        doc(db, 'audit_logs', auditId),
+        doc(db, 'wards', resolved, 'audit_logs', auditId),
         sanitizeForFirestore({
           id: auditId,
+          wardId: resolved,
           timestamp: nowIso,
-          userId: actor?.id || 'usr_anonymous',
+          userId: actor?.id || 'usr_ward_staff',
           userName: actor?.name || 'เจ้าหน้าที่',
           role: actor?.role || 'user',
-          action: nextStatus === 'approved' ? 'REQUISITION_APPROVED' : nextStatus === 'rejected' ? 'REQUISITION_REJECTED' : 'REQUISITION_SUBMITTED',
+          action:
+            nextStatus === 'approved'
+              ? 'REQUISITION_APPROVED'
+              : nextStatus === 'rejected'
+              ? 'REQUISITION_REJECTED'
+              : 'REQUISITION_SUBMITTED',
           targetCollection: 'restock_requisitions',
           targetId: reqId,
           details: {
             fromStatus: currentStatus,
             toStatus: nextStatus,
-            channelId: channelId || 'channel_master',
+            wardId: resolved,
+            channelId: resolved,
             rejectedReason: rejectedReason || undefined,
           },
         })
@@ -292,11 +304,7 @@ export async function transitionRestockRequisitionStatus(params: {
 }
 
 /**
- * Atomic Firestore Transaction for receiving an approved requisition into drug stock.
- * 1. Verifies requisition status === 'approved' (prevents duplicate stock increments)
- * 2. Increments target drug stock and appends received Lot/Batch entries (recomputing earliest EXP)
- * 3. Marks requisition status = 'received'
- * 4. Writes immutable audit_logs entry inside the SAME atomic transaction
+ * Atomic Firestore Transaction for receiving an approved requisition into ward drug stock.
  */
 export async function receiveRestockRequisitionTransaction(params: {
   channelId?: string;
@@ -306,28 +314,31 @@ export async function receiveRestockRequisitionTransaction(params: {
   actor: User | null;
 }): Promise<{ ok: boolean; error?: string; updatedDrugs: DrugItem[] }> {
   const { channelId, reqId, receivedItems, currentDrugs, actor } = params;
-  const reqRef = getRequisitionDocRef(channelId, reqId);
+  const resolved = resolveWardId(channelId || getActiveWardIdFromStorage());
+  const reqRef = getRequisitionDocRef(resolved, reqId);
   const nowIso = new Date().toISOString();
   const todayIso = getBangkokTodayIso();
 
   try {
-    const resolvedDrugPatches: Array<{ drugId: string; item: RestockRequisitionItem; matched?: DrugItem }> = receivedItems.map((item) => {
-      let matched = item.drugId ? currentDrugs.find((d) => d.id === item.drugId) : undefined;
-      if (!matched) {
-        const fuzzy = findFuzzyDrugOrItemMatches(item.name, currentDrugs, {
-          getName: (d) => d.name,
-          getSpec: (d) => d.spec || d.unit || '',
-          getCodes: (d) => [d.tmtCode, d.hospitalDrugCode, d.barcode, d.id],
-          minScore: 55,
-        });
-        matched = fuzzy[0]?.item;
-      }
-      return {
-        drugId: matched?.id || item.drugId || '',
-        item,
-        matched,
-      };
-    });
+    await ensureWardWorkspaceInitialized(resolved);
+    const resolvedDrugPatches: Array<{ drugId: string; item: RestockRequisitionItem; matched?: DrugItem }> =
+      receivedItems.map((item) => {
+        let matched = item.drugId ? currentDrugs.find((d) => d.id === item.drugId) : undefined;
+        if (!matched) {
+          const fuzzy = findFuzzyDrugOrItemMatches(item.name, currentDrugs, {
+            getName: (d) => d.name,
+            getSpec: (d) => d.spec || d.unit || '',
+            getCodes: (d) => [d.tmtCode, d.hospitalDrugCode, d.barcode, d.id],
+            minScore: 55,
+          });
+          matched = fuzzy[0]?.item;
+        }
+        return {
+          drugId: matched?.id || item.drugId || '',
+          item,
+          matched,
+        };
+      });
 
     const updatedMap = new Map<string, DrugItem>();
 
@@ -345,23 +356,35 @@ export async function receiveRestockRequisitionTransaction(params: {
         );
       }
 
-      // Read phase: fetch all target drug documents before executing any writes
-      const drugSnapshots = new Map<string, { ref: ReturnType<typeof getDrugDocRef>; existing: DrugItem | null }>();
+      const drugSnapshots = new Map<
+        string,
+        { ref: ReturnType<typeof getDrugDocRef>; existing: DrugItem | null }
+      >();
       for (const entry of resolvedDrugPatches) {
         if (!entry.drugId || drugSnapshots.has(entry.drugId)) continue;
-        const dRef = getDrugDocRef(channelId, entry.drugId);
+        const dRef = getDrugDocRef(resolved, entry.drugId);
         const dSnap = await tx.get(dRef);
         drugSnapshots.set(entry.drugId, {
           ref: dRef,
-          existing: dSnap.exists() ? ({ ...(dSnap.data() as DrugItem), id: dSnap.id }) : (entry.matched || null),
+          existing: dSnap.exists()
+            ? ({ ...(dSnap.data() as DrugItem), id: dSnap.id })
+            : (entry.matched || null),
         });
       }
 
-      // Write phase: update each matched drug atomically
-      const stockAuditSummary: Array<{ drugId: string; name: string; addedQty: number; newTotal: number; lotNumber: string }> = [];
+      const stockAuditSummary: Array<{
+        drugId: string;
+        name: string;
+        addedQty: number;
+        newTotal: number;
+        lotNumber: string;
+      }> = [];
 
       for (const entry of resolvedDrugPatches) {
-        const recvQty = Math.max(0, Number(entry.item.receivedQty ?? entry.item.approvedQty ?? entry.item.neededQty ?? 0) || 0);
+        const recvQty = Math.max(
+          0,
+          Number(entry.item.receivedQty ?? entry.item.approvedQty ?? entry.item.neededQty ?? 0) || 0
+        );
         if (!entry.drugId || recvQty <= 0) continue;
 
         const snapHolder = drugSnapshots.get(entry.drugId);
@@ -369,18 +392,23 @@ export async function receiveRestockRequisitionTransaction(params: {
         if (!baseDrug || !snapHolder) continue;
 
         const lotNo = String(entry.item.lotNumber || `LOT-${todayIso.replace(/-/g, '')}`).trim();
-        const expIso = normalizeExpDateToIso(entry.item.expiryDate) || baseDrug.expDate || baseDrug.exp || '';
+        const expIso =
+          normalizeExpDateToIso(entry.item.expiryDate) || baseDrug.expDate || baseDrug.exp || '';
 
-        const existingLots: DrugLotBatch[] = Array.isArray(baseDrug.lots) && baseDrug.lots.length > 0
-          ? [...baseDrug.lots]
-          : baseDrug.remaining > 0
-          ? [{
-              lotNumber: baseDrug.lotNumber || 'LOT-EXISTING',
-              expiryDate: normalizeExpDateToIso(baseDrug.expDate || baseDrug.exp) || baseDrug.expDate || '',
-              quantity: Math.max(0, Number(baseDrug.remaining ?? baseDrug.totalQty ?? 0) || 0),
-              receivedDate: baseDrug.receivedDate || undefined,
-            }]
-          : [];
+        const existingLots: DrugLotBatch[] =
+          Array.isArray(baseDrug.lots) && baseDrug.lots.length > 0
+            ? [...baseDrug.lots]
+            : baseDrug.remaining > 0
+            ? [
+                {
+                  lotNumber: baseDrug.lotNumber || 'LOT-EXISTING',
+                  expiryDate:
+                    normalizeExpDateToIso(baseDrug.expDate || baseDrug.exp) || baseDrug.expDate || '',
+                  quantity: Math.max(0, Number(baseDrug.remaining ?? baseDrug.totalQty ?? 0) || 0),
+                  receivedDate: baseDrug.receivedDate || undefined,
+                },
+              ]
+            : [];
 
         const existingLotIdx = existingLots.findIndex(
           (l) => l.lotNumber === lotNo && (l.expiryDate || '') === (expIso || '')
@@ -408,11 +436,15 @@ export async function receiveRestockRequisitionTransaction(params: {
           receivedDate: todayIso,
           receivedQty: recvQty,
           updatedAt: nowIso,
-          ...(isMasterChannel(channelId) ? {} : { channelId }),
+          channelId: resolved,
         });
 
         updatedMap.set(entry.drugId, recomputed);
-        tx.set(snapHolder.ref, sanitizeForFirestore(recomputed), { merge: true });
+        tx.set(
+          snapHolder.ref,
+          sanitizeForFirestore({ ...recomputed, wardId: resolved }),
+          { merge: true }
+        );
 
         stockAuditSummary.push({
           drugId: entry.drugId,
@@ -423,11 +455,11 @@ export async function receiveRestockRequisitionTransaction(params: {
         });
       }
 
-      // Update requisition doc atomically
       tx.set(
         reqRef,
         sanitizeForFirestore({
           status: 'received',
+          wardId: resolved,
           items: receivedItems,
           receivedBy: actor?.name || actor?.username || 'ผู้รับเข้าคลัง',
           receivedAt: nowIso,
@@ -436,21 +468,22 @@ export async function receiveRestockRequisitionTransaction(params: {
         { merge: true }
       );
 
-      // Write immutable audit log inside the SAME transaction
       const auditId = `audit_recv_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
       tx.set(
-        doc(db, 'audit_logs', auditId),
+        doc(db, 'wards', resolved, 'audit_logs', auditId),
         sanitizeForFirestore({
           id: auditId,
+          wardId: resolved,
           timestamp: nowIso,
-          userId: actor?.id || 'usr_anonymous',
+          userId: actor?.id || 'usr_ward_staff',
           userName: actor?.name || 'เจ้าหน้าที่',
           role: actor?.role || 'user',
           action: 'REQUISITION_RECEIVED',
           targetCollection: 'restock_requisitions',
           targetId: reqId,
           details: {
-            channelId: channelId || 'channel_master',
+            wardId: resolved,
+            channelId: resolved,
             receivedItemsCount: stockAuditSummary.length,
             stockChanges: stockAuditSummary,
           },
@@ -469,20 +502,24 @@ export async function receiveRestockRequisitionTransaction(params: {
   }
 }
 
-export async function ensureChannelDrugsCollectionExists(channelId?: string): Promise<number> {
-  const snap = await getDocs(getDrugsCollectionPath(channelId));
+export async function ensureChannelDrugsCollectionExists(wardId?: string): Promise<number> {
+  const resolved = resolveWardId(wardId || getActiveWardIdFromStorage());
+  const snap = await getDocs(
+    query(getDrugsCollectionPath(resolved), where('wardId', '==', resolved))
+  );
   return snap.size;
 }
 
 export async function markRequisitionField(
-  channelId: string | undefined,
+  wardId: string | undefined,
   reqId: string,
   patch: Partial<RestockRequisition>
 ): Promise<boolean> {
   try {
+    const resolved = resolveWardId(wardId || getActiveWardIdFromStorage());
     await updateDoc(
-      getRequisitionDocRef(channelId, reqId),
-      sanitizeForFirestore({ ...patch, updatedAt: new Date().toISOString() })
+      getRequisitionDocRef(resolved, reqId),
+      sanitizeForFirestore({ ...patch, wardId: resolved, updatedAt: new Date().toISOString() })
     );
     return true;
   } catch {

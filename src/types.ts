@@ -44,6 +44,7 @@ export interface EquipmentItem {
   category?: string;
   groupName?: string;
   roomId?: string;
+  wardId?: string;
   barcode?: string;
   serialNumber?: string;
   subExps?: Array<{ label?: string; exp?: string; qty?: number; hasNoExp?: boolean }>;
@@ -223,15 +224,69 @@ export interface RestockRequisition {
   rejectedReason?: string;
 }
 
+export interface WardPermissionLocks {
+  lockStaffDeleteItems: boolean;
+  lockStaffEditStructure: boolean;
+  lockGoogleSheetsExport: boolean;
+  updatedAt?: string;
+  updatedBy?: string;
+}
+
+export type TrashTargetType = 'drug' | 'bag' | 'cart' | 'ambulance' | 'room';
+
+export interface TrashItemRecord {
+  id: string;
+  wardId: string;
+  targetType: TrashTargetType;
+  category?: string;
+  groupOrRoomId?: string;
+  itemName: string;
+  payload: Record<string, any>;
+  tombstoneTokens?: string[];
+  deletedBy: string;
+  deletedAt: string;
+  restoredAt?: string;
+  restoredBy?: string;
+}
+
 export interface HaAuditLogEntry {
   id?: string;
+  wardId?: string;
   timestamp: string;
   userId: string;
   userName: string;
+  operatorName?: string;
   role: string;
-  action: 'UPDATE_DRUG_STOCK' | 'ADD_EQUIPMENT' | 'EDIT_EQUIPMENT' | 'DELETE_EQUIPMENT' | 'ROLE_CHANGE' | 'DEFECTIVE_FLAG' | 'BYPASS_ITEM' | 'EXPORT_HA_REPORT' | 'EXPORT_EXCEL' | 'FHIR_MEDICATION_DISPENSE' | string;
+  action:
+    | 'ADD'
+    | 'UPDATE'
+    | 'DELETE'
+    | 'CHECK'
+    | 'AURA_ACTION'
+    | 'RESTORE'
+    | 'PERMISSION_CHANGE'
+    | 'SHEETS_SYNC'
+    | 'UPDATE_DRUG_STOCK'
+    | 'ADD_EQUIPMENT'
+    | 'EDIT_EQUIPMENT'
+    | 'DELETE_EQUIPMENT'
+    | 'ROLE_CHANGE'
+    | 'DEFECTIVE_FLAG'
+    | 'BYPASS_ITEM'
+    | 'EXPORT_HA_REPORT'
+    | 'EXPORT_EXCEL'
+    | 'FHIR_MEDICATION_DISPENSE'
+    | string;
   targetCollection: string;
   targetId: string;
+  itemName?: string;
+  category?: string;
+  oldValue?: string;
+  newValue?: string;
+  trashId?: string;
+  restorablePayload?: Record<string, any>;
+  restoredAt?: string;
+  restoredBy?: string;
   details: {
     field?: string;
     oldValue?: any;
@@ -327,3 +382,16 @@ export interface AuraDataSnapshot {
     ambulanceCleared?: boolean;
   };
 }
+
+export interface WardAiMemoryItem {
+  id: string;
+  wardId: string;
+  triggerPhrase: string;
+  meaning: string;
+  category?: string;
+  ruleType?: string;
+  createdBy?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+

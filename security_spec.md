@@ -1,13 +1,15 @@
 # Security Specification - Anesthesia Care
 
 ## Data Invariants
-1. Every Firestore read and write requires an authenticated Firebase Auth user (`request.auth != null && request.auth.token.email_verified == true`).
-2. A `User` document contains only profile metadata (`id`, `uid`, `email`, `username`, `name`, `role`, `position`, `signature`, `active`, `must`, `created`, `last`, `avatar`, `ringColor`) and NEVER stores `salt` or `hash`.
-3. Users can only create or update their own `/users/{uid}` profile with immutable `role: 'user'` unless they are verified `isAdmin()`.
-4. `isAdmin()` is true ONLY for bootstrapped verified admin (`time165311@gmail.com` with `email_verified == true`) or UIDs present in `/admins/{uid}`.
-5. Destructive `delete` operations across `/equipment`, `/drugs`, `/inspection_records`, `/channels`, `/restock_requisitions`, and `/settings/config` updates (`sheetUrl`, `apiUrl`) require `isAdmin()`.
-6. `RestockRequisition` documents enforce terminal-state locking once `status == 'received'`, and only `isAdmin()` may transition requisitions to `approved`, `rejected`, or `received`.
-7. `AuditLog` documents are strictly append-only (`update` and `delete` forbidden) and list queries are scoped by `isBootstrappedAdmin()` or `resource.data.userId == request.auth.uid`.
+1. Shared Ward Workspaces under `/wards/{wardId}` (default `ANES-MASTER`) enforce strict `isValidWardId(wardId)` (`^[a-zA-Z0-9_-]{2,48}$`), forbid `list` enumeration on `/wards`, enforce Master Gate `wardExists(wardId)` + `wardId` scope matching on subcollections, and allow real-time device sync without requiring Google login.
+2. Personal profiles (`/users/{uid}`), admin allowlists (`/admins/{uid}`), global config (`/settings/config`), and legacy collections require `request.auth != null && request.auth.token.email_verified == true`.
+3. A `User` document contains only profile metadata (`id`, `uid`, `email`, `username`, `name`, `role`, `position`, `signature`, `active`, `must`, `created`, `last`, `avatar`, `ringColor`) and NEVER stores `salt` or `hash`. Optional ward edit PINs store only SHA-256 salted digests (`pinHash`, `pinSalt`), never plaintext PINs.
+4. Users can only create or update their own `/users/{uid}` profile with immutable `role: 'user'` unless they are verified `isAdmin()`.
+5. `isAdmin()` is true ONLY for bootstrapped verified admin (`time165311@gmail.com` with `email_verified == true`) or UIDs present in `/admins/{uid}`.
+6. `RestockRequisition` documents enforce terminal-state locking once `status == 'received'`.
+7. Global `/audit_logs/{logId}` documents are strictly append-only (`update` and `delete` forbidden). Ward-scoped `/wards/{wardId}/audit_logs/{logId}` allow `create` for ward audit trail, and allow `update` (`restoredAt`, `restoredBy` only) or `delete` strictly for verified `isAdmin()`.
+8. `/wards/{wardId}/admin_config/{configId}` (ward permission locks) allows read access within valid `wardId` and restricts writes (`create`, `update`, `delete`) strictly to verified `isAdmin()`.
+9. `/wards/{wardId}/trash/{trashId}` stores restorable snapshots of deleted items; only verified `isAdmin()` can update (`restoredAt`, `restoredBy`) or delete trash entries.
 
 ## The "Dirty Dozen" Payloads
 

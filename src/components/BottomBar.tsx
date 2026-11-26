@@ -13,6 +13,7 @@ interface BottomBarProps {
   isDrawerOpen?: boolean;
   sheetUrl?: string;
   isVisible?: boolean;
+  canExportSheets?: boolean;
 }
 
 export const BottomBar: React.FC<BottomBarProps> = ({
@@ -26,6 +27,7 @@ export const BottomBar: React.FC<BottomBarProps> = ({
   isDrawerOpen = false,
   sheetUrl = '',
   isVisible = true,
+  canExportSheets = true,
 }) => {
   const isDark = theme === 'dark';
   const trimmedSheetUrl = sheetUrl?.trim() || '';
@@ -91,8 +93,20 @@ export const BottomBar: React.FC<BottomBarProps> = ({
           </button>
         </div>
 
-        {/* 4. ชีต (เปิด Google Sheets จริงในแท็บใหม่ทันทีหากมี URL หรือเปิดตั้งค่าหากยังไม่มี) */}
-        {trimmedSheetUrl ? (
+        {/* 4. ชีต (เปิด Google Sheets จริงในแท็บใหม่ทันทีหากมี URL หรือเปิดตั้งค่าหากยังไม่มี — ล็อกเมื่อ Admin ปิดสิทธิ์) */}
+        {!canExportSheets ? (
+          <button
+            type="button"
+            disabled
+            aria-disabled="true"
+            className={`flex-1 flex items-center justify-center py-2 opacity-30 cursor-not-allowed ${
+              isDark ? 'text-slate-500' : 'text-slate-400'
+            }`}
+            title="ผู้ดูแลระบบจำกัดสิทธิ์การใช้ Google Sheets"
+          >
+            <FileSpreadsheet className="w-5 h-5 sm:w-6 sm:h-6" />
+          </button>
+        ) : trimmedSheetUrl ? (
           <a
             href={trimmedSheetUrl}
             target="_blank"

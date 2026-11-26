@@ -1,5 +1,5 @@
 import express from 'express';
-import { ThinkingLevel, Type } from '@google/genai';
+import { FunctionCallingConfigMode, ThinkingLevel, Type } from '@google/genai';
 import {
   createServerGeminiClient,
   getServerGeminiKey,
@@ -95,16 +95,16 @@ export function extractDrugsCatalog(rawContext: any) {
     .filter((d: any) => d && typeof d === 'object' && String(d.name || '').trim())
     .map((d: any) => {
       const spec = String(d.spec || '').trim();
-      const note = String(d.note || '').trim().slice(0, 80);
+      const note = String(d.note || '').trim().slice(0, 45);
+      const loc = String(d.location || '').trim();
       const entry: Record<string, any> = {
-        id: String(d.id || ''),
         name: String(d.name || '').trim(),
         rem: d.remaining ?? d.totalQty ?? d.quantity ?? 0,
         min: d.minStock ?? d.minQuantity ?? 0,
         unit: String(d.unit || 'ชิ้น'),
         exp: String(d.expDate || d.expiryDate || d.exp || '-'),
-        loc: String(d.location || 'คลังยาวิสัญญี'),
       };
+      if (loc && loc !== 'คลังยาวิสัญญี') entry.loc = loc;
       if (spec) entry.spec = spec;
       if (note) entry.note = note;
       return entry;
@@ -119,17 +119,18 @@ export function extractEmergencyCatalog(rawContext: any, key: 'bags' | 'carts' |
     .filter((it: any) => it && typeof it === 'object' && String(it.name || '').trim())
     .map((it: any) => {
       const spec = String(it.spec || '').trim();
-      const note = String(it.note || '').trim().slice(0, 80);
+      const note = String(it.note || '').trim().slice(0, 45);
+      const loc = String(it.location || '').trim();
+      const status = String(it.status || '').trim();
       const entry: Record<string, any> = {
-        id: String(it.id || ''),
         name: String(it.name || '').trim(),
         qty: it.qty ?? it.quantity ?? '1',
         exp: String(it.exp || it.expiryDate || '-'),
-        loc: String(it.location || defaultLoc),
-        status: String(it.status || 'รอตรวจ'),
       };
       if (it.no) entry.no = String(it.no);
-      if (it.groupName) entry.groupName = String(it.groupName);
+      if (it.groupName) entry.grp = String(it.groupName);
+      if (loc && loc !== defaultLoc) entry.loc = loc;
+      if (status && status !== 'รอตรวจ') entry.st = status;
       if (spec) entry.spec = spec;
       if (note) entry.note = note;
       return entry;
@@ -259,9 +260,29 @@ function isClinicalWebQuery(msg: string): boolean {
   return /(แนวทาง|guideline|acls|pals|dose|mg\/kg|ขนาดยา|คำนวณ|เจือจาง|ผสมยา|ข้อห้าม|ปฏิกิริยา|ค้นหาข้อมูล|งานวิจัย|ล่าสุด|google)/i.test(q);
 }
 
+function isExpiryUpdateCommand(msg: string): boolean {
+  const q = (msg || '').toLowerCase().trim();
+  if (!q) return false;
+  const hasExpiryKeyword = /(วันหมดอายุ|หมดอายุ|\bexp\b|exp\s*[:=])/i.test(q);
+  const hasMutateVerb =
+    /(แก้|แก้ไข|เปลี่ยน|อัปเดต|อัพเดท|ปรับ|ตั้ง|บันทึก|เลื่อน|ต่อ|ลงวัน|ใส่|update|edit|change|set|modify)/i.test(q) ||
+    /(?:เป็น|to|=|\bexp\b)\s*(?:\d{1,4}[-/.]\d{1,2}|\d{4})/i.test(q);
+  const isReadOnlyQuestion =
+    /^(?:เช็ก|เช็ค|ตรวจสอบ|ดู|สรุป|มี.*ไหม|อะไรบ้าง|เหลือเท่า|ตัวไหน)/i.test(q) &&
+    !/(แก้|แก้ไข|เปลี่ยน|อัปเดต|อัพเดท|ปรับ|ตั้ง|เลื่อน|ต่อ|update|edit|change|set|modify)/i.test(q);
+  return hasExpiryKeyword && hasMutateVerb && !isReadOnlyQuestion;
+}
+
+function isMemorySaveCommand(msg: string): boolean {
+  const q = (msg || '').toLowerCase().trim();
+  if (!q) return false;
+  return /(จำไว้|จำด้วย|จดจำ|ช่วยจำ|จำคำ|จำว่า|บันทึกคำศัพท์|เพิ่มคำศัพท์|ตั้งชื่อเล่น|ถ้าพูดว่า|ต่อไปนี้ถ้า.*(?:พูด|พิมพ์|เรียก).*หมายถึง)/i.test(q);
+}
+
 function isLikelyActionCommand(msg: string): boolean {
   const q = (msg || '').toLowerCase();
-  return /(ล้าง|เคลียร์|ลบ|สั่งลบ|เอา.*ออก|เอาออก|รีเซ็ต|reset|clear|delete|remove|wipe|empty|เริ่มใหม่|ไปหน้า|เปิดหน้า|เปิดคลัง|เปลี่ยนหน้า|เทียบใบ|ตรวจกระดาษ|สรุปส่งเวร|shift\s*handover|อัปเดต|แก้ไข|แก้จำนวน|แก้ชื่อ|ปรับสถานะ|แจ้งชำรุด|ชำรุด|ซ่อม|สร้างใบเบิก|ขอเบิก|เบิกเพิ่ม|นำทาง|navigate|เพิ่มรายการ|เพิ่ม|บันทึกข้อมูล|เช็กครบ|ติ๊กครบ|ย้าย|เปลี่ยนห้อง|ส่งออก|รายงาน|pdf|sheet|excel|รถพยาบาล|ambulance)/i.test(q);
+  if (isExpiryUpdateCommand(q) || isMemorySaveCommand(q)) return true;
+  return /(ล้าง|เคลียร์|ลบ|สั่งลบ|เอา.*ออก|เอาออก|รีเซ็ต|reset|clear|delete|remove|wipe|empty|เริ่มใหม่|ไปหน้า|เปิดหน้า|เปิดคลัง|เปลี่ยนหน้า|เทียบใบ|ตรวจกระดาษ|สรุปส่งเวร|shift\s*handover|อัปเดต|อัพเดท|แก้ไข|แก้จำนวน|แก้ชื่อ|แก้\s*exp|ปรับสถานะ|แจ้งชำรุด|ชำรุด|ซ่อม|สร้างใบเบิก|ขอเบิก|เบิกเพิ่ม|นำทาง|navigate|เพิ่มรายการ|เพิ่ม|บันทึกข้อมูล|เช็กครบ|ติ๊กครบ|ย้าย|เปลี่ยนห้อง|ส่งออก|รายงาน|pdf|sheet|excel|รถพยาบาล|ambulance)/i.test(q);
 }
 
 const textChatResponseSchema = {
@@ -399,6 +420,7 @@ export function createAiChatRouter(): express.Router {
       channelName,
       attachment,
       attachments,
+      aiMemory,
     } = req.body || {};
     const apiKey = getServerGeminiKey();
 
@@ -460,24 +482,25 @@ export function createAiChatRouter(): express.Router {
       const compactContextObj = isBulkImportMode
         ? { channelName: activeWard, mode: 'BULK_IMPORT_EQUIPMENT' }
         : compactInventoryForPrompt(resolvedContext);
-      const compactLiveContextStr = JSON.stringify(compactContextObj).slice(0, 3200);
+      const compactLiveContextStr = JSON.stringify(compactContextObj).slice(0, 2600);
       const equipmentCatalog = isBulkImportMode ? [] : extractEquipmentCatalog(resolvedContext);
+      const eqLimit = parsedAttachmentParts.length > 0 || isPhotoMatching ? 24000 : 12000;
       const equipmentCatalogStr =
         equipmentCatalog.length > 0
-          ? JSON.stringify(equipmentCatalog).slice(0, 24000)
+          ? JSON.stringify(equipmentCatalog).slice(0, eqLimit)
           : '';
       const drugsCatalog = isBulkImportMode ? [] : extractDrugsCatalog(resolvedContext);
       const drugsCatalogStr =
-        drugsCatalog.length > 0 ? JSON.stringify(drugsCatalog).slice(0, 24000) : '';
+        drugsCatalog.length > 0 ? JSON.stringify(drugsCatalog).slice(0, 14000) : '';
       const bagsCatalog = isBulkImportMode ? [] : extractEmergencyCatalog(resolvedContext, 'bags');
       const bagsCatalogStr =
-        bagsCatalog.length > 0 ? JSON.stringify(bagsCatalog).slice(0, 16000) : '';
+        bagsCatalog.length > 0 ? JSON.stringify(bagsCatalog).slice(0, 10000) : '';
       const cartsCatalog = isBulkImportMode ? [] : extractEmergencyCatalog(resolvedContext, 'carts');
       const cartsCatalogStr =
-        cartsCatalog.length > 0 ? JSON.stringify(cartsCatalog).slice(0, 16000) : '';
+        cartsCatalog.length > 0 ? JSON.stringify(cartsCatalog).slice(0, 10000) : '';
       const ambulancesCatalog = isBulkImportMode ? [] : extractEmergencyCatalog(resolvedContext, 'ambulances');
       const ambulancesCatalogStr =
-        ambulancesCatalog.length > 0 ? JSON.stringify(ambulancesCatalog).slice(0, 16000) : '';
+        ambulancesCatalog.length > 0 ? JSON.stringify(ambulancesCatalog).slice(0, 8000) : '';
 
       const todayIso = new Date().toISOString().split('T')[0];
 
@@ -487,6 +510,28 @@ export function createAiChatRouter(): express.Router {
       const liveAlertInfo = appContext?.alertSummary
         ? `\n[การแจ้งเตือนสด: ยาใกล้หมดอายุ ${appContext.alertSummary.expiringDrugsCount} รายการ, สต็อกต่ำ ${appContext.alertSummary.lowStockDrugsCount} รายการ, ห้องที่ยังไม่ตรวจ ${appContext.alertSummary.uncheckedRoomsCount}/${appContext.alertSummary.totalRoomsCount} ห้อง]`
         : '';
+
+      const rawAiMemory = Array.isArray(aiMemory)
+        ? aiMemory
+        : Array.isArray(resolvedContext?.aiMemory)
+        ? resolvedContext.aiMemory
+        : [];
+      const wardMemoryList = rawAiMemory
+        .filter((m: any) => m && String(m.triggerPhrase || '').trim() && String(m.meaning || '').trim())
+        .slice(0, 60);
+      const wardMemorySection =
+        wardMemoryList.length > 0
+          ? `\n[ความจำและคำศัพท์เฉพาะของวอร์ด (Ward AI Memory / Custom Glossary — ${wardMemoryList.length} กฎ)]\n` +
+            `ต้องนำคำศัพท์ ชื่อย่อ และกติกาประจำวอร์ดต่อไปนี้ไปตีความคำสั่งของผู้ใช้ทุกครั้งโดยอัตโนมัติ:\n` +
+            wardMemoryList
+              .map(
+                (m: any, idx: number) =>
+                  `${idx + 1}. "${String(m.triggerPhrase).trim()}" ➔ หมายถึง "${String(m.meaning).trim()}"${
+                    m.category ? ` [หมวด: ${String(m.category).trim()}]` : ''
+                  }`
+              )
+              .join('\n')
+          : '';
 
       const photoMatchingInstruction = `คุณคือ 'น้องออร่า (AURA)' ผู้ช่วยวิสัญญีอัจฉริยะ ทำหน้าที่ตรวจสอบรูปถ่ายเครื่องมือแพทย์และอุปกรณ์ในห้องผ่าตัด เพื่อนำภาพไปจับคู่กับรายการครุภัณฑ์ที่มีอยู่แล้วในระบบตามตัวเลขลำดับ (Order Number)
 
@@ -584,7 +629,7 @@ ${equipmentCatalogStr ? `[รายการครุภัณฑ์ปัจจ
   2. เมื่อผู้ใช้ถามภาพรวม เช่น "เช็กของใกล้หมด", "ของใกล้หมด", "มียาอะไรใกล้หมดอายุ", "เช็กของขาด" ให้ตรวจสอบข้อมูลทั้งหมดในคลัง (drugs, bags, carts, ambulances, equipment) เพื่อสรุปทุกรายการที่มีจำนวนคงเหลือต่ำกว่าหรือเท่ากับเกณฑ์ขั้นต่ำ (remaining <= minStock) และรายการที่หมดอายุหรือใกล้หมดอายุ (ภายใน 30-90 วันเทียบกับ ${todayIso}) พร้อมระบุจำนวนคงเหลือ หน่วย วันหมดอายุ (EXP) และตำแหน่งที่เก็บให้ครบถ้วน แยกหมวดด้วย \\n\\n และ •
   3. ทุกครั้งที่ตอบคำถามเกี่ยวกับสต็อก ยา เวชภัณฑ์ หรืออุปกรณ์ ให้ตรวจค้นจากข้อมูลจริงใน JSON ด้านล่าง (drugs, bags, carts, ambulances, equipment) โดยเทียบชื่อพ้องและตรวจสอบขนาด/เกจ (No., G, ml) ให้ตรง 100% แล้วตอบจำนวนคงเหลือ หน่วย วันหมดอายุ (EXP) และตำแหน่งจัดเก็บให้ชัดเจน
 
-[บริบทวอร์ดและสถานะคลัง — วอร์ด: ${activeWard}]${liveScreenInfo}${liveAlertInfo}
+[บริบทวอร์ดและสถานะคลัง — วอร์ด: ${activeWard}]${liveScreenInfo}${liveAlertInfo}${wardMemorySection}
 ${compactLiveContextStr}
 ${drugsCatalogStr ? `\n[คลังยาทั้งหมด (drugs — ${drugsCatalog.length} รายการ)]\n${drugsCatalogStr}` : ''}
 ${bagsCatalogStr ? `\n[กระเป๋าฉุกเฉิน (bags — ${bagsCatalog.length} รายการ)]\n${bagsCatalogStr}` : ''}
@@ -633,8 +678,11 @@ ${equipmentCatalogStr ? `\n[รายการครุภัณฑ์ปัจ�
 - หากผู้ใช้สั่งแก้ไขรายการที่มีหลายขนาดโดยไม่ได้ระบุขนาดชัดเจน ห้ามเดาขนาด ให้ถามยืนยันขนาดก่อนเสมอ
 
 [เจตนาและ Function Calling — เรียกใช้ Universal Action Tools เฉพาะเมื่อผู้ใช้สั่งดำเนินการจริงเท่านั้น]
+  * สั่งแก้ไข/ปรับวันหมดอายุ (EXP) หรือแก้ไขข้อมูลหลายรายการพร้อมกันใน 1 ข้อความ (หรือรายการเดียวก็ได้ เช่น "5%D/N/2 500 ML ในเป๋า ปรับ exp 8/8/2027 Three way ในเป๋า exp 2/12/2027") -> เรียกใช้ Tool batch_update_items ทันทีโดยใส่ครบทุกรายการลงใน updates[] ให้ครบถ้วน! (รูปแบบวันที่จากผู้ใช้เป็น วัน/เดือน/ปี DD/MM/YYYY เสมอ เช่น 8/8/2027 = 2027-08-08, 2/12/2027 = 2027-12-02) ห้ามข้ามรายการที่เหลือเด็ดขาด!
+  * สั่งสอนหรือให้จำคำศัพท์/ชื่อเล่น/กติกาเฉพาะของวอร์ด (เช่น "จำไว้ด้วยว่าถ้าพูดว่า ในเป๋า หมายถึง กระเป๋าฉุกเฉิน", "จำว่า ทิว หมายถึง Endotracheal tube") -> เรียกใช้ Tool save_ward_memory ทันที!
+  * สั่งแก้ไข/เปลี่ยน/อัปเดตวันหมดอายุ (EXP) รายการเดียว -> ใช้ batch_update_items หรือ update_item_expiry ทันที! ห้ามตอบข้อความยืนยันโดยไม่เรียก Tool เด็ดขาด!
   * สั่งลบเฉพาะรายการ (เช่น "ลบ 11. T-piece / Tube ในเป๋า", "ลบ Laryngoscope ในรถพยาบาล", "ลบเครื่อง suction ห้อง OR1", "ลบยา Morphine") -> เรียกใช้ delete_specific_items ทันที! (ห้ามเรียก delete_all_items เด็ดขาด!)
-  * สั่งแก้ไขข้อมูล เปลี่ยนจำนวน เปลี่ยนชื่อ อัปเดตวันหมดอายุ แจ้งชำรุด ปรับสถานะ หรือย้ายห้อง/หมวดหมู่ -> เรียกใช้ update_specific_item ทันที!
+  * สั่งแก้ไขข้อมูล เปลี่ยนจำนวน เปลี่ยนชื่อ แจ้งชำรุด ปรับสถานะ หรือย้ายห้อง/หมวดหมู่ -> เรียกใช้ batch_update_items หรือ update_specific_item ทันที!
   * สั่งเพิ่มรายการใหม่เข้าคลังยา, กระเป๋าฉุกเฉิน, รถฉุกเฉิน, รถพยาบาล หรือครุภัณฑ์ห้อง OR -> เรียกใช้ add_new_item ทันที!
   * สั่งเปลี่ยนหน้าจอ เปิดห้อง เปิดรายงาน PDF หรือเปิดเมนู Google Sheets -> เรียกใช้ navigate_or_export ทันที!
   * สั่งลบทั้งหมดทั้งหมวดหมู่ (เช่น "ลบของในครุออกให้หมด", "ลบกระเป๋าทั้งหมด", "ล้างคลังยาทั้งหมด") -> เรียกใช้ delete_all_items เท่านั้น!
@@ -643,9 +691,80 @@ ${equipmentCatalogStr ? `\n[รายการครุภัณฑ์ปัจ�
   * สั่งสรุปส่งเวร -> เรียกใช้ generateShiftHandover
   * สั่งทำใบเบิก -> เรียกใช้ create_restock_requisition
   * คำสั่งที่ยังไม่มี Tool รองรับ -> ห้ามตอบว่าทำสำเร็จแล้วเด็ดขาด! ให้แจ้งตามตรงว่ายังทำผ่านแชทไม่ได้ พร้อมแนะนำปุ่ม/วิธีทำในหน้าเว็บแทน
-  * คำถามสอบถามข้อมูล สต็อก คงเหลือ วันหมดอายุ ตำแหน่งจัดเก็บ คำนวณยา หรือทักทายทั่วไป -> ตอบโดยตรงจากข้อมูล JSON ด้านบนเป็น JSON ตาม Schema {"reply": "...", "choices": ["...", "...", "..."], "action": ...} (ไม่ต้องเรียก Function Call!)`;
+  * คำถามสอบถามข้อมูล สต็อก คงเหลือ วันหมดอายุ ตำแหน่งจัดเก็บ คำนวณยา หรือทักทายทั่วไป -> ตอบโดยตรงจากข้อมูล JSON ด้านบนตาม textChatResponseSchema (ไม่ต้องเรียก Function Call!)`;
 
       const auraFunctionDeclarations = [
+        {
+          name: 'batch_update_items',
+          description:
+            'อัปเดต/แก้ไขข้อมูลหรือวันหมดอายุ (EXP) หลายรายการพร้อมกันในคำสั่งเดียว (หรือรายการเดียว) ลงฐานข้อมูลจริงแบบ Atomic Batch เช่น "5%D/N/2 500 ML ในเป๋า ปรับ exp 8/8/2027 Three way ในเป๋า exp 2/12/2027" ต้องรวบรวมทุกรายการใส่ใน array updates ให้ครบ 100%',
+          parameters: {
+            type: Type.OBJECT,
+            properties: {
+              updates: {
+                type: Type.ARRAY,
+                description: 'รายการทั้งหมดที่ต้องการอัปเดตพร้อมกัน',
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    itemName: {
+                      type: Type.STRING,
+                      description: 'ชื่อรายการยา สารน้ำ หรืออุปกรณ์ เช่น "5% D/N/2 500 ML", "Extension tube (Three-way)", "Adrenaline"',
+                    },
+                    category: {
+                      type: Type.STRING,
+                      description: 'หมวดหมู่เป้าหมาย: emergency_bag (กระเป๋าฉุกเฉิน / ในเป๋า / bag), crash_cart (รถฉุกเฉิน / ในรถ / cart), ambulance (รถพยาบาลฉุกเฉิน), drugs (คลังยา), equipment (ครุภัณฑ์ / OR)',
+                    },
+                    subItemLabel: {
+                      type: Type.STRING,
+                      description: 'ชื่อชิ้นย่อยหรือเบอร์กรณีเป็นรายการแบบแยกชิ้นย่อย (เช่น "T-way", "Three-way", "ผู้ใหญ่", "เบอร์ 7.5")',
+                    },
+                    expiryDate: {
+                      type: Type.STRING,
+                      description: 'วันหมดอายุใหม่รูปแบบ YYYY-MM-DD (ตีความ input เป็น DD/MM/YYYY เสมอ เช่น 2/12/2027 -> 2027-12-02, แปลง พ.ศ. เป็น ค.ศ.) หรือ "-" หากไม่มีวันหมดอายุ',
+                    },
+                    lotNumber: { type: Type.STRING, description: 'หมายเลข Lot (ถ้ามี)' },
+                    quantity: { type: Type.STRING, description: 'จำนวนใหม่ที่ต้องการตั้งค่า (ถ้ามี)' },
+                    status: { type: Type.STRING, description: 'สถานะใหม่: ปกติ, ผิดปกติ, ชำรุด, ส่งคืน, เก็บสำรอง' },
+                    roomOrLocation: { type: Type.STRING, description: 'ห้อง OR หรือกลุ่มย่อย (ถ้ามี เช่น or1, Airway)' },
+                    newName: { type: Type.STRING, description: 'ชื่อใหม่กรณีเปลี่ยนชื่อ' },
+                    moveToRoomOrGroup: { type: Type.STRING, description: 'ห้องหรือกลุ่มใหม่กรณีย้าย' },
+                    note: { type: Type.STRING, description: 'หมายเหตุเพิ่มเติม' },
+                  },
+                  required: ['itemName'],
+                },
+              },
+            },
+            required: ['updates'],
+          },
+        },
+        {
+          name: 'save_ward_memory',
+          description:
+            'บันทึกคำศัพท์เฉพาะ ชื่อย่อ ชื่อเล่นอุปกรณ์ หรือกติกาประจำวอร์ด (Ward AI Memory / Custom Glossary) ลงฐานข้อมูลถาวร เมื่อพยาบาลสอนหรือบอกให้จำ',
+          parameters: {
+            type: Type.OBJECT,
+            properties: {
+              triggerPhrase: {
+                type: Type.STRING,
+                description: 'คำย่อ ชื่อเล่น หรือวลีที่พยาบาลใช้เรียก เช่น "ในเป๋า", "ทิว", "0.9", "Three way"',
+              },
+              meaning: {
+                type: Type.STRING,
+                description: 'ความหมายจริง หรือชื่ออุปกรณ์/ยา/หมวดหมู่ในระบบ เช่น "กระเป๋าฉุกเฉิน (bag)", "Endotracheal tube", "0.9% NSS 1,000 ml."',
+              },
+              category: {
+                type: Type.STRING,
+                description: 'หมวดหมู่ที่เกี่ยวข้อง: bag, cart, ambulance, drug, equipment หรือ general',
+              },
+              ruleType: {
+                type: Type.STRING,
+                description: 'ประเภทกฎ: alias (ชื่อพ้อง/คำย่อ), category_alias (ชื่อเรียกหมวดหมู่), instruction (กติกาพิเศษ)',
+              },
+            },
+            required: ['triggerPhrase', 'meaning'],
+          },
+        },
         {
           name: 'delete_specific_items',
           description:
@@ -668,6 +787,45 @@ ${equipmentCatalogStr ? `\n[รายการครุภัณฑ์ปัจ�
               },
             },
             required: ['itemQueries'],
+          },
+        },
+        {
+          name: 'update_item_expiry',
+          description:
+            'อัปเดต/แก้ไขวันหมดอายุ (EXP) ของยา สารน้ำ หรืออุปกรณ์ในหมวดหมู่ต่างๆ ลงฐานข้อมูลจริงทันที ใช้ทุกครั้งเมื่อผู้ใช้สั่งแก้/เปลี่ยน/อัปเดต/เลื่อนวันหมดอายุหรือ EXP',
+          parameters: {
+            type: Type.OBJECT,
+            properties: {
+              category: {
+                type: Type.STRING,
+                description:
+                  'หมวดหมู่เป้าหมาย: emergency_bag (กระเป๋าฉุกเฉิน / ในเป๋า), crash_cart (รถฉุกเฉิน / ในรถ), ambulance (รถพยาบาลฉุกเฉิน), drugs (คลังยา), equipment (ครุภัณฑ์ห้องผ่าตัด / OR)',
+              },
+              itemName: {
+                type: Type.STRING,
+                description:
+                  'ชื่อรายการยา สารน้ำ หรืออุปกรณ์ (เช่น "5% D/N/2 500 ML", "0.9% NSS 1000 ML", "Adrenaline", "ET tube No. 7.5")',
+              },
+              subItemLabel: {
+                type: Type.STRING,
+                description:
+                  'ชื่อชิ้นย่อยหรือเบอร์กรณีเป็นรายการแบบแยกชิ้นย่อย (เช่น "เบอร์ 7.5", "เด็ก", "100 cc")',
+              },
+              expiryDate: {
+                type: Type.STRING,
+                description:
+                  'วันหมดอายุใหม่ในรูปแบบ YYYY-MM-DD (เช่น 2027-12-31) แปลงจาก พ.ศ. เป็น ค.ศ. แล้ว หากไม่มีวันหมดอายุใส่ "-"',
+              },
+              lotNumber: {
+                type: Type.STRING,
+                description: 'หมายเลข Lot (ถ้ามีระบุ)',
+              },
+              roomOrLocation: {
+                type: Type.STRING,
+                description: 'ชื่อห้อง OR หรือชั้นวาง (ถ้ามีระบุ เช่น or1, Airway)',
+              },
+            },
+            required: ['category', 'itemName', 'expiryDate'],
           },
         },
         {
@@ -889,14 +1047,14 @@ ${equipmentCatalogStr ? `\n[รายการครุภัณฑ์ปัจ�
       const preferWebSearch = !hasAttachments && isClinicalWebQuery(promptText);
       const preferTools = !hasAttachments && isLikelyActionCommand(promptText);
       const isFastBulkImport = hasAttachments && isBulkImportMode;
-      const timeoutMs = isFastBulkImport ? 45000 : hasAttachments ? 120000 : 55000;
+      const timeoutMs = isFastBulkImport ? 50000 : hasAttachments ? 120000 : 70000;
 
       let response: any;
       try {
         response = await withAbortTimeout(timeoutMs, async (signal) => {
           if (preferWebSearch) {
             try {
-              return await withChildAbortTimeout(signal, 15000, (attemptSignal) =>
+              return await withChildAbortTimeout(signal, 25000, (attemptSignal) =>
                 aiClient.models.generateContent({
                   model: 'gemini-4-hydrogen',
                   contents: conversationContents,
@@ -911,15 +1069,15 @@ ${equipmentCatalogStr ? `\n[รายการครุภัณฑ์ปัจ�
               );
             } catch (searchErr: any) {
               if (signal.aborted) throw searchErr;
-              console.warn('[AuraChat] Search grounding primary error, falling back to structured JSON:', searchErr?.message || searchErr);
+              console.info('[AuraChat] Search grounding fallback to structured JSON:', searchErr?.message || searchErr);
             }
           }
 
           if (hasAttachments) {
             const primaryModel = isFastBulkImport ? 'gemini-3.1-flash-lite' : 'gemini-4-hydrogen';
             const fallbackModel = isFastBulkImport ? 'gemini-4-hydrogen' : 'gemini-3.1-flash-lite';
-            const primaryAttemptMs = isFastBulkImport ? 24000 : 35000;
-            const fallbackAttemptMs = isFastBulkImport ? 20000 : 45000;
+            const primaryAttemptMs = isFastBulkImport ? 26000 : 40000;
+            const fallbackAttemptMs = isFastBulkImport ? 22000 : 45000;
             const getModelThinkingConfig = (modelId: string) =>
               modelId === 'gemini-3.1-flash-lite'
                 ? { thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL } }
@@ -942,7 +1100,7 @@ ${equipmentCatalogStr ? `\n[รายการครุภัณฑ์ปัจ�
               );
             } catch (eAttach: any) {
               if (signal.aborted) throw eAttach;
-              console.warn(`[AuraChat] ${primaryModel} structured attachment error, falling back to ${fallbackModel}:`, eAttach?.message || eAttach);
+              console.info(`[AuraChat] ${primaryModel} structured attachment fallback to ${fallbackModel}:`, eAttach?.message || eAttach);
               return await withChildAbortTimeout(signal, fallbackAttemptMs, (attemptSignal) =>
                 aiClient.models.generateContent({
                   model: fallbackModel,
@@ -961,61 +1119,73 @@ ${equipmentCatalogStr ? `\n[รายการครุภัณฑ์ปัจ�
           }
 
           if (preferTools) {
-            const toolInstruction = `${systemInstruction}\n\n[สำคัญมาก: หากเป็นคำสั่งลบ/ล้าง/แก้ไข/นำทาง/เบิก ต้องเรียกใช้ Function Call (Tool) ทันที! ห้ามตอบข้อความว่า "ดำเนินการเรียบร้อยแล้ว" หรือ "ลบแล้ว" โดยไม่เรียก Tool เด็ดขาด หากไม่มี Tool รองรับให้แจ้งตามตรงว่ายังทำผ่านแชทไม่ได้พร้อมแนะนำวิธีกดบนหน้าเว็บ แล้วระบุปุ่มลัด 3 ข้อไว้ท้ายข้อความหลังบรรทัด ===CHOICES===]`;
+            const forceExpiryTool = isExpiryUpdateCommand(promptText);
+            const forceMemoryTool = isMemorySaveCommand(promptText) && !forceExpiryTool;
+            const toolInstruction = `${systemInstruction}\n\n[สำคัญมาก: หากเป็นคำสั่งแก้ไข/แก้ EXP หลายรายการหรือรายการเดียว ต้องเรียกใช้ Tool \`batch_update_items\` โดยใส่ทุกรายการลงใน \`updates[]\` ให้ครบ! หากเป็นการสอนคำศัพท์/ให้จำกติกา ต้องเรียก \`save_ward_memory\`! รูปแบบวันที่อินพุตคือ DD/MM/YYYY เสมอ ห้ามตอบข้อความยืนยันโดยไม่เรียก Tool เด็ดขาด]`;
+            const forcedToolConfig = forceExpiryTool
+              ? {
+                  toolConfig: {
+                    functionCallingConfig: {
+                      mode: FunctionCallingConfigMode.ANY,
+                      allowedFunctionNames: [
+                        'batch_update_items',
+                        'update_item_expiry',
+                        'update_specific_item',
+                        'save_ward_memory',
+                      ],
+                    },
+                  },
+                }
+              : forceMemoryTool
+              ? {
+                  toolConfig: {
+                    functionCallingConfig: {
+                      mode: FunctionCallingConfigMode.ANY,
+                      allowedFunctionNames: ['save_ward_memory'],
+                    },
+                  },
+                }
+              : {};
             try {
-              return await withChildAbortTimeout(signal, 20000, (attemptSignal) =>
+              return await withChildAbortTimeout(signal, 35000, (attemptSignal) =>
                 aiClient.models.generateContent({
-                  model: 'gemini-3.1-flash-lite',
+                  model: 'gemini-4-hydrogen',
                   contents: conversationContents,
                   config: {
                     abortSignal: attemptSignal,
                     systemInstruction: toolInstruction,
                     tools: toolsOnly as any,
-                    thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL },
+                    ...forcedToolConfig,
+                    thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
                   },
                 })
               );
             } catch (eTool1: any) {
               if (signal.aborted) throw eTool1;
-              console.warn('[AuraChat] gemini-3.1-flash-lite command error, falling back to gemini-4-hydrogen:', eTool1?.message || eTool1);
+              console.info('[AuraChat] gemini-4-hydrogen command fallback to gemini-3.1-flash-lite:', eTool1?.message || eTool1);
               try {
-                return await withChildAbortTimeout(signal, 20000, (attemptSignal) =>
+                return await withChildAbortTimeout(signal, 25000, (attemptSignal) =>
                   aiClient.models.generateContent({
-                    model: 'gemini-4-hydrogen',
+                    model: 'gemini-3.1-flash-lite',
                     contents: conversationContents,
                     config: {
                       abortSignal: attemptSignal,
                       systemInstruction: toolInstruction,
                       tools: toolsOnly as any,
-                      thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+                      ...forcedToolConfig,
+                      thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL },
                     },
                   })
                 );
               } catch (eTool2: any) {
                 if (signal.aborted) throw eTool2;
-                console.warn('[AuraChat] Tools fallback to strict JSON:', eTool2?.message || eTool2);
+                console.info('[AuraChat] Tools fallback to strict JSON:', eTool2?.message || eTool2);
               }
             }
           }
 
           try {
-            return await withChildAbortTimeout(signal, 20000, (attemptSignal) =>
-              aiClient.models.generateContent({
-                model: 'gemini-3.1-flash-lite',
-                contents: conversationContents,
-                config: {
-                  abortSignal: attemptSignal,
-                  systemInstruction,
-                  responseMimeType: 'application/json',
-                  responseSchema: textChatResponseSchema,
-                  thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL },
-                },
-              })
-            );
-          } catch (e1: any) {
-            if (signal.aborted) throw e1;
-            console.warn('[AuraChat] gemini-3.1-flash-lite error, falling back to gemini-4-hydrogen:', e1?.message || e1);
-            return await withChildAbortTimeout(signal, 25000, (attemptSignal) =>
+            return await withChildAbortTimeout(signal, 35000, (attemptSignal) =>
               aiClient.models.generateContent({
                 model: 'gemini-4-hydrogen',
                 contents: conversationContents,
@@ -1025,6 +1195,22 @@ ${equipmentCatalogStr ? `\n[รายการครุภัณฑ์ปัจ�
                   responseMimeType: 'application/json',
                   responseSchema: textChatResponseSchema,
                   thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+                },
+              })
+            );
+          } catch (e1: any) {
+            if (signal.aborted) throw e1;
+            console.info('[AuraChat] gemini-4-hydrogen fallback to gemini-3.1-flash-lite:', e1?.message || e1);
+            return await withChildAbortTimeout(signal, 25000, (attemptSignal) =>
+              aiClient.models.generateContent({
+                model: 'gemini-3.1-flash-lite',
+                contents: conversationContents,
+                config: {
+                  abortSignal: attemptSignal,
+                  systemInstruction,
+                  responseMimeType: 'application/json',
+                  responseSchema: textChatResponseSchema,
+                  thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL },
                 },
               })
             );
@@ -1283,8 +1469,17 @@ ${equipmentCatalogStr ? `\n[รายการครุภัณฑ์ปัจ�
           suggestedChoices = ['📸 ถ่ายรูปหรือแนบภาพใบตรวจเช็ค', '🚨 ไปหน้ารถฉุกเฉิน', '💼 ไปหน้ากระเป๋าฉุกเฉิน'];
         } else if (fnName === 'generateShiftHandover') {
           suggestedChoices = ['⚠️ สรุปยาใกล้หมดอายุ', '🚨 ไปหน้ารถฉุกเฉิน', '💼 ไปหน้ากระเป๋าฉุกเฉิน'];
-        } else if (fnName === 'update_specific_item' || fnName === 'updateInventoryItem' || fnName === 'update_item_status' || fnName === 'update_equipment_or_drug_status') {
+        } else if (
+          fnName === 'batch_update_items' ||
+          fnName === 'update_item_expiry' ||
+          fnName === 'update_specific_item' ||
+          fnName === 'updateInventoryItem' ||
+          fnName === 'update_item_status' ||
+          fnName === 'update_equipment_or_drug_status'
+        ) {
           suggestedChoices = ['📋 สรุปส่งเวร (Shift Handover)', '💊 ตรวจสอบคลังยา', '🏥 เปิดภาพรวมครุภัณฑ์'];
+        } else if (fnName === 'save_ward_memory') {
+          suggestedChoices = ['📋 สรุปส่งเวร (Shift Handover)', '💼 เปิดกระเป๋าฉุกเฉิน', '🚨 เปิดรถฉุกเฉิน'];
         } else if (fnName === 'create_restock_requisition') {
           suggestedChoices = ['💊 เปิดหน้าคลังยา', '📋 สรุปส่งเวร (Shift Handover)', '⚠️ สรุปยาใกล้หมดอายุ'];
         } else if (fnName === 'attach_photos_by_number') {
@@ -1299,10 +1494,13 @@ ${equipmentCatalogStr ? `\n[รายการครุภัณฑ์ปัจ�
           suggestedChoices = ['📋 ตรวจสอบรายการ', '🏥 เปิดดูหน้าครุภัณฑ์'];
         }
       } else if (!parsedAction) {
-        const looksLikeFakeExecution = /(ดำเนินการ.*เรียบร้อย|ลบ.*เรียบร้อย|ลบ.*ทั้งหมดแล้ว|บันทึก.*เรียบร้อยแล้ว|อัปเดต.*เรียบร้อยแล้ว|เพิ่ม.*เรียบร้อยแล้ว|ย้าย.*เรียบร้อยแล้ว)/i.test(replyText);
+        const looksLikeFakeExecution =
+          /(ดำเนินการ.*เรียบร้อย|ลบ.*เรียบร้อย|ลบ.*ทั้งหมดแล้ว|บันทึก.*เรียบร้อยแล้ว|อัปเดต.*เรียบร้อยแล้ว|อัพเดท.*เรียบร้อยแล้ว|แก้ไข.*เรียบร้อยแล้ว|เปลี่ยนวันหมดอายุ.*เรียบร้อย|เพิ่ม.*เรียบร้อยแล้ว|ย้าย.*เรียบร้อยแล้ว)/i.test(
+            replyText
+          );
         if (looksLikeFakeExecution && isLikelyActionCommand(promptText)) {
           replyText =
-            'ขออภัยค่ะ คำสั่งนี้ยังไม่ได้ถูกดำเนินการกับฐานข้อมูลจริงผ่านแชทอัตโนมัติในรอบนี้ ✨\n\nรบกวนพี่พยาบาลระบุชื่อรายการ/หมวดหมู่ให้ชัดเจนขึ้น (เช่น "ลบ 11. T-piece / Tube ในเป๋า") หรือดำเนินการผ่านปุ่มจัดการในหน้าเว็บโดยตรงได้เลยนะคะ';
+            'ขออภัยค่ะ คำสั่งนี้ยังไม่ได้ถูกดำเนินการกับฐานข้อมูลจริงผ่านแชทอัตโนมัติในรอบนี้ ✨\n\nรบกวนพี่พยาบาลระบุชื่อรายการ หมวดหมู่ และวันหมดอายุให้ชัดเจนอีกครั้ง หรือดำเนินการผ่านหน้าจัดการโดยตรงได้เลยนะคะ';
           suggestedChoices = ['🏥 เปิดภาพรวมครุภัณฑ์', '💼 เปิดกระเป๋าฉุกเฉิน', '📋 สรุปส่งเวร (Shift Handover)'];
         }
       }

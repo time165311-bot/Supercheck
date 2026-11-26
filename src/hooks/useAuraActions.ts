@@ -7,23 +7,23 @@ import {
   InspectionHistoryRecord,
   ListConfig,
   User,
+  WardAiMemoryItem,
   WardChannel,
 } from '../types';
 import {
-  auth,
-  clearAllEquipmentInFirebase,
   clearChannelDrugsInFirebase,
   clearChannelEquipmentInFirebase,
   deleteChannelDrugItemInFirebase,
   deleteChannelEquipmentItemInFirebase,
+  saveBatchWardUpdatesToFirebase,
   saveChannelBatchDrugsToFirebase,
   saveChannelBatchEquipmentToFirebase,
   saveChannelDataToFirebase,
   saveChannelDrugItemToFirebase,
   saveChannelEquipmentItemToFirebase,
-  saveEquipmentItemToFirebase,
   saveInspectionToFirebase,
   saveRestockRequisitionToFirebase,
+  saveWardAiMemoryToFirebase,
 } from '../services/firebase';
 import {
   addDeletedItemIds,
@@ -40,10 +40,12 @@ import {
 import { getChannelStorageKeys } from '../utils/helpers';
 import { getLocalClearedFlags, persistClearedFlags } from './useChannelSync';
 import { clearChannelCategory } from '../services/aiEngine';
-import { logAuditEvent } from '../services/auditLogger';
+import { archiveDeletedItemToTrash, logAuditEvent } from '../services/auditLogger';
 import { sendInspectionToGas } from '../services/api';
 import { matchMedicalItemName, parseExpDateObj, getRealTargetCheckValue, sortItemsNaturally } from '../utils/itemUtils';
+import { normalizeExpDateToIso } from '../utils/dateUtils';
 import { getWednesdaysInfoForMonth, getWednesdaysIsoDates } from '../utils/wednesdayUtils';
+import { isDefaultWard, resolveWardId } from '../utils/wardUtils';
 
 export interface UseAuraActionsParams {
   activeChannelId: string;
@@ -51,6 +53,9 @@ export interface UseAuraActionsParams {
   currentView: string;
   currentUser: User | null;
   apiUrl: string;
+  canDelete?: boolean;
+  canEditStructure?: boolean;
+  canExportSheets?: boolean;
   drugs: DrugItem[];
   setDrugs: Dispatch<SetStateAction<DrugItem[]>>;
   equipment: Record<string, EquipmentItem[]>;
@@ -161,6 +166,8 @@ export function useAuraActions(params: UseAuraActionsParams) {
     currentView,
     currentUser,
     apiUrl,
+    canDelete = true,
+    canEditStructure = true,
     drugs,
     setDrugs,
     equipment,
@@ -275,7 +282,26 @@ export function useAuraActions(params: UseAuraActionsParams) {
       };
 
       setHistoryRecords((prev) => [newRecord, ...prev].slice(0, 50));
-      saveInspectionToFirebase(newRecord).catch((e) => console.warn('Firebase history save error:', e));
+      saveInspectionToFirebase(newRecord, resolveWardId(activeChannelId)).catch((e) =>
+        console.warn('Firebase history save error:', e)
+      );
+
+      void logAuditEvent({
+        action: 'AURA_ACTION',
+        targetCollection: primaryCat,
+        targetId: resolveWardId(activeChannelId),
+        itemName: `ตรวจเช็กอัตโนมัติ ${catTitle}`,
+        category: primaryCat,
+        newValue: `ปกติทั้งหมด ${totalItemsChecked} รายการ (สัปดาห์ ${weeks.join(', ')})`,
+        details: {
+          categories,
+          weeks,
+          totalItemsChecked,
+          channelId: resolveWardId(activeChannelId),
+          source: 'AuraAssistant',
+        },
+        currentUser,
+      });
 
       return {
         success: true,
@@ -304,16 +330,21 @@ export function useAuraActions(params: UseAuraActionsParams) {
 
   const handleAuraClearInventory = useCallback(
     async (targetCategory: string) => {
+      if (!canDelete) return;
       setPendingClearCategory(targetCategory);
     },
-    [setPendingClearCategory]
+    [canDelete, setPendingClearCategory]
   );
 
   const executeAuraClearInventory = useCallback(
     async (targetCategory: string) => {
+      if (!canDelete) {
+        setPendingClearCategory(null);
+        return;
+      }
       const q = targetCategory.toLowerCase();
-      const channelId = activeChannelId || 'channel_master';
-      const isMaster = channelId === 'channel_master';
+      const channelId = resolveWardId(activeChannelId);
+      const isMaster = isDefaultWard(channelId);
       const chKeys = getChannelStorageKeys(channelId);
 
       if (q.includes('ยา') || q.includes('drug')) {
@@ -360,11 +391,9 @@ export function useAuraActions(params: UseAuraActionsParams) {
         setStored(getChannelListsKey(channelId), nextLists);
         if (isMaster) {
           setStored(STORAGE_KEYS.CUSTOM_LISTS, nextLists);
-          await clearAllEquipmentInFirebase('ambulance').catch(() => {});
-          await persistClearedFlags({ ambulanceCleared: true }, channelId);
-        } else {
-          await clearChannelEquipmentInFirebase(channelId, 'ambulance').catch(() => {});
         }
+        await clearChannelEquipmentInFirebase(channelId, 'ambulance').catch(() => {});
+        await persistClearedFlags({ ambulanceCleared: true }, channelId);
         reRenderData();
         logAuditEvent({
           action: 'CLEAR_AMBULANCE',
@@ -376,12 +405,8 @@ export function useAuraActions(params: UseAuraActionsParams) {
       } else if (q.includes('รถ') || q.includes('cart')) {
         const { clearedCount } = clearChannelCategory(channelId, 'cart');
         reRenderData();
-        if (isMaster) {
-          await clearAllEquipmentInFirebase('cart').catch(() => {});
-          await persistClearedFlags({ cartCleared: true }, channelId);
-        } else {
-          await clearChannelEquipmentInFirebase(channelId, 'cart').catch(() => {});
-        }
+        await clearChannelEquipmentInFirebase(channelId, 'cart').catch(() => {});
+        await persistClearedFlags({ cartCleared: true }, channelId);
         logAuditEvent({
           action: 'CLEAR_CART',
           targetCollection: 'cart',
@@ -392,12 +417,8 @@ export function useAuraActions(params: UseAuraActionsParams) {
       } else if (q.includes('เป๋า') || q.includes('กระเป๋า') || q.includes('bag')) {
         const { clearedCount } = clearChannelCategory(channelId, 'bag');
         reRenderData();
-        if (isMaster) {
-          await clearAllEquipmentInFirebase('bag').catch(() => {});
-          await persistClearedFlags({ bagCleared: true }, channelId);
-        } else {
-          await clearChannelEquipmentInFirebase(channelId, 'bag').catch(() => {});
-        }
+        await clearChannelEquipmentInFirebase(channelId, 'bag').catch(() => {});
+        await persistClearedFlags({ bagCleared: true }, channelId);
         logAuditEvent({
           action: 'CLEAR_BAG',
           targetCollection: 'bag',
@@ -408,7 +429,7 @@ export function useAuraActions(params: UseAuraActionsParams) {
       }
       setPendingClearCategory(null);
     },
-    [activeChannelId, currentUser, lists, reRenderData, setDrugs, setEquipment, setLists, setPendingClearCategory]
+    [activeChannelId, canDelete, currentUser, lists, reRenderData, setDrugs, setEquipment, setLists, setPendingClearCategory]
   );
 
   const createAuraSnapshot = useCallback(
@@ -439,8 +460,8 @@ export function useAuraActions(params: UseAuraActionsParams) {
   const restoreAuraSnapshot = useCallback(
     async (snapshot: AuraDataSnapshot): Promise<boolean> => {
       try {
-        const targetChannel = snapshot.channelId || activeChannelId || 'channel_master';
-        const isMaster = targetChannel === 'channel_master';
+        const targetChannel = resolveWardId(snapshot.channelId || activeChannelId);
+        const isMaster = isDefaultWard(targetChannel);
         const chKeys = getChannelStorageKeys(targetChannel);
 
         if (snapshot.clearedFlags) {
@@ -544,10 +565,13 @@ export function useAuraActions(params: UseAuraActionsParams) {
   const handleAuraDirectClear = useCallback(
     async (targetCategory: string): Promise<AuraDataSnapshot> => {
       const snapshot = createAuraSnapshot(`ก่อนล้างข้อมูล ${targetCategory}`);
+      if (!canDelete) {
+        return snapshot;
+      }
       await executeAuraClearInventory(targetCategory);
       return snapshot;
     },
-    [createAuraSnapshot, executeAuraClearInventory]
+    [canDelete, createAuraSnapshot, executeAuraClearInventory]
   );
 
   const executeDeleteAllEquipment = useCallback(async (): Promise<{
@@ -557,14 +581,24 @@ export function useAuraActions(params: UseAuraActionsParams) {
     error?: string;
     snapshot: AuraDataSnapshot;
   }> => {
-    const channelId = activeChannelId || 'channel_master';
-    const isMaster = channelId === 'channel_master';
+    const channelId = resolveWardId(activeChannelId);
+    const isMaster = isDefaultWard(channelId);
     const chKeys = getChannelStorageKeys(channelId);
     const deletedCount = Object.values(equipmentRef.current || {}).reduce(
       (sum, arr) => sum + (Array.isArray(arr) ? arr.filter((it) => it && it.name).length : 0),
       0
     );
     const snapshot = createAuraSnapshot(`ก่อนลบครุภัณฑ์ทั้งหมด (${deletedCount} รายการ)`);
+
+    if (!canDelete) {
+      return {
+        success: false,
+        deletedCount: 0,
+        syncedToCloud: false,
+        error: 'ผู้ดูแลระบบล็อกสิทธิ์การลบรายการสำหรับเจ้าหน้าที่ไว้',
+        snapshot,
+      };
+    }
 
     // 1. Clear UI State & LocalStorage immediately to 0 items
     equipmentRef.current = {};
@@ -577,18 +611,13 @@ export function useAuraActions(params: UseAuraActionsParams) {
     let syncedToCloud = false;
     let cloudError: string | undefined;
 
-    // 2. Delete all channel equipment documents from Firestore (writeBatch) & persist cleared flag
-    if (auth.currentUser) {
-      try {
-        syncedToCloud = await clearChannelEquipmentInFirebase(channelId, 'room');
-        await persistClearedFlags({ equipmentCleared: true }, channelId);
-      } catch (err: any) {
-        cloudError = err?.message || 'ไม่สามารถลบข้อมูลใน Firestore ได้ (ตรวจสอบสิทธิ์ Admin)';
-        syncedToCloud = false;
-      }
-    } else {
-      await persistClearedFlags({ equipmentCleared: true }, channelId).catch(() => {});
-      cloudError = 'ยังไม่ได้เข้าสู่ระบบบัญชี Google จึงล้างข้อมูลเฉพาะในเครื่อง';
+    // 2. Delete all ward equipment documents from Firestore (writeBatch) & persist cleared flag
+    try {
+      syncedToCloud = await clearChannelEquipmentInFirebase(channelId, 'room');
+      await persistClearedFlags({ equipmentCleared: true }, channelId);
+    } catch (err: any) {
+      cloudError = err?.message || 'ไม่สามารถลบข้อมูลใน Firestore ได้';
+      syncedToCloud = false;
     }
 
     if (typeof window !== 'undefined') {
@@ -597,10 +626,14 @@ export function useAuraActions(params: UseAuraActionsParams) {
     reRenderData();
     setPendingClearCategory(null);
 
-    logAuditEvent({
-      action: 'CLEAR_EQUIPMENT',
+    void logAuditEvent({
+      action: 'AURA_ACTION',
       targetCollection: 'equipment',
       targetId: channelId,
+      itemName: `ครุภัณฑ์ทั้งหมด (${deletedCount} รายการ)`,
+      category: 'ครุภัณฑ์ห้องผ่าตัด',
+      oldValue: `${deletedCount} รายการ`,
+      newValue: 'ล้างข้อมูลทั้งหมดแล้ว',
       details: {
         category: 'equipment',
         channelId,
@@ -618,7 +651,7 @@ export function useAuraActions(params: UseAuraActionsParams) {
       error: cloudError,
       snapshot,
     };
-  }, [activeChannelId, createAuraSnapshot, currentUser, reRenderData, setEquipment, setPendingClearCategory]);
+  }, [activeChannelId, canDelete, createAuraSnapshot, currentUser, reRenderData, setEquipment, setPendingClearCategory]);
 
   const handleAuraUpdateItem = useCallback(
     async (arg: {
@@ -626,78 +659,125 @@ export function useAuraActions(params: UseAuraActionsParams) {
       itemId: string;
       roomId?: string;
       newExp?: string;
+      subItemLabel?: string;
       lotNumber?: string;
       newQty?: string | number;
       newStatus?: 'ปกติ' | 'ผิดปกติ' | 'ไม่ปกติ' | 'ชำรุด' | 'ส่งคืน' | 'เก็บสำรอง';
       newName?: string;
       moveToRoomOrGroup?: string;
       note?: string;
-    }): Promise<{ success: boolean; updatedName: string }> => {
-      const channelId = activeChannelId || 'channel_master';
-      const isMaster = channelId === 'channel_master';
+    }): Promise<{ success: boolean; updatedName: string; dbSaved?: boolean; error?: string }> => {
+      const channelId = resolveWardId(activeChannelId);
+      const isMaster = isDefaultWard(channelId);
       const chKeys = getChannelStorageKeys(channelId);
       const lotTag = arg.lotNumber && arg.lotNumber.trim() ? `Lot: ${arg.lotNumber.trim()}` : '';
       const extraNote = [lotTag, arg.note?.trim()].filter(Boolean).join(' | ');
       const normalizedStatus = arg.newStatus ? normalizeCheckResultStatus(arg.newStatus) : undefined;
-      const cleanNewName = arg.newName && arg.newName.trim() ? arg.newName.trim() : undefined;
+      const cleanNewName =
+        canEditStructure && arg.newName && arg.newName.trim() ? arg.newName.trim() : undefined;
+      const safeMoveTo = canEditStructure ? arg.moveToRoomOrGroup : undefined;
+      const safeNewQty = canEditStructure ? arg.newQty : undefined;
+
+      const normalizedExp = (() => {
+        if (arg.newExp === undefined) return undefined;
+        const raw = String(arg.newExp).trim();
+        if (!raw) return undefined;
+        if (raw === '-' || /no\s*exp|ไม่มี/i.test(raw)) return '-';
+        return normalizeExpDateToIso(raw) || raw;
+      })();
 
       if (arg.targetType === 'drug') {
         let updatedName = '';
+        let prevSummary = '';
+        let nextSummary = '';
         let updatedDrugItem: DrugItem | null = null;
         const nextDrugs = drugs.map((d) => {
           if (d.id !== arg.itemId) return d;
           updatedName = cleanNewName || d.name;
+          prevSummary = `คงเหลือ ${d.remaining}, EXP ${d.expDate || d.exp || '-'}`;
           const nextQtyNum =
-            arg.newQty !== undefined && arg.newQty !== '' && !isNaN(Number(arg.newQty))
-              ? Number(arg.newQty)
+            safeNewQty !== undefined && safeNewQty !== '' && !isNaN(Number(safeNewQty))
+              ? Number(safeNewQty)
               : undefined;
           const mergedNote = extraNote
             ? d.note && !d.note.includes(extraNote)
               ? `${d.note} (${extraNote})`
               : extraNote
             : d.note;
+
+          let nextLots = d.lots;
+          if (normalizedExp && Array.isArray(d.lots) && d.lots.length > 0) {
+            const targetLot = arg.lotNumber?.trim().toLowerCase();
+            let lotUpdated = false;
+            nextLots = d.lots.map((lot, idx) => {
+              const matchesLot = targetLot
+                ? String(lot.lotNumber || '').trim().toLowerCase() === targetLot
+                : idx === 0;
+              if (matchesLot && !lotUpdated) {
+                lotUpdated = true;
+                return { ...lot, expiryDate: normalizedExp };
+              }
+              return lot;
+            });
+          }
+
           updatedDrugItem = {
             ...d,
             ...(cleanNewName ? { name: cleanNewName } : {}),
-            ...(arg.newExp ? { expDate: arg.newExp, exp: arg.newExp } : {}),
+            ...(normalizedExp ? { expDate: normalizedExp, exp: normalizedExp } : {}),
+            ...(nextLots ? { lots: nextLots, batches: nextLots } : {}),
             ...(nextQtyNum !== undefined ? { remaining: nextQtyNum, totalQty: nextQtyNum } : {}),
-            ...(arg.moveToRoomOrGroup ? { location: arg.moveToRoomOrGroup.trim() } : {}),
+            ...(safeMoveTo ? { location: safeMoveTo.trim() } : {}),
             note: (mergedNote || '').slice(0, 950),
           };
+          nextSummary = `คงเหลือ ${updatedDrugItem.remaining}, EXP ${updatedDrugItem.expDate || '-'}`;
           return updatedDrugItem;
         });
 
-        if (!updatedDrugItem) return { success: false, updatedName: '' };
+        if (!updatedDrugItem) return { success: false, updatedName: '', dbSaved: false };
         setDrugs(nextDrugs);
         setStored(chKeys.DRUGS, nextDrugs);
         if (isMaster) setStored(STORAGE_KEYS.DRUGS, nextDrugs);
-        await saveChannelDrugItemToFirebase(channelId, updatedDrugItem).catch(() => {});
-        logAuditEvent({
-          action: 'UPDATE_DRUG_STOCK',
+        const dbSaved = await saveChannelDrugItemToFirebase(channelId, updatedDrugItem).catch(() => false);
+        void logAuditEvent({
+          action: 'AURA_ACTION',
           targetCollection: 'drugs',
           targetId: arg.itemId,
+          itemName: updatedName,
+          category: 'คลังยา & สารน้ำ',
+          oldValue: prevSummary,
+          newValue: nextSummary,
           details: {
             name: updatedName,
             channelId,
-            newExp: arg.newExp,
+            newExp: normalizedExp,
             lotNumber: arg.lotNumber,
-            newQty: arg.newQty,
+            newQty: safeNewQty,
+            dbSaved,
             source: 'AuraAssistant',
           },
           currentUser,
         });
-        return { success: true, updatedName };
+        return {
+          success: true,
+          updatedName,
+          dbSaved: Boolean(dbSaved),
+          ...(dbSaved ? {} : { error: 'ไม่สามารถบันทึกข้อมูลลง Firestore ได้ในขณะนี้' }),
+        };
       }
 
       if (arg.targetType === 'bag' || arg.targetType === 'cart' || arg.targetType === 'ambulance') {
         const cat = arg.targetType;
         const currentList = lists[cat];
-        if (!currentList?.groups) return { success: false, updatedName: '' };
+        if (!currentList?.groups) return { success: false, updatedName: '', dbSaved: false };
 
         let updatedName = '';
+        let prevSummary = '';
+        let nextSummary = '';
         let matchedItemKey = '';
         let updatedEquipItem: EquipmentItem | null = null;
         let sourceGroup = '';
+        let resolvedNextExp = normalizedExp;
         const nextGroups: Record<string, EquipmentItem[]> = {};
 
         Object.entries(currentList.groups).forEach(([gName, gItems]) => {
@@ -708,12 +788,56 @@ export function useAuraActions(params: UseAuraActionsParams) {
               updatedName = cleanNewName || it.name;
               matchedItemKey = itemKey;
               sourceGroup = gName;
+              prevSummary = `จำนวน ${it.unitText || it.qty || '-'}, EXP ${it.exp || '-'}`;
               const mergedNote = extraNote
                 ? it.note && !it.note.includes(extraNote)
                   ? `${it.note} (${extraNote})`
                   : extraNote
                 : it.note;
-              const targetGroup = arg.moveToRoomOrGroup?.trim() || gName;
+              const targetGroup = safeMoveTo?.trim() || gName;
+
+              let updatedSubExps = it.subExps;
+              if (normalizedExp && Array.isArray(it.subExps) && it.subExps.length > 0) {
+                const subQuery = (arg.subItemLabel || '').trim().toLowerCase();
+                if (subQuery) {
+                  const normalizeSubTok = (v: string) =>
+                    v
+                      .toLowerCase()
+                      .replace(/ทรีเวย์|three[\s_-]*way|3[\s_-]*way/g, 'tway')
+                      .replace(/t[\s_-]*way/g, 'tway')
+                      .replace(/[^a-z0-9ก-๙]+/g, '');
+                  const normSubQuery = normalizeSubTok(subQuery);
+                  let matchedAnySub = false;
+                  updatedSubExps = it.subExps.map((se) => {
+                    const lbl = String(se.label || '').trim().toLowerCase();
+                    const normLbl = normalizeSubTok(lbl);
+                    if (
+                      lbl &&
+                      (lbl === subQuery ||
+                        lbl.includes(subQuery) ||
+                        subQuery.includes(lbl) ||
+                        (normLbl && normSubQuery && (normLbl === normSubQuery || normLbl.includes(normSubQuery) || normSubQuery.includes(normLbl))))
+                    ) {
+                      matchedAnySub = true;
+                      return { ...se, exp: normalizedExp, hasNoExp: normalizedExp === '-' };
+                    }
+                    return se;
+                  });
+                  if (matchedAnySub) {
+                    resolvedNextExp = updatedSubExps
+                      .map((se) => `${se.label || 'ชิ้น'}: ${se.exp || '-'}`)
+                      .join(', ');
+                  }
+                } else if (it.subExps.length === 1) {
+                  updatedSubExps = it.subExps.map((se) => ({
+                    ...se,
+                    exp: normalizedExp,
+                    hasNoExp: normalizedExp === '-',
+                  }));
+                  resolvedNextExp = normalizedExp;
+                }
+              }
+
               updatedEquipItem = {
                 ...it,
                 id: it.id || itemKey,
@@ -721,12 +845,14 @@ export function useAuraActions(params: UseAuraActionsParams) {
                 category: targetGroup,
                 location: targetGroup,
                 ...(cleanNewName ? { name: cleanNewName } : {}),
-                ...(arg.newExp ? { exp: arg.newExp } : {}),
-                ...(arg.newQty !== undefined && String(arg.newQty).trim() !== ''
-                  ? { qty: String(arg.newQty), unitText: String(arg.newQty) }
+                ...(resolvedNextExp ? { exp: resolvedNextExp } : {}),
+                ...(updatedSubExps ? { subExps: updatedSubExps } : {}),
+                ...(safeNewQty !== undefined && String(safeNewQty).trim() !== ''
+                  ? { qty: String(safeNewQty), unitText: String(safeNewQty) }
                   : {}),
                 ...(mergedNote ? { note: mergedNote.slice(0, 950) } : {}),
               };
+              nextSummary = `จำนวน ${updatedEquipItem.unitText || updatedEquipItem.qty || '-'}, EXP ${updatedEquipItem.exp || '-'}`;
               if (targetGroup === gName) {
                 remainingInGroup.push(updatedEquipItem);
               }
@@ -737,8 +863,8 @@ export function useAuraActions(params: UseAuraActionsParams) {
           nextGroups[gName] = remainingInGroup;
         });
 
-        if (!updatedEquipItem) return { success: false, updatedName: '' };
-        const destGroup = arg.moveToRoomOrGroup?.trim();
+        if (!updatedEquipItem) return { success: false, updatedName: '', dbSaved: false };
+        const destGroup = safeMoveTo?.trim();
         if (destGroup && destGroup !== sourceGroup) {
           nextGroups[destGroup] = sortItemsNaturally([...(nextGroups[destGroup] || []), updatedEquipItem]);
         }
@@ -746,21 +872,19 @@ export function useAuraActions(params: UseAuraActionsParams) {
         const updatedLists = { ...lists, [cat]: { ...currentList, groups: nextGroups } };
         setLists(updatedLists);
         setStored(getChannelListsKey(channelId), updatedLists);
-        if (channelId === 'channel_master') {
+        if (isMaster) {
           setStored(STORAGE_KEYS.CUSTOM_LISTS, updatedLists);
-          await saveEquipmentItemToFirebase(updatedEquipItem).catch(() => {});
-        } else {
-          await saveChannelEquipmentItemToFirebase(channelId, updatedEquipItem).catch(() => {});
         }
+        const docSaved = await saveChannelEquipmentItemToFirebase(channelId, updatedEquipItem).catch(() => null);
 
         let nextGlobal = globalChecks;
-        if (arg.newExp || normalizedStatus || extraNote) {
+        if (resolvedNextExp || normalizedStatus || extraNote) {
           const catChecks = { ...(globalChecks[cat] || {}) };
           const existingCheck = catChecks[matchedItemKey] || { result: '', weekVals: {} };
           catChecks[matchedItemKey] = {
             ...existingCheck,
             ...(normalizedStatus ? { result: normalizedStatus } : {}),
-            ...(arg.newExp ? { exp: arg.newExp } : {}),
+            ...(resolvedNextExp ? { exp: resolvedNextExp } : {}),
             ...(extraNote ? { note: extraNote.slice(0, 950) } : {}),
           };
           nextGlobal = { ...globalChecks, [cat]: catChecks };
@@ -775,25 +899,38 @@ export function useAuraActions(params: UseAuraActionsParams) {
           deletedItemIds: getDeletedItemIds(channelId),
         };
         setStored(getChannelDbKey(channelId), channelPayload);
-        await saveChannelDataToFirebase(channelId, channelPayload).catch(() => {});
+        const channelSaved = await saveChannelDataToFirebase(channelId, channelPayload).catch(() => false);
+        const dbSaved = Boolean(docSaved) && Boolean(channelSaved);
         reRenderData();
 
-        logAuditEvent({
-          action: 'EDIT_EQUIPMENT',
+        void logAuditEvent({
+          action: 'AURA_ACTION',
           targetCollection: cat,
           targetId: matchedItemKey,
+          itemName: updatedName,
+          category: cat === 'bag' ? 'กระเป๋าฉุกเฉิน' : cat === 'ambulance' ? 'รถพยาบาลฉุกเฉิน' : 'รถฉุกเฉิน',
+          oldValue: prevSummary,
+          newValue: normalizedStatus ? `${nextSummary}, สถานะ ${normalizedStatus}` : nextSummary,
           details: {
             name: updatedName,
-            newExp: arg.newExp,
+            newExp: resolvedNextExp,
+            subItemLabel: arg.subItemLabel,
             lotNumber: arg.lotNumber,
-            newQty: arg.newQty,
+            newQty: safeNewQty,
             newStatus: normalizedStatus,
             moveToRoomOrGroup: destGroup,
+            dbSaved,
+            source: 'AuraAssistant',
           },
           currentUser,
         });
 
-        return { success: true, updatedName };
+        return {
+          success: true,
+          updatedName,
+          dbSaved,
+          ...(dbSaved ? {} : { error: 'ไม่สามารถบันทึกข้อมูลลง Firestore ได้ในขณะนี้' }),
+        };
       }
 
       if (arg.targetType === 'room') {
@@ -802,14 +939,16 @@ export function useAuraActions(params: UseAuraActionsParams) {
           Object.keys(equipment).find((rId) =>
             (equipment[rId] || []).some((it, idx) => it.id === arg.itemId || `${rId}_${idx}` === arg.itemId)
           );
-        if (!targetRoomId || !equipment[targetRoomId]) return { success: false, updatedName: '' };
+        if (!targetRoomId || !equipment[targetRoomId]) return { success: false, updatedName: '', dbSaved: false };
 
         let updatedName = '';
+        let prevSummary = '';
+        let nextSummary = '';
         let updatedRoomItem: EquipmentItem | null = null;
         let matchedKey = arg.itemId;
         const resolvedDestRoom =
-          arg.moveToRoomOrGroup?.trim()
-            ? resolveRoomIdFromLocation(arg.moveToRoomOrGroup, arg.newStatus, arg.note)
+          safeMoveTo?.trim()
+            ? resolveRoomIdFromLocation(safeMoveTo, arg.newStatus, arg.note)
             : targetRoomId;
 
         const nextEq: Record<string, EquipmentItem[]> = { ...equipment };
@@ -819,6 +958,7 @@ export function useAuraActions(params: UseAuraActionsParams) {
           if (it.id === arg.itemId || fbKey === arg.itemId) {
             matchedKey = it.id || fbKey;
             updatedName = cleanNewName || it.name;
+            prevSummary = `ห้อง ${targetRoomId.toUpperCase()}, สถานะ ${it.status || 'ปกติ'}, EXP ${it.exp || '-'}`;
             const mergedNote = extraNote
               ? it.note && !it.note.includes(extraNote)
                 ? `${it.note} (${extraNote})`
@@ -828,16 +968,17 @@ export function useAuraActions(params: UseAuraActionsParams) {
               ...it,
               id: it.id || fbKey,
               roomId: resolvedDestRoom,
-              location: arg.moveToRoomOrGroup?.trim() || it.location || resolvedDestRoom.toUpperCase(),
+              location: safeMoveTo?.trim() || it.location || resolvedDestRoom.toUpperCase(),
               type: it.type || 'room',
               ...(cleanNewName ? { name: cleanNewName } : {}),
               ...(arg.newStatus ? { status: arg.newStatus } : {}),
-              ...(arg.newExp ? { exp: arg.newExp } : {}),
-              ...(arg.newQty !== undefined && String(arg.newQty).trim() !== ''
-                ? { qty: String(arg.newQty), unitText: String(arg.newQty) }
+              ...(normalizedExp ? { exp: normalizedExp } : {}),
+              ...(safeNewQty !== undefined && String(safeNewQty).trim() !== ''
+                ? { qty: String(safeNewQty), unitText: String(safeNewQty) }
                 : {}),
               ...(mergedNote ? { note: mergedNote.slice(0, 950) } : {}),
             };
+            nextSummary = `ห้อง ${resolvedDestRoom.toUpperCase()}, สถานะ ${updatedRoomItem.status || 'ปกติ'}, EXP ${updatedRoomItem.exp || '-'}`;
             if (resolvedDestRoom === targetRoomId) {
               remainingSource.push(updatedRoomItem);
             }
@@ -846,7 +987,7 @@ export function useAuraActions(params: UseAuraActionsParams) {
           }
         });
 
-        if (!updatedRoomItem) return { success: false, updatedName: '' };
+        if (!updatedRoomItem) return { success: false, updatedName: '', dbSaved: false };
 
         nextEq[targetRoomId] = remainingSource;
         if (resolvedDestRoom !== targetRoomId) {
@@ -857,9 +998,10 @@ export function useAuraActions(params: UseAuraActionsParams) {
         setEquipment(nextEq);
         setStored(chKeys.EQ, nextEq);
         if (isMaster) setStored(STORAGE_KEYS.EQ, nextEq);
-        await saveChannelEquipmentItemToFirebase(channelId, updatedRoomItem).catch(() => {});
+        const docSaved = await saveChannelEquipmentItemToFirebase(channelId, updatedRoomItem).catch(() => null);
 
-        if (normalizedStatus || arg.newExp || extraNote) {
+        let channelSaved = true;
+        if (normalizedStatus || normalizedExp || extraNote) {
           const destChecks = { ...(globalChecks[resolvedDestRoom] || {}) };
           const existingCheck =
             (globalChecks[targetRoomId] || {})[matchedKey] ||
@@ -867,43 +1009,57 @@ export function useAuraActions(params: UseAuraActionsParams) {
           destChecks[matchedKey] = {
             ...existingCheck,
             ...(normalizedStatus ? { result: normalizedStatus } : {}),
-            ...(arg.newExp ? { exp: arg.newExp } : {}),
+            ...(normalizedExp ? { exp: normalizedExp } : {}),
             ...(extraNote ? { note: extraNote.slice(0, 950) } : {}),
           };
           const nextGlobal = { ...globalChecks, [resolvedDestRoom]: destChecks };
           setGlobalChecks(nextGlobal);
           setStored(getChannelChecksKey(channelId), nextGlobal);
-          await saveChannelDataToFirebase(channelId, {
+          channelSaved = await saveChannelDataToFirebase(channelId, {
             lists,
             globalChecks: nextGlobal,
             emergencyWeekDates,
             deletedItemIds: getDeletedItemIds(channelId),
-          }).catch(() => {});
+          }).catch(() => false);
         }
 
-        logAuditEvent({
-          action: 'EDIT_EQUIPMENT',
+        const dbSaved = Boolean(docSaved) && Boolean(channelSaved);
+
+        void logAuditEvent({
+          action: 'AURA_ACTION',
           targetCollection: 'equipment',
           targetId: matchedKey,
+          itemName: updatedName,
+          category: `ครุภัณฑ์ (${resolvedDestRoom.toUpperCase()})`,
+          oldValue: prevSummary,
+          newValue: nextSummary,
           details: {
             roomId: resolvedDestRoom,
             name: updatedName,
-            newExp: arg.newExp,
+            newExp: normalizedExp,
             lotNumber: arg.lotNumber,
-            newQty: arg.newQty,
+            newQty: safeNewQty,
             newStatus: normalizedStatus,
             moveToRoomOrGroup: resolvedDestRoom !== targetRoomId ? resolvedDestRoom : undefined,
+            dbSaved,
+            source: 'AuraAssistant',
           },
           currentUser,
         });
 
-        return { success: true, updatedName };
+        return {
+          success: true,
+          updatedName,
+          dbSaved,
+          ...(dbSaved ? {} : { error: 'ไม่สามารถบันทึกข้อมูลลง Firestore ได้ในขณะนี้' }),
+        };
       }
 
-      return { success: false, updatedName: '' };
+      return { success: false, updatedName: '', dbSaved: false };
     },
     [
       activeChannelId,
+      canEditStructure,
       currentUser,
       drugs,
       emergencyWeekDates,
@@ -916,6 +1072,583 @@ export function useAuraActions(params: UseAuraActionsParams) {
       setGlobalChecks,
       setLists,
     ]
+  );
+
+  // ⚡ Atomic Multi-Item Batch Update across drugs, bag/cart/ambulance, and OR equipment
+  const handleAuraBatchUpdateItems = useCallback(
+    async (
+      items: Array<{
+        targetType: 'drug' | 'bag' | 'cart' | 'ambulance' | 'room';
+        itemId: string;
+        itemName?: string;
+        locationLabel?: string;
+        roomId?: string;
+        newExp?: string;
+        subItemLabel?: string;
+        lotNumber?: string;
+        newQty?: string | number;
+        newStatus?: 'ปกติ' | 'ผิดปกติ' | 'ไม่ปกติ' | 'ชำรุด' | 'ส่งคืน' | 'เก็บสำรอง';
+        newName?: string;
+        moveToRoomOrGroup?: string;
+        note?: string;
+      }>
+    ): Promise<{
+      success: boolean;
+      dbSaved: boolean;
+      error?: string;
+      updatedResults: Array<{
+        targetType: 'drug' | 'bag' | 'cart' | 'ambulance' | 'room';
+        itemId: string;
+        updatedName: string;
+        locationLabel: string;
+        newExp?: string;
+        subItemLabel?: string;
+        changesSummary: string[];
+      }>;
+      failedItems: Array<{ name: string; reason: string }>;
+      snapshot: AuraDataSnapshot;
+    }> => {
+      const channelId = resolveWardId(activeChannelId);
+      const isMaster = isDefaultWard(channelId);
+      const chKeys = getChannelStorageKeys(channelId);
+      const snapshot = createAuraSnapshot(`ก่อนแก้ไขแบบกลุ่ม (${items.length} รายการ)`);
+
+      if (!items || items.length === 0) {
+        return {
+          success: false,
+          dbSaved: false,
+          updatedResults: [],
+          failedItems: [],
+          snapshot,
+          error: 'ไม่มีรายการสำหรับอัปเดต',
+        };
+      }
+
+      let nextDrugs = [...drugs];
+      const nextEq: Record<string, EquipmentItem[]> = {};
+      Object.entries(equipmentRef.current || {}).forEach(([rId, arr]) => {
+        nextEq[rId] = [...(arr || [])];
+      });
+      const nextLists: Record<string, ListConfig> = { ...lists };
+      const nextGlobal: Record<string, Record<string, CheckItemState>> = { ...globalChecks };
+
+      let drugsChanged = false;
+      let eqChanged = false;
+      let listsChanged = false;
+      let checksChanged = false;
+
+      const drugsToSaveMap = new Map<string, DrugItem>();
+      const equipmentToSaveMap = new Map<string, EquipmentItem>();
+
+      const updatedResults: Array<{
+        targetType: 'drug' | 'bag' | 'cart' | 'ambulance' | 'room';
+        itemId: string;
+        updatedName: string;
+        locationLabel: string;
+        newExp?: string;
+        subItemLabel?: string;
+        changesSummary: string[];
+      }> = [];
+      const failedItems: Array<{ name: string; reason: string }> = [];
+
+      for (const arg of items) {
+        const lotTag = arg.lotNumber && arg.lotNumber.trim() ? `Lot: ${arg.lotNumber.trim()}` : '';
+        const extraNote = [lotTag, arg.note?.trim()].filter(Boolean).join(' | ');
+        const normalizedStatus = arg.newStatus ? normalizeCheckResultStatus(arg.newStatus) : undefined;
+        const cleanNewName =
+          canEditStructure && arg.newName && arg.newName.trim() ? arg.newName.trim() : undefined;
+        const safeMoveTo = canEditStructure ? arg.moveToRoomOrGroup : undefined;
+        const safeNewQty = canEditStructure ? arg.newQty : undefined;
+
+        const normalizedExp = (() => {
+          if (arg.newExp === undefined) return undefined;
+          const raw = String(arg.newExp).trim();
+          if (!raw) return undefined;
+          if (raw === '-' || /no\s*exp|ไม่มี/i.test(raw)) return '-';
+          return normalizeExpDateToIso(raw) || raw;
+        })();
+
+        const changesSummary: string[] = [];
+        if (arg.subItemLabel) changesSummary.push(`ชิ้นย่อย: ${arg.subItemLabel}`);
+        if (cleanNewName) changesSummary.push(`ชื่อใหม่: ${cleanNewName}`);
+        if (safeNewQty !== undefined && String(safeNewQty).trim() !== '') {
+          changesSummary.push(`จำนวน: ${safeNewQty}`);
+        }
+
+        if (arg.targetType === 'drug') {
+          const idx = nextDrugs.findIndex((d) => d.id === arg.itemId);
+          if (idx === -1) {
+            failedItems.push({
+              name: arg.itemName || arg.itemId,
+              reason: 'ไม่พบรายการยาในคลังยาปัจจุบัน',
+            });
+            continue;
+          }
+          const d = nextDrugs[idx];
+          const updatedName = cleanNewName || d.name;
+          const nextQtyNum =
+            safeNewQty !== undefined && safeNewQty !== '' && !isNaN(Number(safeNewQty))
+              ? Number(safeNewQty)
+              : undefined;
+          const mergedNote = extraNote
+            ? d.note && !d.note.includes(extraNote)
+              ? `${d.note} (${extraNote})`
+              : extraNote
+            : d.note;
+
+          let nextLots = d.lots;
+          if (normalizedExp && Array.isArray(d.lots) && d.lots.length > 0) {
+            const targetLot = arg.lotNumber?.trim().toLowerCase();
+            let lotUpdated = false;
+            nextLots = d.lots.map((lot, lIdx) => {
+              const matchesLot = targetLot
+                ? String(lot.lotNumber || '').trim().toLowerCase() === targetLot
+                : lIdx === 0;
+              if (matchesLot && !lotUpdated) {
+                lotUpdated = true;
+                return { ...lot, expiryDate: normalizedExp };
+              }
+              return lot;
+            });
+          }
+
+          const updatedDrugItem: DrugItem = {
+            ...d,
+            ...(cleanNewName ? { name: cleanNewName } : {}),
+            ...(normalizedExp ? { expDate: normalizedExp, exp: normalizedExp } : {}),
+            ...(nextLots ? { lots: nextLots, batches: nextLots } : {}),
+            ...(nextQtyNum !== undefined ? { remaining: nextQtyNum, totalQty: nextQtyNum } : {}),
+            ...(safeMoveTo ? { location: safeMoveTo.trim() } : {}),
+            note: (mergedNote || '').slice(0, 950),
+          };
+          nextDrugs[idx] = updatedDrugItem;
+          drugsToSaveMap.set(updatedDrugItem.id, updatedDrugItem);
+          drugsChanged = true;
+
+          if (normalizedExp) changesSummary.push(`EXP: ${normalizedExp}`);
+          if (arg.lotNumber) changesSummary.push(`Lot: ${arg.lotNumber}`);
+          if (normalizedStatus) changesSummary.push(`สถานะ: ${normalizedStatus}`);
+          if (arg.note) changesSummary.push(`หมายเหตุ: ${arg.note}`);
+
+          updatedResults.push({
+            targetType: 'drug',
+            itemId: updatedDrugItem.id,
+            updatedName,
+            locationLabel: arg.locationLabel || 'คลังยา & สารน้ำ',
+            newExp: normalizedExp,
+            subItemLabel: arg.subItemLabel,
+            changesSummary,
+          });
+          continue;
+        }
+
+        if (arg.targetType === 'bag' || arg.targetType === 'cart' || arg.targetType === 'ambulance') {
+          const cat = arg.targetType;
+          const currentList = nextLists[cat];
+          if (!currentList?.groups) {
+            failedItems.push({
+              name: arg.itemName || arg.itemId,
+              reason: `ไม่พบรายการในหมวด ${cat}`,
+            });
+            continue;
+          }
+
+          let updatedName = '';
+          let matchedItemKey = '';
+          let updatedEquipItem: EquipmentItem | null = null;
+          let sourceGroup = '';
+          let resolvedNextExp = normalizedExp;
+          const nextGroups: Record<string, EquipmentItem[]> = {};
+
+          Object.entries(currentList.groups).forEach(([gName, gItems]) => {
+            const remainingInGroup: EquipmentItem[] = [];
+            (gItems || []).forEach((it, idx) => {
+              const itemKey = it.id || `${cat}_${gName}_${idx}`;
+              if (!updatedEquipItem && (itemKey === arg.itemId || it.id === arg.itemId)) {
+                updatedName = cleanNewName || it.name;
+                matchedItemKey = itemKey;
+                sourceGroup = gName;
+                const mergedNote = extraNote
+                  ? it.note && !it.note.includes(extraNote)
+                    ? `${it.note} (${extraNote})`
+                    : extraNote
+                  : it.note;
+                const targetGroup = safeMoveTo?.trim() || gName;
+
+                let updatedSubExps = it.subExps;
+                if (normalizedExp && Array.isArray(it.subExps) && it.subExps.length > 0) {
+                  const subQuery = (arg.subItemLabel || '').trim().toLowerCase();
+                  if (subQuery) {
+                    const normalizeSubTok = (v: string) =>
+                      v
+                        .toLowerCase()
+                        .replace(/ทรีเวย์|three[\s_-]*way|3[\s_-]*way/g, 'tway')
+                        .replace(/t[\s_-]*way/g, 'tway')
+                        .replace(/[^a-z0-9ก-๙]+/g, '');
+                    const normSubQuery = normalizeSubTok(subQuery);
+                    let matchedAnySub = false;
+                    updatedSubExps = it.subExps.map((se) => {
+                      const lbl = String(se.label || '').trim().toLowerCase();
+                      const normLbl = normalizeSubTok(lbl);
+                      if (
+                        lbl &&
+                        (lbl === subQuery ||
+                          lbl.includes(subQuery) ||
+                          subQuery.includes(lbl) ||
+                          (normLbl && normSubQuery && (normLbl === normSubQuery || normLbl.includes(normSubQuery) || normSubQuery.includes(normLbl))))
+                      ) {
+                        matchedAnySub = true;
+                        return { ...se, exp: normalizedExp, hasNoExp: normalizedExp === '-' };
+                      }
+                      return se;
+                    });
+                    if (matchedAnySub) {
+                      resolvedNextExp = updatedSubExps
+                        .map((se) => `${se.label || 'ชิ้น'}: ${se.exp || '-'}`)
+                        .join(', ');
+                    }
+                  } else if (it.subExps.length === 1) {
+                    updatedSubExps = it.subExps.map((se) => ({
+                      ...se,
+                      exp: normalizedExp,
+                      hasNoExp: normalizedExp === '-',
+                    }));
+                    resolvedNextExp = normalizedExp;
+                  }
+                }
+
+                updatedEquipItem = {
+                  ...it,
+                  id: it.id || itemKey,
+                  type: cat,
+                  category: targetGroup,
+                  location: targetGroup,
+                  ...(cleanNewName ? { name: cleanNewName } : {}),
+                  ...(resolvedNextExp ? { exp: resolvedNextExp } : {}),
+                  ...(updatedSubExps ? { subExps: updatedSubExps } : {}),
+                  ...(safeNewQty !== undefined && String(safeNewQty).trim() !== ''
+                    ? { qty: String(safeNewQty), unitText: String(safeNewQty) }
+                    : {}),
+                  ...(mergedNote ? { note: mergedNote.slice(0, 950) } : {}),
+                };
+                if (targetGroup === gName) {
+                  remainingInGroup.push(updatedEquipItem);
+                }
+              } else {
+                remainingInGroup.push(it);
+              }
+            });
+            nextGroups[gName] = remainingInGroup;
+          });
+
+          if (!updatedEquipItem) {
+            failedItems.push({
+              name: arg.itemName || arg.itemId,
+              reason: 'ไม่พบรายการที่ตรงกันในหมวดหมู่เป้าหมาย',
+            });
+            continue;
+          }
+
+          const destGroup = safeMoveTo?.trim();
+          if (destGroup && destGroup !== sourceGroup) {
+            nextGroups[destGroup] = sortItemsNaturally([...(nextGroups[destGroup] || []), updatedEquipItem]);
+          }
+
+          nextLists[cat] = { ...currentList, groups: nextGroups };
+          listsChanged = true;
+          equipmentToSaveMap.set((updatedEquipItem as EquipmentItem).id || matchedItemKey, updatedEquipItem);
+
+          if (resolvedNextExp || normalizedStatus || extraNote) {
+            const catChecks = { ...(nextGlobal[cat] || {}) };
+            const existingCheck = catChecks[matchedItemKey] || { result: '', weekVals: {} };
+            catChecks[matchedItemKey] = {
+              ...existingCheck,
+              ...(normalizedStatus ? { result: normalizedStatus } : {}),
+              ...(resolvedNextExp ? { exp: resolvedNextExp } : {}),
+              ...(extraNote ? { note: extraNote.slice(0, 950) } : {}),
+            };
+            nextGlobal[cat] = catChecks;
+            checksChanged = true;
+          }
+
+          if (normalizedExp) changesSummary.push(`EXP: ${normalizedExp}`);
+          if (arg.lotNumber) changesSummary.push(`Lot: ${arg.lotNumber}`);
+          if (normalizedStatus) changesSummary.push(`สถานะ: ${normalizedStatus}`);
+          if (destGroup) changesSummary.push(`ย้ายไป: ${destGroup}`);
+          if (arg.note) changesSummary.push(`หมายเหตุ: ${arg.note}`);
+
+          const fallbackCatLabel =
+            cat === 'bag' ? 'กระเป๋าฉุกเฉิน' : cat === 'ambulance' ? 'รถพยาบาลฉุกเฉิน' : 'รถฉุกเฉิน';
+          updatedResults.push({
+            targetType: cat,
+            itemId: matchedItemKey,
+            updatedName,
+            locationLabel: arg.locationLabel || fallbackCatLabel,
+            newExp: normalizedExp,
+            subItemLabel: arg.subItemLabel,
+            changesSummary,
+          });
+          continue;
+        }
+
+        if (arg.targetType === 'room') {
+          const targetRoomId =
+            arg.roomId ||
+            Object.keys(nextEq).find((rId) =>
+              (nextEq[rId] || []).some((it, idx) => it.id === arg.itemId || `${rId}_${idx}` === arg.itemId)
+            );
+          if (!targetRoomId || !nextEq[targetRoomId]) {
+            failedItems.push({
+              name: arg.itemName || arg.itemId,
+              reason: 'ไม่พบครุภัณฑ์ในห้องผ่าตัดที่ระบุ',
+            });
+            continue;
+          }
+
+          let updatedName = '';
+          let updatedRoomItem: EquipmentItem | null = null;
+          let matchedKey = arg.itemId;
+          const resolvedDestRoom =
+            safeMoveTo?.trim()
+              ? resolveRoomIdFromLocation(safeMoveTo, arg.newStatus, arg.note)
+              : targetRoomId;
+
+          const remainingSource: EquipmentItem[] = [];
+          (nextEq[targetRoomId] || []).forEach((it, idx) => {
+            const fbKey = `${targetRoomId}_${idx}`;
+            if (!updatedRoomItem && (it.id === arg.itemId || fbKey === arg.itemId)) {
+              matchedKey = it.id || fbKey;
+              updatedName = cleanNewName || it.name;
+              const mergedNote = extraNote
+                ? it.note && !it.note.includes(extraNote)
+                  ? `${it.note} (${extraNote})`
+                  : extraNote
+                : it.note;
+              updatedRoomItem = {
+                ...it,
+                id: it.id || fbKey,
+                roomId: resolvedDestRoom,
+                location: safeMoveTo?.trim() || it.location || resolvedDestRoom.toUpperCase(),
+                type: it.type || 'room',
+                ...(cleanNewName ? { name: cleanNewName } : {}),
+                ...(arg.newStatus ? { status: arg.newStatus } : {}),
+                ...(normalizedExp ? { exp: normalizedExp } : {}),
+                ...(safeNewQty !== undefined && String(safeNewQty).trim() !== ''
+                  ? { qty: String(safeNewQty), unitText: String(safeNewQty) }
+                  : {}),
+                ...(mergedNote ? { note: mergedNote.slice(0, 950) } : {}),
+              };
+              if (resolvedDestRoom === targetRoomId) {
+                remainingSource.push(updatedRoomItem);
+              }
+            } else {
+              remainingSource.push(it);
+            }
+          });
+
+          if (!updatedRoomItem) {
+            failedItems.push({
+              name: arg.itemName || arg.itemId,
+              reason: 'ไม่พบครุภัณฑ์ที่ระบุ',
+            });
+            continue;
+          }
+
+          nextEq[targetRoomId] = remainingSource;
+          if (resolvedDestRoom !== targetRoomId) {
+            nextEq[resolvedDestRoom] = [...(nextEq[resolvedDestRoom] || []), updatedRoomItem];
+          }
+          eqChanged = true;
+          equipmentToSaveMap.set((updatedRoomItem as EquipmentItem).id || matchedKey, updatedRoomItem);
+
+          if (normalizedStatus || normalizedExp || extraNote) {
+            const destChecks = { ...(nextGlobal[resolvedDestRoom] || {}) };
+            const existingCheck =
+              (nextGlobal[targetRoomId] || {})[matchedKey] ||
+              destChecks[matchedKey] || { result: '', weekVals: {} };
+            destChecks[matchedKey] = {
+              ...existingCheck,
+              ...(normalizedStatus ? { result: normalizedStatus } : {}),
+              ...(normalizedExp ? { exp: normalizedExp } : {}),
+              ...(extraNote ? { note: extraNote.slice(0, 950) } : {}),
+            };
+            nextGlobal[resolvedDestRoom] = destChecks;
+            checksChanged = true;
+          }
+
+          if (normalizedExp) changesSummary.push(`EXP: ${normalizedExp}`);
+          if (arg.lotNumber) changesSummary.push(`Lot: ${arg.lotNumber}`);
+          if (normalizedStatus) changesSummary.push(`สถานะ: ${normalizedStatus}`);
+          if (resolvedDestRoom !== targetRoomId) changesSummary.push(`ย้ายห้อง: ${resolvedDestRoom.toUpperCase()}`);
+          if (arg.note) changesSummary.push(`หมายเหตุ: ${arg.note}`);
+
+          updatedResults.push({
+            targetType: 'room',
+            itemId: matchedKey,
+            updatedName,
+            locationLabel: arg.locationLabel || `ห้อง ${resolvedDestRoom.toUpperCase()}`,
+            newExp: normalizedExp,
+            subItemLabel: arg.subItemLabel,
+            changesSummary,
+          });
+        }
+      }
+
+      if (updatedResults.length === 0) {
+        return {
+          success: false,
+          dbSaved: false,
+          updatedResults: [],
+          failedItems,
+          snapshot,
+          error: 'ไม่พบรายการที่ตรงกันสำหรับการอัปเดต',
+        };
+      }
+
+      // 1. Update local React state & localStorage in a single clean pass
+      if (drugsChanged) {
+        setDrugs(nextDrugs);
+        setStored(chKeys.DRUGS, nextDrugs);
+        if (isMaster) setStored(STORAGE_KEYS.DRUGS, nextDrugs);
+      }
+      if (eqChanged) {
+        equipmentRef.current = nextEq;
+        setEquipment(nextEq);
+        setStored(chKeys.EQ, nextEq);
+        if (isMaster) setStored(STORAGE_KEYS.EQ, nextEq);
+      }
+      if (listsChanged) {
+        setLists(nextLists);
+        setStored(getChannelListsKey(channelId), nextLists);
+        if (isMaster) setStored(STORAGE_KEYS.CUSTOM_LISTS, nextLists);
+      }
+      if (checksChanged) {
+        setGlobalChecks(nextGlobal);
+        setStored(getChannelChecksKey(channelId), nextGlobal);
+      }
+
+      const wardPatch =
+        listsChanged || checksChanged
+          ? {
+              lists: nextLists,
+              globalChecks: nextGlobal,
+              emergencyWeekDates,
+              deletedItemIds: getDeletedItemIds(channelId),
+            }
+          : undefined;
+      if (wardPatch) {
+        setStored(getChannelDbKey(channelId), wardPatch);
+      }
+
+      // 2. Commit all modified docs + ward workspace atomically in a single Firestore writeBatch
+      const batchCommitRes = await saveBatchWardUpdatesToFirebase(channelId, {
+        drugsToSave: Array.from(drugsToSaveMap.values()),
+        equipmentToSave: Array.from(equipmentToSaveMap.values()),
+        wardPatch,
+      });
+
+      reRenderData();
+
+      // 3. Log audit trail entry for the batch operation
+      void logAuditEvent({
+        action: 'AURA_ACTION',
+        targetCollection: updatedResults.length === 1 ? updatedResults[0].targetType : 'batch',
+        targetId: updatedResults.length === 1 ? updatedResults[0].itemId : channelId,
+        itemName:
+          updatedResults.length === 1
+            ? updatedResults[0].updatedName
+            : `อัปเดตพร้อมกัน ${updatedResults.length} รายการ`,
+        category:
+          updatedResults.length === 1 ? updatedResults[0].locationLabel : 'อัปเดตแบบกลุ่ม (Aura Batch)',
+        newValue: updatedResults
+          .map((u) => `${u.updatedName} (${u.changesSummary.join(', ') || 'อัปเดตแล้ว'})`)
+          .join(' | ')
+          .slice(0, 1900),
+        details: {
+          channelId,
+          count: updatedResults.length,
+          items: updatedResults,
+          dbSaved: batchCommitRes.ok,
+          source: 'AuraAssistant_Batch',
+        },
+        currentUser,
+      });
+
+      return {
+        success: true,
+        dbSaved: batchCommitRes.ok,
+        error: batchCommitRes.error,
+        updatedResults,
+        failedItems,
+        snapshot,
+      };
+    },
+    [
+      activeChannelId,
+      canEditStructure,
+      createAuraSnapshot,
+      currentUser,
+      drugs,
+      emergencyWeekDates,
+      globalChecks,
+      lists,
+      reRenderData,
+      setDrugs,
+      setEquipment,
+      setGlobalChecks,
+      setLists,
+    ]
+  );
+
+  // 🧠 Save Ward AI Memory / Custom Glossary permanently to wards/{wardId}/ai_memory
+  const handleAuraSaveWardMemory = useCallback(
+    async (entry: {
+      triggerPhrase: string;
+      meaning: string;
+      category?: string;
+      ruleType?: string;
+    }): Promise<{
+      success: boolean;
+      dbSaved: boolean;
+      memoryItem?: WardAiMemoryItem;
+      error?: string;
+    }> => {
+      const channelId = resolveWardId(activeChannelId);
+      const saveRes = await saveWardAiMemoryToFirebase(channelId, {
+        ...entry,
+        createdBy: currentUser?.name || currentUser?.username || 'พยาบาลวิสัญญี',
+      });
+      if (saveRes.ok && saveRes.item) {
+        void logAuditEvent({
+          action: 'AURA_ACTION',
+          targetCollection: 'ai_memory',
+          targetId: saveRes.item.id,
+          itemName: `${saveRes.item.triggerPhrase} → ${saveRes.item.meaning}`,
+          category: 'ความจำ AI ประจำวอร์ด',
+          newValue: `"${saveRes.item.triggerPhrase}" หมายถึง "${saveRes.item.meaning}"`,
+          details: {
+            channelId,
+            memoryId: saveRes.item.id,
+            category: saveRes.item.category,
+            ruleType: saveRes.item.ruleType,
+            dbSaved: true,
+            source: 'AuraAssistant_Memory',
+          },
+          currentUser,
+        });
+        return {
+          success: true,
+          dbSaved: true,
+          memoryItem: saveRes.item,
+        };
+      }
+      return {
+        success: false,
+        dbSaved: false,
+        error: saveRes.error || 'ไม่สามารถบันทึกความจำวอร์ดลง Firestore ได้',
+      };
+    },
+    [activeChannelId, currentUser]
   );
 
   // 🎯 Targeted Specific Item Deletion across all 5 categories with Tombstones + Undo Snapshot
@@ -934,14 +1667,26 @@ export function useAuraActions(params: UseAuraActionsParams) {
       deletedLabels: string[];
       snapshot: AuraDataSnapshot;
     }> => {
-      const channelId = activeChannelId || 'channel_master';
-      const isMaster = channelId === 'channel_master';
+      const channelId = resolveWardId(activeChannelId);
+      const isMaster = isDefaultWard(channelId);
       const chKeys = getChannelStorageKeys(channelId);
       const snapshot = createAuraSnapshot(`ก่อนลบ ${targets.length} รายการเจาะจง`);
+
+      if (!canDelete) {
+        return { success: false, deletedCount: 0, deletedLabels: [], snapshot };
+      }
 
       const deletedLabels: string[] = [];
       const newTombstones: string[] = [];
       const firebaseDeletes: Array<Promise<any>> = [];
+      const trashArchives: Array<{
+        targetType: 'drug' | 'bag' | 'cart' | 'ambulance' | 'room';
+        category: string;
+        groupOrRoomId: string;
+        itemName: string;
+        payload: Record<string, any>;
+        tokens: string[];
+      }> = [];
 
       let nextDrugs = [...drugs];
       let drugsChanged = false;
@@ -962,7 +1707,16 @@ export function useAuraActions(params: UseAuraActionsParams) {
             nextDrugs = nextDrugs.filter((d) => d.id !== target.itemId);
             drugsChanged = true;
             deletedLabels.push(`${found.name} (คลังยา)`);
-            newTombstones.push(...makeItemTombstoneTokens('drug', found as any, found.id));
+            const tokens = makeItemTombstoneTokens('drug', found as any, found.id);
+            newTombstones.push(...tokens);
+            trashArchives.push({
+              targetType: 'drug',
+              category: 'คลังยา & สารน้ำ',
+              groupOrRoomId: found.category || 'monthly',
+              itemName: found.name,
+              payload: { ...found },
+              tokens,
+            });
             firebaseDeletes.push(deleteChannelDrugItemInFirebase(channelId, found.id).catch(() => false));
           }
           continue;
@@ -998,14 +1752,26 @@ export function useAuraActions(params: UseAuraActionsParams) {
             listsChanged = true;
             nextLists[cat] = { ...cfg, groups: updatedGroups };
             const catLabel = cat === 'bag' ? 'กระเป๋าฉุกเฉิน' : cat === 'ambulance' ? 'รถพยาบาลฉุกเฉิน' : 'รถฉุกเฉิน';
-            deletedLabels.push(`${(matchedInCat as EquipmentItem).name} (${catLabel})`);
-            newTombstones.push(
-              ...makeItemTombstoneTokens(
-                cat,
-                { ...(matchedInCat as EquipmentItem), category: (matchedInCat as EquipmentItem).category || matchedGroup },
-                matchedKey
-              )
+            const removedObj = matchedInCat as EquipmentItem;
+            deletedLabels.push(`${removedObj.name} (${catLabel})`);
+            const tokens = makeItemTombstoneTokens(
+              cat,
+              { ...removedObj, category: removedObj.category || matchedGroup },
+              matchedKey
             );
+            newTombstones.push(...tokens);
+            trashArchives.push({
+              targetType: cat,
+              category: catLabel,
+              groupOrRoomId: matchedGroup,
+              itemName: removedObj.name,
+              payload: {
+                ...removedObj,
+                id: removedObj.id || matchedKey,
+                category: removedObj.category || matchedGroup,
+              },
+              tokens,
+            });
             if (nextGlobal[cat]?.[matchedKey]) {
               const catChecks = { ...nextGlobal[cat] };
               delete catChecks[matchedKey];
@@ -1034,9 +1800,16 @@ export function useAuraActions(params: UseAuraActionsParams) {
               nextEq[rId] = roomItems.filter((_, idx) => idx !== matchIdx);
               eqChanged = true;
               deletedLabels.push(`${removed.name} (${rId.toUpperCase()})`);
-              newTombstones.push(
-                ...makeItemTombstoneTokens(rId, { ...removed, category: rId }, resolvedKey)
-              );
+              const tokens = makeItemTombstoneTokens(rId, { ...removed, category: rId }, resolvedKey);
+              newTombstones.push(...tokens);
+              trashArchives.push({
+                targetType: 'room',
+                category: `ครุภัณฑ์ (${rId.toUpperCase()})`,
+                groupOrRoomId: rId,
+                itemName: removed.name,
+                payload: { ...removed, id: removed.id || resolvedKey, roomId: rId, type: 'room' },
+                tokens,
+              });
               if (nextGlobal[rId]?.[resolvedKey]) {
                 const rChecks = { ...nextGlobal[rId] };
                 delete rChecks[resolvedKey];
@@ -1093,18 +1866,35 @@ export function useAuraActions(params: UseAuraActionsParams) {
       }
       reRenderData();
 
-      logAuditEvent({
-        action: 'DELETE_SPECIFIC_ITEMS',
-        targetCollection: 'inventory',
-        targetId: channelId,
-        details: {
-          channelId,
-          deletedCount: deletedLabels.length,
-          items: deletedLabels,
-          source: 'AuraAssistant',
-        },
-        currentUser,
-      });
+      for (const arc of trashArchives) {
+        const trashId = await archiveDeletedItemToTrash({
+          wardId: channelId,
+          targetType: arc.targetType,
+          category: arc.category,
+          groupOrRoomId: arc.groupOrRoomId,
+          itemName: arc.itemName,
+          payload: arc.payload,
+          tombstoneTokens: arc.tokens,
+          currentUser,
+        });
+        void logAuditEvent({
+          action: 'AURA_ACTION',
+          targetCollection: arc.targetType,
+          targetId: arc.payload.id || channelId,
+          itemName: arc.itemName,
+          category: arc.category,
+          oldValue: arc.itemName,
+          newValue: 'ถูกลบผ่าน Aura AI',
+          trashId: trashId || undefined,
+          restorablePayload: arc.payload,
+          details: {
+            channelId,
+            deletedCount: deletedLabels.length,
+            source: 'AuraAssistant',
+          },
+          currentUser,
+        });
+      }
 
       return {
         success: true,
@@ -1115,6 +1905,7 @@ export function useAuraActions(params: UseAuraActionsParams) {
     },
     [
       activeChannelId,
+      canDelete,
       createAuraSnapshot,
       currentUser,
       drugs,
@@ -1147,11 +1938,19 @@ export function useAuraActions(params: UseAuraActionsParams) {
       categoryLabel: string;
       snapshot: AuraDataSnapshot;
     }> => {
-      const channelId = activeChannelId || 'channel_master';
-      const isMaster = channelId === 'channel_master';
+      const channelId = resolveWardId(activeChannelId);
+      const isMaster = isDefaultWard(channelId);
       const chKeys = getChannelStorageKeys(channelId);
       const cleanName = String(arg.name || '').trim();
       const snapshot = createAuraSnapshot(`ก่อนเพิ่ม ${cleanName}`);
+      if (!canEditStructure) {
+        return {
+          success: false,
+          addedLabel: '',
+          categoryLabel: 'ผู้ดูแลระบบล็อกสิทธิ์การเพิ่มรายการสำหรับเจ้าหน้าที่ไว้',
+          snapshot,
+        };
+      }
       if (!cleanName) {
         return { success: false, addedLabel: '', categoryLabel: '', snapshot };
       }
@@ -1196,6 +1995,16 @@ export function useAuraActions(params: UseAuraActionsParams) {
           emergencyWeekDates,
           deletedItemIds: getDeletedItemIds(channelId),
         }).catch(() => {});
+        void logAuditEvent({
+          action: 'AURA_ACTION',
+          targetCollection: 'drugs',
+          targetId: newDrug.id,
+          itemName: cleanName,
+          category: 'คลังยา & สารน้ำ',
+          newValue: `เพิ่มยา ${qtyNum} ${newDrug.unit} (EXP ${newDrug.expDate})`,
+          details: { channelId, source: 'AuraAssistant' },
+          currentUser,
+        });
         return { success: true, addedLabel: cleanName, categoryLabel: 'คลังยา & สารน้ำ', snapshot };
       }
 
@@ -1241,6 +2050,16 @@ export function useAuraActions(params: UseAuraActionsParams) {
         await saveChannelDataToFirebase(channelId, payload).catch(() => {});
         reRenderData();
         const catLabel = cat === 'bag' ? 'กระเป๋าฉุกเฉิน' : cat === 'ambulance' ? 'รถพยาบาลฉุกเฉิน' : 'รถฉุกเฉิน';
+        void logAuditEvent({
+          action: 'AURA_ACTION',
+          targetCollection: cat,
+          targetId: newItem.id || channelId,
+          itemName: cleanName,
+          category: `${catLabel} · ${groupName}`,
+          newValue: `จำนวน ${newItem.qty}, EXP ${newItem.exp || '-'}`,
+          details: { channelId, groupName, source: 'AuraAssistant' },
+          currentUser,
+        });
         return { success: true, addedLabel: `${cleanName} (${groupName})`, categoryLabel: catLabel, snapshot };
       }
 
@@ -1275,11 +2094,23 @@ export function useAuraActions(params: UseAuraActionsParams) {
         deletedItemIds: getDeletedItemIds(channelId),
       }).catch(() => {});
       reRenderData();
+      void logAuditEvent({
+        action: 'AURA_ACTION',
+        targetCollection: 'equipment',
+        targetId: newEqItem.id || channelId,
+        itemName: cleanName,
+        category: `ครุภัณฑ์ (${roomId.toUpperCase()})`,
+        newValue: `จำนวน ${newEqItem.qty}, สถานะ ${newEqItem.status}`,
+        details: { channelId, roomId, source: 'AuraAssistant' },
+        currentUser,
+      });
       return { success: true, addedLabel: `${cleanName} (${roomId.toUpperCase()})`, categoryLabel: 'ครุภัณฑ์ห้องผ่าตัด', snapshot };
     },
     [
       activeChannelId,
+      canEditStructure,
       createAuraSnapshot,
+      currentUser,
       drugs,
       emergencyWeekDates,
       globalChecks,
@@ -1468,7 +2299,9 @@ export function useAuraActions(params: UseAuraActionsParams) {
       };
 
       setHistoryRecords((prev) => [newRecord, ...prev].slice(0, 50));
-      saveInspectionToFirebase(newRecord).catch((e) => console.warn('Firebase save error:', e));
+      saveInspectionToFirebase(newRecord, resolveWardId(activeChannelId)).catch((e) =>
+        console.warn('Firebase save error:', e)
+      );
 
       if (arg.syncSheets !== false && apiUrl && apiUrl.trim()) {
         try {
@@ -1579,7 +2412,7 @@ export function useAuraActions(params: UseAuraActionsParams) {
 
       await saveRestockRequisitionToFirebase({
         id: restockRecord.id,
-        channelId: activeChannelId || 'channel_master',
+        channelId: resolveWardId(activeChannelId),
         targetCategory: restockRecord.category,
         requestedBy: restockRecord.requester,
         status: 'pending',
@@ -1620,7 +2453,7 @@ export function useAuraActions(params: UseAuraActionsParams) {
           message: `สร้างใบขอเบิกเวชภัณฑ์ ${items.length} รายการผ่าน One-Click Restock`,
           requisitionId: restockRecord.id,
           itemCount: items.length,
-          channelId: activeChannelId || 'channel_master',
+          channelId: resolveWardId(activeChannelId),
         },
         currentUser,
       });
@@ -1654,8 +2487,8 @@ export function useAuraActions(params: UseAuraActionsParams) {
         reason: string;
       }>;
     }> => {
-      const channelId = activeChannelId || 'channel_master';
-      const isMaster = channelId === 'channel_master';
+      const channelId = resolveWardId(activeChannelId);
+      const isMaster = isDefaultWard(channelId);
       const chKeys = getChannelStorageKeys(channelId);
 
       const attByIndex = new Map<number, { index: number; dataUrl: string; fileName?: string }>();
@@ -1839,8 +2672,8 @@ export function useAuraActions(params: UseAuraActionsParams) {
       markedItems: BulkEquipmentImportRow[];
       roomCounts: Record<string, number>;
     }> => {
-      const channelId = activeChannelId || 'channel_master';
-      const isMaster = channelId === 'channel_master';
+      const channelId = resolveWardId(activeChannelId);
+      const isMaster = isDefaultWard(channelId);
       const chKeys = getChannelStorageKeys(channelId);
 
       const validRows = (rawItems || []).filter(
@@ -2049,6 +2882,8 @@ export function useAuraActions(params: UseAuraActionsParams) {
     restoreAuraSnapshot,
     handleAuraDirectClear,
     handleAuraUpdateItem,
+    handleAuraBatchUpdateItems,
+    handleAuraSaveWardMemory,
     handleAuraDeleteSpecificItems,
     handleAuraAddNewItem,
     handleAutoFillChecks,

@@ -113,12 +113,14 @@ async function startServer() {
         { createAiVisionRouter },
         { createAiChatRouter },
         { createSystemRouter },
+        { createAdminRouter },
       ] = await Promise.all([
         import('./server/middleware/auth'),
         import('./server/routes/fhir'),
         import('./server/routes/aiVision'),
         import('./server/routes/aiChat'),
         import('./server/routes/system'),
+        import('./server/routes/admin'),
       ]);
 
       const router = express.Router();
@@ -134,6 +136,7 @@ async function startServer() {
         res.status(200).json({ token, expiresAt });
       });
 
+      router.use('/api/admin', createAdminRouter());
       router.use(['/api/ai', '/api/fhir', '/api/system'], requireApiAuth);
       router.use('/api/fhir', createFhirRouter());
       router.use('/api/ai', createAiVisionRouter());

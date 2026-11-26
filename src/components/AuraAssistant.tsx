@@ -40,7 +40,9 @@ import {
   findBestMedicalMatches,
   findFuzzyDrugOrItemMatches,
   extractSignificantNumbers,
+  sanitizeItemName,
 } from '../utils/itemUtils';
+import { normalizeExpDateToIso } from '../utils/dateUtils';
 import { useDataContext } from '../context/DataContext';
 import { clearChannelCategory } from '../services/aiEngine';
 import { rotateImageDegrees } from '../utils/imageUtils';
@@ -60,8 +62,10 @@ import {
   VerificationEquipmentRow,
   VerificationPageImage,
 } from './EquipmentVerificationModal';
-import { AuraDataSnapshot } from '../types';
+import { AuraDataSnapshot, WardAiMemoryItem } from '../types';
 import { getChannelStorageKeys, buildAuraLiveContext } from '../utils/helpers';
+import { subscribeWardAiMemory } from '../services/firebase';
+import { resolveWardId } from '../utils/wardUtils';
 import {
   AuraPendingPhotoUploadMetadata,
   getPendingPhotoMetadata,
@@ -201,13 +205,57 @@ interface AuraAssistantProps {
     itemId: string;
     roomId?: string;
     newExp?: string;
+    subItemLabel?: string;
     lotNumber?: string;
     newQty?: string | number;
     newStatus?: 'ปกติ' | 'ผิดปกติ' | 'ไม่ปกติ' | 'ชำรุด' | 'ส่งคืน' | 'เก็บสำรอง';
     newName?: string;
     moveToRoomOrGroup?: string;
     note?: string;
-  }) => Promise<{ success: boolean; updatedName: string }>;
+  }) => Promise<{ success: boolean; updatedName: string; dbSaved?: boolean; error?: string }>;
+  onBatchUpdateInventoryItems?: (
+    items: Array<{
+      targetType: 'drug' | 'bag' | 'cart' | 'ambulance' | 'room';
+      itemId: string;
+      itemName?: string;
+      locationLabel?: string;
+      roomId?: string;
+      newExp?: string;
+      subItemLabel?: string;
+      lotNumber?: string;
+      newQty?: string | number;
+      newStatus?: 'ปกติ' | 'ผิดปกติ' | 'ไม่ปกติ' | 'ชำรุด' | 'ส่งคืน' | 'เก็บสำรอง';
+      newName?: string;
+      moveToRoomOrGroup?: string;
+      note?: string;
+    }>
+  ) => Promise<{
+    success: boolean;
+    dbSaved: boolean;
+    error?: string;
+    updatedResults: Array<{
+      targetType: 'drug' | 'bag' | 'cart' | 'ambulance' | 'room';
+      itemId: string;
+      updatedName: string;
+      locationLabel: string;
+      newExp?: string;
+      subItemLabel?: string;
+      changesSummary: string[];
+    }>;
+    failedItems: Array<{ name: string; reason: string }>;
+    snapshot: AuraDataSnapshot;
+  }>;
+  onSaveWardMemory?: (entry: {
+    triggerPhrase: string;
+    meaning: string;
+    category?: string;
+    ruleType?: string;
+  }) => Promise<{
+    success: boolean;
+    dbSaved: boolean;
+    memoryItem?: WardAiMemoryItem;
+    error?: string;
+  }>;
   onAttachEquipmentPhotos?: (params: {
     mappings: Array<{
       imageIndex: number;
@@ -383,6 +431,7 @@ interface ChatMessage {
     };
   };
   sources?: Array<{ title?: string; url: string }>;
+  dbSaved?: boolean;
 }
 
 export const AuraAssistant: React.FC<AuraAssistantProps> = ({
@@ -405,6 +454,8 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
   onAddNewItem,
   onOpenSheetsDrawer,
   onUpdateInventoryItem,
+  onBatchUpdateInventoryItems,
+  onSaveWardMemory,
   onAttachEquipmentPhotos,
   onBulkImportEquipment,
   onOpenReportModal,
@@ -435,6 +486,39 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
       onUnreadMessage?.();
     }
   };
+
+  // 🧠 Real-time Ward AI Memory (Custom Glossary & Ward Rules)
+  const [wardAiMemory, setWardAiMemory] = useState<WardAiMemoryItem[]>(() => {
+    if (typeof window === 'undefined') return [];
+    try {
+      const resolvedW = resolveWardId(activeChannelId);
+      const raw = localStorage.getItem(`aura_ward_memory_${resolvedW}`);
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  useEffect(() => {
+    const resolvedW = resolveWardId(activeChannelId);
+    try {
+      const cached = localStorage.getItem(`aura_ward_memory_${resolvedW}`);
+      if (cached) {
+        setWardAiMemory(JSON.parse(cached));
+      } else {
+        setWardAiMemory([]);
+      }
+    } catch {
+      setWardAiMemory([]);
+    }
+    const unsub = subscribeWardAiMemory(resolvedW, (items) => {
+      setWardAiMemory(items);
+      try {
+        localStorage.setItem(`aura_ward_memory_${resolvedW}`, JSON.stringify(items));
+      } catch {}
+    });
+    return () => unsub();
+  }, [activeChannelId]);
 
   // ⏹️ ปุ่ม "หยุดประมวลผล"
   const handleStop = () => {
@@ -1407,6 +1491,7 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
       locationLabel: string;
       status?: string;
       codes?: string[];
+      subExps?: Array<{ label?: string; exp?: string; hasNoExp?: boolean }>;
     }> = [];
 
     (drugs || []).forEach((d: any) => {
@@ -1449,6 +1534,7 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
             locationLabel: `${catLabel} (${gName})`,
             status: chk.result || 'รอตรวจ',
             codes: [it.code, it.id, it.no ? String(it.no) : ''].filter(Boolean),
+            subExps: Array.isArray(it.subExps) ? it.subExps : undefined,
           });
         });
       });
@@ -2770,6 +2856,7 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
                 history: historySlice,
                 liveContext: requestContext,
                 context: requestContext,
+                aiMemory: wardAiMemory,
                 attachments: [
                   {
                     index: 0,
@@ -3151,7 +3238,7 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
       return;
     }
 
-    const timeoutMs = isBulkEquipmentTable ? 50000 : processedAttachments.length > 0 ? 120000 : 60000;
+    const timeoutMs = isBulkEquipmentTable ? 50000 : processedAttachments.length > 0 ? 120000 : 75000;
     const timeoutTimer = setTimeout(() => {
       if (!isUserStoppedRef.current && abortControllerRef.current) {
         abortControllerRef.current.abort('TIMEOUT');
@@ -3175,6 +3262,7 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
           liveContext: requestContext,
           context: requestContext,
           appContext: compactAppContext,
+          aiMemory: wardAiMemory,
           ...(processedAttachments.length > 0
             ? {
                 attachments: processedAttachments.map((att, idx) => ({
@@ -3458,465 +3546,829 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
         }
       }
 
-      if (data.functionCall) {
-        const { name, args } = data.functionCall;
+      const returnedCalls: Array<{ name: string; args?: Record<string, any> }> =
+        Array.isArray(data.functionCalls) && data.functionCalls.length > 0
+          ? data.functionCalls
+          : data.functionCall
+          ? [data.functionCall]
+          : [];
 
-        if (name === 'generateShiftHandover') {
-          const handoverText = buildShiftHandoverReport();
-          addMessage(
-            'ai',
-            handoverText,
-            true,
-            undefined,
-            undefined,
-            currentChoices || ['💊 ตรวจสอบยาใกล้หมดอายุ', '🚗 ตรวจเช็กรถฉุกเฉิน'],
-            { handoverText }
-          );
-        } else if (name === 'delete_specific_items') {
-          const queries: string[] = Array.isArray(args?.itemQueries)
-            ? args.itemQueries.map((q: any) => String(q || '').trim()).filter(Boolean)
-            : args?.itemName
-            ? [String(args.itemName).trim()]
-            : [];
-          const rawCat = String(args?.category || 'all').toLowerCase().trim();
-          const rawRoomOrGroup = String(args?.roomOrGroup || '').toLowerCase().trim();
-          const normalizedTargetType =
-            rawCat === 'equipment' || rawCat === 'room' || /ครุ|or/.test(rawCat)
-              ? 'room'
-              : rawCat === 'drugs' || rawCat === 'drug' || /ยา/.test(rawCat)
-              ? 'drug'
-              : rawCat === 'bag' || /เป๋า|bag/.test(rawCat)
-              ? 'bag'
-              : rawCat === 'cart' || /รถฉุกเฉิน|cart/.test(rawCat)
-              ? 'cart'
-              : rawCat === 'ambulance' || /พยาบาล|amb/.test(rawCat)
-              ? 'ambulance'
-              : 'all';
+      if (returnedCalls.length > 0) {
+        const formatExpForDisplay = (val?: string): string => {
+          if (!val) return '-';
+          const trimmed = String(val).trim();
+          const m = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+          if (m) return `${m[3]}/${m[2]}/${m[1]}`;
+          return trimmed;
+        };
 
-          const catalog = buildUnifiedCatalog();
-          let scoped =
-            normalizedTargetType !== 'all'
-              ? catalog.filter((c) => c.targetType === normalizedTargetType)
-              : catalog;
-          if (rawRoomOrGroup) {
-            const roomFiltered = scoped.filter(
-              (c) =>
-                c.roomId?.toLowerCase() === rawRoomOrGroup ||
-                c.groupName?.toLowerCase().includes(rawRoomOrGroup) ||
-                c.locationLabel.toLowerCase().includes(rawRoomOrGroup)
-            );
-            if (roomFiltered.length > 0) scoped = roomFiltered;
+        const formatSummaryToken = (tok: string): string =>
+          tok.replace(/EXP:\s*(\d{4}-\d{2}-\d{2})/g, (_all, iso) => `EXP: ${formatExpForDisplay(iso)}`);
+
+        const resolveTargetCat = (val: string): '' | 'room' | 'drug' | 'bag' | 'cart' | 'ambulance' => {
+          const v = String(val || '').trim().toLowerCase();
+          if (!v) return '';
+          if (v === 'equipment' || v === 'room' || /ครุ|\bor\b|^or\d/.test(v)) return 'room';
+          if (v === 'drugs' || v === 'drug' || /คลังยา|ยา/.test(v)) return 'drug';
+          if (v === 'emergency_bag' || v === 'bag' || /เป๋า|กระเป๋า|bag/.test(v)) return 'bag';
+          if (v === 'ambulance' || /พยาบาล|amb/.test(v)) return 'ambulance';
+          if (v === 'crash_cart' || v === 'cart' || /รถฉุกเฉิน|ในรถ|รถ|cart/.test(v)) return 'cart';
+          // Fallback: check Ward AI Memory rules
+          const memMatch = wardAiMemory.find((m) => {
+            const trig = String(m.triggerPhrase || '').trim().toLowerCase();
+            return trig && (v === trig || v.includes(trig) || trig.includes(v));
+          });
+          if (memMatch) {
+            const mc = String(memMatch.category || '').toLowerCase();
+            if (mc === 'bag' || mc === 'cart' || mc === 'ambulance' || mc === 'drug' || mc === 'room') return mc;
+            if (mc === 'equipment') return 'room';
+            const mm = String(memMatch.meaning || '').toLowerCase();
+            if (/กระเป๋า|bag/.test(mm)) return 'bag';
+            if (/รถพยาบาล|ambulance/.test(mm)) return 'ambulance';
+            if (/รถฉุกเฉิน|cart/.test(mm)) return 'cart';
+            if (/คลังยา|drug/.test(mm)) return 'drug';
+            if (/ครุภัณฑ์|equipment|\bor\b/.test(mm)) return 'room';
+          }
+          return '';
+        };
+
+        const expandQueryWithWardMemory = (rawQuery: string): { expanded: string; hintedCat: '' | 'room' | 'drug' | 'bag' | 'cart' | 'ambulance' } => {
+          const q = String(rawQuery || '').trim();
+          const qLower = q.toLowerCase();
+          let hintedCat: '' | 'room' | 'drug' | 'bag' | 'cart' | 'ambulance' = '';
+          const extras: string[] = [];
+          wardAiMemory.forEach((m) => {
+            const trig = String(m.triggerPhrase || '').trim().toLowerCase();
+            const meaning = String(m.meaning || '').trim();
+            if (!trig || !meaning) return;
+            if (qLower === trig || qLower.includes(trig)) {
+              extras.push(meaning);
+              if (!hintedCat) {
+                hintedCat = resolveTargetCat(m.category || '') || resolveTargetCat(meaning);
+              }
+            }
+          });
+          return {
+            expanded: extras.length > 0 ? `${q} ${extras.join(' ')}`.trim() : q,
+            hintedCat,
+          };
+        };
+
+        const normalizeSubAlias = (v: string) =>
+          v
+            .toLowerCase()
+            .replace(/ทรีเวย์|three[\s_-]*way|3[\s_-]*way/g, 'tway')
+            .replace(/t[\s_-]*way/g, 'tway')
+            .replace(/[^a-z0-9ก-๙]+/g, '');
+
+        const inferSubItemLabel = (
+          item: { subExps?: Array<{ label?: string; exp?: string; hasNoExp?: boolean }> },
+          rawQuery: string,
+          explicitSub?: string
+        ): string | undefined => {
+          const cleanExplicit = explicitSub?.trim();
+          if (cleanExplicit) return cleanExplicit;
+          if (!Array.isArray(item.subExps) || item.subExps.length === 0) return undefined;
+          const normQuery = normalizeSubAlias(rawQuery);
+          if (!normQuery) return undefined;
+          const hit = item.subExps.find((se) => {
+            const lbl = String(se.label || '').trim();
+            const normLbl = normalizeSubAlias(lbl);
+            return Boolean(normLbl && (normQuery.includes(normLbl) || normLbl.includes(normQuery)));
+          });
+          return hit?.label ? String(hit.label).trim() : undefined;
+        };
+
+        const memoryCalls = returnedCalls.filter((c) => c.name === 'save_ward_memory');
+        const updateToolNames = new Set([
+          'batch_update_items',
+          'update_item_expiry',
+          'update_specific_item',
+          'updateInventoryItem',
+          'update_item_status',
+        ]);
+        const updateCalls = returnedCalls.filter((c) => updateToolNames.has(c.name));
+        const otherCalls = returnedCalls.filter(
+          (c) => c.name !== 'save_ward_memory' && !updateToolNames.has(c.name)
+        );
+
+        // 1. Handle Ward AI Memory saves
+        if (memoryCalls.length > 0) {
+          setDbActionStatus('กำลังบันทึกความจำเฉพาะวอร์ด...');
+          try {
+            const savedList: WardAiMemoryItem[] = [];
+            let allDbSaved = true;
+            const errors: string[] = [];
+            for (const mc of memoryCalls) {
+              const triggerPhrase = String(mc.args?.triggerPhrase || '').trim();
+              const meaning = String(mc.args?.meaning || '').trim();
+              if (!triggerPhrase || !meaning) continue;
+              if (onSaveWardMemory) {
+                const memRes = await onSaveWardMemory({
+                  triggerPhrase,
+                  meaning,
+                  category: mc.args?.category ? String(mc.args.category).trim() : undefined,
+                  ruleType: mc.args?.ruleType ? String(mc.args.ruleType).trim() : undefined,
+                });
+                if (memRes.memoryItem) {
+                  savedList.push(memRes.memoryItem);
+                }
+                if (!memRes.dbSaved) {
+                  allDbSaved = false;
+                  if (memRes.error) errors.push(memRes.error);
+                }
+              }
+            }
+            if (savedList.length > 0) {
+              setWardAiMemory((prev) => {
+                const next = [...prev];
+                savedList.forEach((item) => {
+                  const idx = next.findIndex((p) => p.id === item.id || p.triggerPhrase.toLowerCase() === item.triggerPhrase.toLowerCase());
+                  if (idx >= 0) next[idx] = item;
+                  else next.unshift(item);
+                });
+                try {
+                  localStorage.setItem(`aura_ward_memory_${resolveWardId(activeChannelId)}`, JSON.stringify(next));
+                } catch {}
+                return next;
+              });
+              const lines = savedList
+                .map((m, i) => `${i + 1}. **"${m.triggerPhrase}"** ➔ ${m.meaning}${m.category ? ` (${m.category})` : ''}`)
+                .join('\n');
+              addMessage(
+                'ai',
+                allDbSaved
+                  ? `🧠 น้องออร่าจดจำคำศัพท์เฉพาะของวอร์ดลงฐานข้อมูลถาวรเรียบร้อยแล้วค่ะ!\n${lines}\n\nต่อไปนี้สั่งด้วยคำเหล่านี้ได้เลยนะคะ ✨🌸`
+                  : `⚠️ น้องออร่าจดจำคำศัพท์ในเครื่องไว้ให้ชั่วคราวแล้วค่ะ แต่ยังไม่สามารถยืนยันการบันทึกลง Cloud (Firestore) ได้ในขณะนี้:\n${lines}${errors.length > 0 ? `\n• สาเหตุ: ${errors[0]}` : ''}`,
+                true,
+                undefined,
+                undefined,
+                currentChoices || ['📋 สรุปส่งเวร (Shift Handover)', '💼 ตรวจเช็กกระเป๋าฉุกเฉิน'],
+                { sources: groundingSources, dbSaved: allDbSaved }
+              );
+            } else {
+              addMessage('ai', '⚠️ รบกวนระบุคำย่อและความหมายที่ต้องการให้น้องออร่าจำให้ชัดเจนอีกครั้งนะคะ ✨');
+            }
+          } finally {
+            setDbActionStatus(null);
+          }
+        }
+
+        // 2. Handle Batch / Single Inventory & Expiry Updates
+        if (updateCalls.length > 0) {
+          interface RawUpdateReq {
+            itemName: string;
+            sizeOrSpec?: string;
+            roomOrLocation?: string;
+            category?: string;
+            subItemLabel?: string;
+            expiryDate?: any;
+            lotNumber?: string;
+            quantity?: any;
+            status?: string;
+            newName?: string;
+            moveToRoomOrGroup?: string;
+            note?: string;
           }
 
-          const collectedTargets: Array<{
-            targetType: 'drug' | 'bag' | 'cart' | 'ambulance' | 'room';
-            itemId: string;
-            roomId?: string;
-            name: string;
-            locationLabel: string;
-            groupName?: string;
-          }> = [];
-          const seenKeys = new Set<string>();
-
-          queries.forEach((qStr) => {
-            const cleanedQ = qStr.trim();
-            const qLower = cleanedQ.toLowerCase();
-            // 1. Exact/substring/prefix match (handles e.g. "11. T-piece / Tube" or code/no)
-            const directHits = scoped.filter((c) => {
-              const nameLower = c.name.toLowerCase();
-              const strippedName = nameLower.replace(/^\d+[\.\)\-\s]+/, '').trim();
-              const strippedQ = qLower.replace(/^\d+[\.\)\-\s]+/, '').trim();
-              if (nameLower === qLower || nameLower.includes(qLower)) return true;
-              if (strippedQ && (strippedName === strippedQ || strippedName.includes(strippedQ))) return true;
-              if (c.codes?.some((cd) => cd.toLowerCase() === qLower)) return true;
-              return false;
-            });
-
-            const picks =
-              directHits.length > 0
-                ? directHits
-                : findBestMedicalMatches(cleanedQ, scoped, (c) => c.name, (c) => c.spec).slice(0, 3);
-
-            picks.forEach((p) => {
-              const dedupKey = `${p.targetType}:${p.roomId || ''}:${p.itemId}`;
-              if (!seenKeys.has(dedupKey)) {
-                seenKeys.add(dedupKey);
-                collectedTargets.push({
-                  targetType: p.targetType,
-                  itemId: p.itemId,
-                  roomId: p.roomId,
-                  name: p.name,
-                  locationLabel: p.locationLabel,
-                  groupName: p.groupName,
+          const rawUpdateRequests: RawUpdateReq[] = [];
+          updateCalls.forEach((uc) => {
+            const uArgs = uc.args || {};
+            if (uc.name === 'batch_update_items' && Array.isArray(uArgs.updates)) {
+              uArgs.updates.forEach((entry: any) => {
+                if (!entry || !String(entry.itemName || '').trim()) return;
+                rawUpdateRequests.push({
+                  itemName: String(entry.itemName).trim(),
+                  sizeOrSpec: entry.sizeOrSpec ? String(entry.sizeOrSpec).trim() : undefined,
+                  roomOrLocation: entry.roomOrLocation ? String(entry.roomOrLocation).trim() : undefined,
+                  category: entry.category || entry.targetCategory ? String(entry.category || entry.targetCategory).trim() : undefined,
+                  subItemLabel: entry.subItemLabel ? String(entry.subItemLabel).trim() : undefined,
+                  expiryDate: entry.expiryDate ?? entry.newExp,
+                  lotNumber: entry.lotNumber ? String(entry.lotNumber).trim() : undefined,
+                  quantity: entry.quantity ?? entry.newQty,
+                  status: entry.status ?? entry.newStatus,
+                  newName: entry.newName ? String(entry.newName).trim() : undefined,
+                  moveToRoomOrGroup: entry.moveToRoomOrGroup ? String(entry.moveToRoomOrGroup).trim() : undefined,
+                  note: entry.note ? String(entry.note).trim() : undefined,
                 });
-              }
-            });
+              });
+            } else if (String(uArgs.itemName || '').trim()) {
+              rawUpdateRequests.push({
+                itemName: String(uArgs.itemName).trim(),
+                sizeOrSpec: uArgs.sizeOrSpec ? String(uArgs.sizeOrSpec).trim() : undefined,
+                roomOrLocation: uArgs.roomOrLocation ? String(uArgs.roomOrLocation).trim() : undefined,
+                category: uArgs.category || uArgs.targetCategory ? String(uArgs.category || uArgs.targetCategory).trim() : undefined,
+                subItemLabel: uArgs.subItemLabel ? String(uArgs.subItemLabel).trim() : undefined,
+                expiryDate: uArgs.expiryDate ?? uArgs.newExp,
+                lotNumber: uArgs.lotNumber ? String(uArgs.lotNumber).trim() : undefined,
+                quantity: uArgs.newQty ?? uArgs.quantity,
+                status: uArgs.newStatus ?? uArgs.status,
+                newName: uArgs.newName ? String(uArgs.newName).trim() : undefined,
+                moveToRoomOrGroup: uArgs.moveToRoomOrGroup ? String(uArgs.moveToRoomOrGroup).trim() : undefined,
+                note: uArgs.note ? String(uArgs.note).trim() : undefined,
+              });
+            }
           });
 
-          if (collectedTargets.length === 0) {
-            addMessage(
-              'ai',
-              `❌ น้องออร่าไม่พบรายการที่ตรงกับ "${queries.join(', ')}" ในระบบค่ะ กรุณาตรวจสอบชื่อรายการหรือหมวดหมู่แล้วลองระบุใหม่อีกครั้งนะคะ ✨`
-            );
-          } else {
-            addConfirmationCard(
-              `ยืนยันการลบ ${collectedTargets.length} รายการเจาะจง`,
-              `⚠️ น้องออร่าพบรายการที่ตรงกับคำสั่ง **${collectedTargets.length} รายการ** กรุณาตรวจสอบรายการด้านล่างแล้วกดยืนยันเพื่อลบออกจากระบบและ Cloud ถาวรนะคะ:`,
-              collectedTargets[0].locationLabel,
-              {
-                actionKind: 'delete_specific_items',
-                itemCount: collectedTargets.length,
-                specificTargets: collectedTargets,
-              }
-            );
-          }
-        } else if (name === 'add_new_item') {
-          const rawCat = String(args?.category || 'bag').toLowerCase().trim();
-          const resolvedCat: 'equipment' | 'drug' | 'bag' | 'cart' | 'ambulance' =
-            rawCat === 'equipment' || rawCat === 'room' || /ครุ/.test(rawCat)
-              ? 'equipment'
-              : rawCat === 'drug' || rawCat === 'drugs' || /ยา/.test(rawCat)
-              ? 'drug'
-              : rawCat === 'ambulance' || /พยาบาล|amb/.test(rawCat)
-              ? 'ambulance'
-              : rawCat === 'cart' || /รถฉุกเฉิน/.test(rawCat)
-              ? 'cart'
-              : 'bag';
-          const itemName = String(args?.name || '').trim();
-          if (!itemName) {
-            addMessage('ai', '⚠️ รบกวนระบุชื่อรายการที่ต้องการเพิ่มให้ชัดเจนด้วยนะคะ ✨');
-          } else if (onAddNewItem) {
-            setDbActionStatus('กำลังเพิ่มรายการใหม่...');
-            try {
-              const addRes = await onAddNewItem({
-                category: resolvedCat,
-                name: itemName,
-                groupOrRoom: args?.groupOrRoom,
-                qty: args?.qty,
-                unit: args?.unit,
-                expDate: args?.expDate,
-                spec: args?.spec,
-                status: args?.status,
-                note: args?.note,
-              });
-              if (addRes.success) {
-                addMessage(
-                  'ai',
-                  `✅ เพิ่มรายการ **${addRes.addedLabel}** ลงในหมวด **${addRes.categoryLabel}** และบันทึกลง Cloud เรียบร้อยแล้วค่ะ ✨🌸`,
-                  true,
-                  undefined,
-                  undefined,
-                  currentChoices || ['📋 สรุปส่งเวร (Shift Handover)'],
-                  { undoSnapshot: addRes.snapshot, sources: groundingSources }
-                );
-              } else {
-                addMessage('ai', `❌ ไม่สามารถเพิ่ม "${itemName}" ได้ กรุณาลองใหม่อีกครั้งนะคะ`);
-              }
-            } finally {
-              setDbActionStatus(null);
-            }
-          }
-        } else if (
-          name === 'update_specific_item' ||
-          name === 'updateInventoryItem' ||
-          name === 'update_item_status'
-        ) {
-          const rawItemName = `${args?.itemName || ''} ${args?.sizeOrSpec || ''}`.trim();
-          const rawRoomOrLoc = String(args?.roomOrLocation || '').trim().toLowerCase();
-          const rawTargetCat = String(args?.targetCategory || '').trim().toLowerCase();
-          const mappedTargetType =
-            rawTargetCat === 'equipment' || rawTargetCat === 'room'
-              ? 'room'
-              : rawTargetCat === 'drugs' || rawTargetCat === 'drug'
-              ? 'drug'
-              : rawTargetCat === 'bag' || rawTargetCat === 'cart' || rawTargetCat === 'ambulance'
-              ? rawTargetCat
-              : '';
-
           const catalog = buildUnifiedCatalog();
-          let scopedCatalog =
-            mappedTargetType
-              ? catalog.filter((c) => c.targetType === mappedTargetType)
-              : catalog;
-          if (rawRoomOrLoc) {
-            const locFiltered = scopedCatalog.filter(
-              (c) =>
-                c.targetType === rawRoomOrLoc ||
-                (c.roomId && c.roomId.toLowerCase() === rawRoomOrLoc) ||
-                c.groupName?.toLowerCase().includes(rawRoomOrLoc) ||
-                c.locationLabel.toLowerCase().includes(rawRoomOrLoc)
-            );
-            if (locFiltered.length > 0) scopedCatalog = locFiltered;
-          }
+          const resolveSingleRequest = (reqItem: RawUpdateReq) => {
+            const rawCombined = `${reqItem.itemName || ''} ${reqItem.sizeOrSpec || ''}`.trim();
+            const { expanded: memoryExpandedName, hintedCat } = expandQueryWithWardMemory(rawCombined);
+            const rawRoomOrLoc = String(reqItem.roomOrLocation || '').trim().toLowerCase();
+            const rawTargetCat = String(reqItem.category || '').trim().toLowerCase();
+            const mappedTargetType =
+              resolveTargetCat(rawTargetCat) || resolveTargetCat(rawRoomOrLoc) || hintedCat;
 
-          const matched = findBestMedicalMatches(
-            rawItemName,
-            scopedCatalog.length > 0 ? scopedCatalog : catalog,
-            (c) => c.name,
-            (c) => c.spec
-          );
+            let scopedCatalog =
+              mappedTargetType
+                ? catalog.filter((c) => c.targetType === mappedTargetType)
+                : catalog;
+            if (rawRoomOrLoc) {
+              const locFiltered = scopedCatalog.filter(
+                (c) =>
+                  c.targetType === rawRoomOrLoc ||
+                  (c.roomId && c.roomId.toLowerCase() === rawRoomOrLoc) ||
+                  c.groupName?.toLowerCase().includes(rawRoomOrLoc) ||
+                  c.locationLabel.toLowerCase().includes(rawRoomOrLoc)
+              );
+              if (locFiltered.length > 0) scopedCatalog = locFiltered;
+            }
 
-          if (matched.length === 0) {
-            addMessage(
-              'ai',
-              `❌ น้องออร่าไม่พบรายการ "${rawItemName}" ในระบบค่ะ กรุณาระบุชื่อยา/อุปกรณ์และขนาดให้ชัดเจน (เช่น ET tube No. 7.5 หรือ Adrenaline) แล้วลองอีกครั้งนะคะ ✨`
+            const candidatePool = scopedCatalog.length > 0 ? scopedCatalog : catalog;
+            let matched = findBestMedicalMatches(
+              rawCombined,
+              candidatePool,
+              (c) => c.name,
+              (c) => c.spec
             );
-          } else {
-            const queryHasNumber = extractSignificantNumbers(rawItemName).length > 0;
-            const distinctSizedCandidates = matched.filter((m, i, arr) => {
+            if (matched.length === 0 && memoryExpandedName !== rawCombined) {
+              matched = findBestMedicalMatches(
+                memoryExpandedName,
+                candidatePool,
+                (c) => c.name,
+                (c) => c.spec
+              );
+            }
+            if (matched.length === 0) {
+              matched = findFuzzyDrugOrItemMatches(memoryExpandedName, candidatePool, {
+                getName: (c) => c.name,
+                getSpec: (c) => c.spec,
+                getCodes: (c) => c.codes || [],
+                minScore: 45,
+              }).map((r) => r.item);
+            }
+            if (matched.length === 0) {
+              const normRawSub = normalizeSubAlias(rawCombined);
+              const normExpandedSub = normalizeSubAlias(memoryExpandedName);
+              const subHits = candidatePool.filter((c) =>
+                Array.isArray(c.subExps) &&
+                c.subExps.some((se) => {
+                  const normLbl = normalizeSubAlias(String(se.label || ''));
+                  return Boolean(
+                    normLbl &&
+                      ((normRawSub && (normRawSub.includes(normLbl) || normLbl.includes(normRawSub))) ||
+                        (normExpandedSub && (normExpandedSub.includes(normLbl) || normLbl.includes(normExpandedSub))))
+                  );
+                })
+              );
+              if (subHits.length > 0) matched = subHits;
+            }
+
+            return {
+              reqItem,
+              rawCombined,
+              rawRoomOrLoc,
+              mappedTargetType,
+              matched,
+            };
+          };
+
+          const resolvedEntries = rawUpdateRequests.map(resolveSingleRequest);
+
+          // Single-item size disambiguation guard (preserve safety when ambiguous)
+          if (resolvedEntries.length === 1 && resolvedEntries[0].matched.length > 1) {
+            const first = resolvedEntries[0];
+            const queryHasNumber = extractSignificantNumbers(first.rawCombined).length > 0;
+            const distinctSizedCandidates = first.matched.filter((m, i, arr) => {
               const mNums = extractSignificantNumbers(`${m.name} ${m.spec}`);
               if (mNums.length === 0) return false;
               return arr.findIndex((o) => o.itemId === m.itemId) === i;
             });
-
-            if (!queryHasNumber && distinctSizedCandidates.length > 1 && !args?.roomOrLocation) {
+            if (
+              !queryHasNumber &&
+              distinctSizedCandidates.length > 1 &&
+              !first.rawRoomOrLoc &&
+              !first.mappedTargetType &&
+              !first.reqItem.subItemLabel
+            ) {
               const sizeChoices = distinctSizedCandidates
                 .slice(0, 3)
                 .map((c) => `${c.name}${c.spec ? ` ${c.spec}` : ''}`);
               addMessage(
                 'ai',
-                `⚠️ พบรายการ "${rawItemName}" หลายขนาดในระบบค่ะ เพื่อป้องกันการอัปเดตผิดขนาด รบกวนระบุขนาดที่ต้องการแก้ไขด้วยนะคะ:`,
+                `⚠️ พบรายการ "${first.rawCombined}" หลายขนาดในระบบค่ะ เพื่อป้องกันการอัปเดตผิดขนาด รบกวนระบุขนาดที่ต้องการแก้ไขด้วยนะคะ:`,
                 false,
                 undefined,
                 undefined,
                 sizeChoices.map(
                   (label) =>
-                    `อัปเดต ${label}${args?.newExp ? ` EXP ${args.newExp}` : ''}${
-                      args?.newQty !== undefined ? ` จำนวน ${args.newQty}` : ''
-                    }${args?.lotNumber ? ` Lot ${args.lotNumber}` : ''}`
+                    `อัปเดต ${label}${first.reqItem.expiryDate ? ` EXP ${first.reqItem.expiryDate}` : ''}${
+                      first.reqItem.quantity !== undefined ? ` จำนวน ${first.reqItem.quantity}` : ''
+                    }${first.reqItem.lotNumber ? ` Lot ${first.reqItem.lotNumber}` : ''}`
                 )
               );
-            } else if (onUpdateInventoryItem) {
-              const target = matched[0];
-              const snap = onCaptureSnapshot?.(`ก่อนแก้ไข ${target.name}`);
-              setDbActionStatus('กำลังดำเนินการ...');
-              try {
-                const rawStatusStr = String(args?.newStatus || args?.status || '').trim();
-                const resolvedStatus = rawStatusStr
-                  ? rawStatusStr.includes('ชำรุด')
-                    ? ('ชำรุด' as const)
-                    : rawStatusStr.includes('ส่งคืน')
-                    ? ('ส่งคืน' as const)
-                    : rawStatusStr.includes('สำรอง')
-                    ? ('เก็บสำรอง' as const)
-                    : rawStatusStr.includes('ผิด') || rawStatusStr.includes('ไม่')
-                    ? ('ผิดปกติ' as const)
-                    : ('ปกติ' as const)
-                  : undefined;
+              return;
+            }
+          }
 
-                const normalizedExp = args?.newExp ? normalizeExpDate(String(args.newExp)).expDate : undefined;
-                const updRes = await onUpdateInventoryItem({
-                  targetType: target.targetType,
-                  itemId: target.itemId,
-                  roomId: target.roomId,
-                  newExp: normalizedExp && normalizedExp !== '-' ? normalizedExp : undefined,
-                  lotNumber: args?.lotNumber,
-                  newQty: args?.newQty,
-                  newStatus: resolvedStatus,
-                  newName: args?.newName,
-                  moveToRoomOrGroup: args?.moveToRoomOrGroup,
+          const parseStatusArg = (rawStr?: string) => {
+            const s = String(rawStr || '').trim();
+            if (!s) return undefined;
+            if (s.includes('ชำรุด')) return 'ชำรุด' as const;
+            if (s.includes('ส่งคืน')) return 'ส่งคืน' as const;
+            if (s.includes('สำรอง')) return 'เก็บสำรอง' as const;
+            if (s.includes('ผิด') || s.includes('ไม่')) return 'ผิดปกติ' as const;
+            return 'ปกติ' as const;
+          };
+
+          const parseExpArg = (rawExpArg: any) => {
+            if (rawExpArg === undefined || rawExpArg === null) return undefined;
+            const s = String(rawExpArg).trim();
+            if (!s) return undefined;
+            if (s === '-' || /no\s*exp|ไม่มี/i.test(s)) return '-';
+            return normalizeExpDateToIso(s) || normalizeExpDate(s).expDate;
+          };
+
+          const unmatchedNames: string[] = [];
+          const batchPayload: Array<{
+            targetType: 'drug' | 'bag' | 'cart' | 'ambulance' | 'room';
+            itemId: string;
+            itemName?: string;
+            locationLabel?: string;
+            roomId?: string;
+            newExp?: string;
+            subItemLabel?: string;
+            lotNumber?: string;
+            newQty?: string | number;
+            newStatus?: 'ปกติ' | 'ผิดปกติ' | 'ไม่ปกติ' | 'ชำรุด' | 'ส่งคืน' | 'เก็บสำรอง';
+            newName?: string;
+            moveToRoomOrGroup?: string;
+            note?: string;
+          }> = [];
+
+          resolvedEntries.forEach(({ reqItem, rawCombined, matched }) => {
+            if (matched.length === 0) {
+              unmatchedNames.push(rawCombined || reqItem.itemName);
+              return;
+            }
+            const target = matched[0];
+            const inferredSub = inferSubItemLabel(target, rawCombined, reqItem.subItemLabel);
+            batchPayload.push({
+              targetType: target.targetType,
+              itemId: target.itemId,
+              itemName: target.name,
+              locationLabel: target.locationLabel,
+              roomId: target.roomId,
+              newExp: parseExpArg(reqItem.expiryDate),
+              subItemLabel: inferredSub,
+              lotNumber: reqItem.lotNumber,
+              newQty: reqItem.quantity,
+              newStatus: parseStatusArg(reqItem.status),
+              newName: reqItem.newName,
+              moveToRoomOrGroup: reqItem.moveToRoomOrGroup,
+              note: reqItem.note,
+            });
+          });
+
+          if (batchPayload.length === 0) {
+            addMessage(
+              'ai',
+              `❌ น้องออร่าไม่พบรายการที่ตรงกับ: ${unmatchedNames.map((n) => `"${n}"`).join(', ')} ในระบบค่ะ กรุณาระบุชื่อยา/อุปกรณ์และหมวดหมู่ให้ชัดเจนแล้วลองอีกครั้งนะคะ ✨`
+            );
+          } else if (onBatchUpdateInventoryItems) {
+            setDbActionStatus(
+              batchPayload.length > 1
+                ? `กำลังอัปเดต ${batchPayload.length} รายการลงฐานข้อมูล...`
+                : 'กำลังบันทึกลงฐานข้อมูล...'
+            );
+            try {
+              const batchRes = await onBatchUpdateInventoryItems(batchPayload);
+              const isDbVerified = batchRes.success && batchRes.dbSaved === true;
+
+              if (batchRes.updatedResults.length > 0) {
+                const lines = batchRes.updatedResults.map((r, idx) => {
+                  const subTag = r.subItemLabel ? ` [${r.subItemLabel}]` : '';
+                  const formattedChanges =
+                    r.changesSummary.map(formatSummaryToken).join(', ') || 'บันทึกข้อมูลแล้ว';
+                  return `${idx + 1}. **${r.updatedName}** (${r.locationLabel})${subTag} ➔ ${formattedChanges}`;
+                });
+
+                const failedAll = [
+                  ...batchRes.failedItems.map((f) => `${f.name} (${f.reason})`),
+                  ...unmatchedNames.map((n) => `${n} (ไม่พบในระบบ)`),
+                ];
+                const missedSection =
+                  failedAll.length > 0
+                    ? `\n\n⚠️ รายการที่ยังไม่พบหรืออัปเดตไม่สำเร็จ (${failedAll.length}):\n• ${failedAll.join('\n• ')}`
+                    : '';
+
+                const headerText = isDbVerified
+                  ? batchRes.updatedResults.length > 1
+                    ? `✅ อัปเดตสำเร็จ ${batchRes.updatedResults.length} รายการ (บันทึกลงฐานข้อมูลแล้ว):`
+                    : `✅ อัปเดตข้อมูลเรียบร้อยแล้ว (บันทึกลงฐานข้อมูลแล้ว):`
+                  : `⚠️ อัปเดตข้อมูล ${batchRes.updatedResults.length} รายการในเครื่องชั่วคราวแล้ว แต่ยังไม่สามารถยืนยันการบันทึกลง Cloud (Firestore) ได้ในขณะนี้ค่ะ${batchRes.error ? `\n• สาเหตุ: ${batchRes.error}` : ''}`;
+
+                addMessage(
+                  'ai',
+                  `${headerText}\n${lines.join('\n')}${missedSection}`,
+                  true,
+                  undefined,
+                  undefined,
+                  currentChoices || ['📋 สรุปส่งเวร (Shift Handover)', '💊 เช็กสต็อกยา'],
+                  {
+                    undoSnapshot: batchRes.snapshot,
+                    sources: groundingSources,
+                    dbSaved: isDbVerified,
+                  }
+                );
+              } else {
+                addMessage(
+                  'ai',
+                  `❌ ไม่สามารถอัปเดตรายการได้: ${[...batchRes.failedItems.map((f) => `${f.name}: ${f.reason}`), ...unmatchedNames].join(', ')}`
+                );
+              }
+            } finally {
+              setDbActionStatus(null);
+            }
+          } else if (onUpdateInventoryItem) {
+            const snap = onCaptureSnapshot?.(`ก่อนแก้ไข ${batchPayload.length} รายการ`);
+            setDbActionStatus('กำลังบันทึกลงฐานข้อมูล...');
+            try {
+              const okLines: string[] = [];
+              let allSaved = true;
+              for (let i = 0; i < batchPayload.length; i++) {
+                const p = batchPayload[i];
+                const res = await onUpdateInventoryItem(p);
+                if (res.success) {
+                  if (!res.dbSaved) allSaved = false;
+                  const ch: string[] = [];
+                  if (p.newExp) ch.push(`EXP: ${formatExpForDisplay(p.newExp)}`);
+                  if (p.lotNumber) ch.push(`Lot: ${p.lotNumber}`);
+                  if (p.newQty !== undefined) ch.push(`จำนวน: ${p.newQty}`);
+                  if (p.newStatus) ch.push(`สถานะ: ${p.newStatus}`);
+                  okLines.push(`${okLines.length + 1}. **${res.updatedName}** (${p.locationLabel || ''}) ➔ ${ch.join(', ') || 'บันทึกแล้ว'}`);
+                }
+              }
+              addMessage(
+                'ai',
+                allSaved
+                  ? `✅ อัปเดตสำเร็จ ${okLines.length} รายการ:\n${okLines.join('\n')}`
+                  : `⚠️ อัปเดตในเครื่องชั่วคราวแล้ว แต่ยังไม่สามารถยืนยัน Cloud ได้:\n${okLines.join('\n')}`,
+                true,
+                undefined,
+                undefined,
+                currentChoices || ['📋 สรุปส่งเวร (Shift Handover)', '💊 เช็กสต็อกยา'],
+                { undoSnapshot: snap, sources: groundingSources, dbSaved: allSaved }
+              );
+            } finally {
+              setDbActionStatus(null);
+            }
+          }
+        }
+
+        // 3. Handle All Remaining Tool Calls
+        for (const call of otherCalls) {
+          const { name, args } = call;
+
+          if (name === 'generateShiftHandover') {
+            const handoverText = buildShiftHandoverReport();
+            addMessage(
+              'ai',
+              handoverText,
+              true,
+              undefined,
+              undefined,
+              currentChoices || ['💊 ตรวจสอบยาใกล้หมดอายุ', '🚗 ตรวจเช็กรถฉุกเฉิน'],
+              { handoverText }
+            );
+          } else if (name === 'delete_specific_items') {
+            const queries: string[] = Array.isArray(args?.itemQueries)
+              ? args.itemQueries.map((q: any) => String(q || '').trim()).filter(Boolean)
+              : args?.itemName
+              ? [String(args.itemName).trim()]
+              : [];
+            const rawCat = String(args?.category || 'all').toLowerCase().trim();
+            const rawRoomOrGroup = String(args?.roomOrGroup || '').toLowerCase().trim();
+            const normalizedTargetType =
+              rawCat === 'equipment' || rawCat === 'room' || /ครุ|or/.test(rawCat)
+                ? 'room'
+                : rawCat === 'drugs' || rawCat === 'drug' || /ยา/.test(rawCat)
+                ? 'drug'
+                : rawCat === 'bag' || /เป๋า|bag/.test(rawCat)
+                ? 'bag'
+                : rawCat === 'cart' || /รถฉุกเฉิน|cart/.test(rawCat)
+                ? 'cart'
+                : rawCat === 'ambulance' || /พยาบาล|amb/.test(rawCat)
+                ? 'ambulance'
+                : 'all';
+
+            const catalog = buildUnifiedCatalog();
+            let scoped =
+              normalizedTargetType !== 'all'
+                ? catalog.filter((c) => c.targetType === normalizedTargetType)
+                : catalog;
+            if (rawRoomOrGroup) {
+              const roomFiltered = scoped.filter(
+                (c) =>
+                  c.roomId?.toLowerCase() === rawRoomOrGroup ||
+                  c.groupName?.toLowerCase().includes(rawRoomOrGroup) ||
+                  c.locationLabel.toLowerCase().includes(rawRoomOrGroup)
+              );
+              if (roomFiltered.length > 0) scoped = roomFiltered;
+            }
+
+            const collectedTargets: Array<{
+              targetType: 'drug' | 'bag' | 'cart' | 'ambulance' | 'room';
+              itemId: string;
+              roomId?: string;
+              name: string;
+              locationLabel: string;
+              groupName?: string;
+            }> = [];
+            const seenKeys = new Set<string>();
+
+            queries.forEach((qStr) => {
+              const cleanedQ = qStr.trim();
+              const qLower = cleanedQ.toLowerCase();
+              const directHits = scoped.filter((c) => {
+                const nameLower = c.name.toLowerCase();
+                const strippedName = sanitizeItemName(nameLower).trim();
+                const strippedQ = sanitizeItemName(qLower).trim();
+                if (nameLower === qLower || nameLower.includes(qLower)) return true;
+                if (strippedQ && (strippedName === strippedQ || strippedName.includes(strippedQ))) return true;
+                if (c.codes?.some((cd) => cd.toLowerCase() === qLower)) return true;
+                return false;
+              });
+
+              const picks =
+                directHits.length > 0
+                  ? directHits
+                  : findBestMedicalMatches(cleanedQ, scoped, (c) => c.name, (c) => c.spec).slice(0, 3);
+
+              picks.forEach((p) => {
+                const dedupKey = `${p.targetType}:${p.roomId || ''}:${p.itemId}`;
+                if (!seenKeys.has(dedupKey)) {
+                  seenKeys.add(dedupKey);
+                  collectedTargets.push({
+                    targetType: p.targetType,
+                    itemId: p.itemId,
+                    roomId: p.roomId,
+                    name: p.name,
+                    locationLabel: p.locationLabel,
+                    groupName: p.groupName,
+                  });
+                }
+              });
+            });
+
+            if (collectedTargets.length === 0) {
+              addMessage(
+                'ai',
+                `❌ น้องออร่าไม่พบรายการที่ตรงกับ "${queries.join(', ')}" ในระบบค่ะ กรุณาตรวจสอบชื่อรายการหรือหมวดหมู่แล้วลองระบุใหม่อีกครั้งนะคะ ✨`
+              );
+            } else {
+              addConfirmationCard(
+                `ยืนยันการลบ ${collectedTargets.length} รายการเจาะจง`,
+                `⚠️ น้องออร่าพบรายการที่ตรงกับคำสั่ง **${collectedTargets.length} รายการ** กรุณาตรวจสอบรายการด้านล่างแล้วกดยืนยันเพื่อลบออกจากระบบและ Cloud ถาวรนะคะ:`,
+                collectedTargets[0].locationLabel,
+                {
+                  actionKind: 'delete_specific_items',
+                  itemCount: collectedTargets.length,
+                  specificTargets: collectedTargets,
+                }
+              );
+            }
+          } else if (name === 'add_new_item') {
+            const rawCat = String(args?.category || 'bag').toLowerCase().trim();
+            const resolvedCat: 'equipment' | 'drug' | 'bag' | 'cart' | 'ambulance' =
+              rawCat === 'equipment' || rawCat === 'room' || /ครุ/.test(rawCat)
+                ? 'equipment'
+                : rawCat === 'drug' || rawCat === 'drugs' || /ยา/.test(rawCat)
+                ? 'drug'
+                : rawCat === 'ambulance' || /พยาบาล|amb/.test(rawCat)
+                ? 'ambulance'
+                : rawCat === 'cart' || /รถฉุกเฉิน/.test(rawCat)
+                ? 'cart'
+                : 'bag';
+            const itemName = String(args?.name || '').trim();
+            if (!itemName) {
+              addMessage('ai', '⚠️ รบกวนระบุชื่อรายการที่ต้องการเพิ่มให้ชัดเจนด้วยนะคะ ✨');
+            } else if (onAddNewItem) {
+              setDbActionStatus('กำลังเพิ่มรายการใหม่...');
+              try {
+                const addRes = await onAddNewItem({
+                  category: resolvedCat,
+                  name: itemName,
+                  groupOrRoom: args?.groupOrRoom,
+                  qty: args?.qty,
+                  unit: args?.unit,
+                  expDate: args?.expDate,
+                  spec: args?.spec,
+                  status: args?.status,
                   note: args?.note,
                 });
-                if (updRes.success) {
-                  const changes: string[] = [];
-                  if (args?.newName) changes.push(`ชื่อใหม่: ${args.newName}`);
-                  if (args?.newQty !== undefined) changes.push(`จำนวน: ${args.newQty}`);
-                  if (normalizedExp) changes.push(`EXP: ${normalizedExp}`);
-                  if (args?.lotNumber) changes.push(`Lot: ${args.lotNumber}`);
-                  if (resolvedStatus) changes.push(`สถานะ: ${resolvedStatus}`);
-                  if (args?.moveToRoomOrGroup) changes.push(`ย้ายไป: ${args.moveToRoomOrGroup}`);
-                  if (args?.note) changes.push(`หมายเหตุ: ${args.note}`);
+                if (addRes.success) {
                   addMessage(
                     'ai',
-                    `✅ อัปเดตข้อมูล **${updRes.updatedName}** (${target.locationLabel}) เรียบร้อยแล้วค่ะ!\n• รายละเอียดที่แก้: ${changes.join(' | ') || 'บันทึกข้อมูลแล้ว'}`,
+                    `✅ เพิ่มรายการ **${addRes.addedLabel}** ลงในหมวด **${addRes.categoryLabel}** และบันทึกลง Cloud เรียบร้อยแล้วค่ะ ✨🌸`,
                     true,
                     undefined,
                     undefined,
-                    currentChoices || ['📋 สรุปส่งเวร (Shift Handover)', '💊 เช็กสต็อกยา'],
-                    { undoSnapshot: snap, sources: groundingSources }
+                    currentChoices || ['📋 สรุปส่งเวร (Shift Handover)'],
+                    { undoSnapshot: addRes.snapshot, sources: groundingSources }
                   );
                 } else {
-                  addMessage('ai', `❌ ไม่สามารถอัปเดต "${target.name}" ได้ กรุณาลองใหม่อีกครั้งนะคะ`);
+                  addMessage('ai', `❌ ไม่สามารถเพิ่ม "${itemName}" ได้ กรุณาลองใหม่อีกครั้งนะคะ`);
                 }
               } finally {
                 setDbActionStatus(null);
               }
             }
-          }
-        } else if (name === 'resetChecklist') {
-          const targetArg = String(args?.target || '').toLowerCase();
-          const catsToReset: ('bag' | 'cart' | 'ambulance')[] =
-            targetArg.includes('ambulance') || targetArg.includes('พยาบาล')
-              ? ['ambulance']
-              : targetArg.includes('cart')
-              ? ['cart']
-              : targetArg.includes('bag')
-              ? ['bag']
-              : ['bag', 'cart', 'ambulance'];
-          const snap = onCaptureSnapshot?.(`ก่อนรีเซ็ตตาราง ${targetArg || 'all'}`);
-          setDbActionStatus('กำลังดำเนินการ...');
-          try {
-            catsToReset.forEach((c) => clearChannelCategory(activeChannelId, c));
-            reRenderData();
-            addMessage(
-              'ai',
-              data.text ||
-                'น้องออร่าได้รีเซ็ตและเคลียร์ตารางการตรวจเช็กให้เรียบร้อยแล้วค่ะ! พร้อมสำหรับการตรวจเช็คเวรใหม่นะคะ ✨🌸',
-              false,
-              undefined,
-              undefined,
-              currentChoices || ['🚗 ตรวจเช็กรถฉุกเฉิน', '💼 ตรวจเช็กกระเป๋าฉุกเฉิน', '💊 เช็กสต็อกคลังยาวิสัญญี'],
-              { undoSnapshot: snap }
-            );
-          } finally {
-            setDbActionStatus(null);
-          }
-        } else if (name === 'navigate_or_export' || name === 'navigateToPage') {
-          const navAction = String(args?.action || 'navigate').toLowerCase();
-          if (navAction === 'open_google_sheets') {
-            onOpenSheetsDrawer?.();
-            handleClose();
-            addMessage(
-              'ai',
-              '📊 เปิดหน้าต่างตั้งค่าเชื่อมต่อ **Google Sheets** ให้เรียบร้อยแล้วค่ะ ✨🌸'
-            );
-            return;
-          }
-          if (navAction === 'open_report_preview') {
-            const pStr = String(args?.page || '');
-            const rCat =
-              pStr.includes('drug')
-                ? 'drug'
-                : pStr.includes('ambulance')
-                ? 'ambulance'
-                : pStr.includes('cart')
-                ? 'cart'
-                : pStr.includes('room') || pStr.includes('eq')
-                ? 'eq'
-                : 'bag';
-            onOpenReportModal?.(rCat);
-            handleClose();
-            addMessage('ai', '📄 เปิดหน้าตัวอย่างรายงาน PDF (A4) ให้เรียบร้อยแล้วค่ะ ✨🌸');
-            return;
-          }
-
-          const page = (args?.page || 'home') as any;
-          const roomId = args?.roomId ? String(args.roomId).trim().toLowerCase() : undefined;
-          if (onNavigate) {
-            onNavigate(page, undefined, roomId);
-          }
-          const pageTitles: Record<string, string> = {
-            bag_check: 'กระเป๋าฉุกเฉิน (Emergency Bag)',
-            cart_check: 'รถฉุกเฉิน (Crash Cart)',
-            ambulance_check: 'รถพยาบาลฉุกเฉิน (Ambulance)',
-            drug_check: 'คลังยาวิสัญญี',
-            room_check: roomId ? `ครุภัณฑ์ห้อง ${roomId.toUpperCase()}` : 'ห้องผ่าตัด OR',
-            eq_overview: 'ภาพรวมครุภัณฑ์',
-            home: 'หน้าหลัก',
-          };
-          addMessage(
-            'ai',
-            data.text || `น้องออร่านำทางมาที่ [${pageTitles[page] || page}] เรียบร้อยแล้วค่ะพี่พยาบาล ✨🚗`,
-            false,
-            undefined,
-            undefined,
-            currentChoices || ['📸 สแกนใบตรวจเช็ค', '✅ เช็กครบทุกรายการ', '💊 ตรวจยาวิสัญญี']
-          );
-        } else if (name === 'auditPaperChecklist') {
-          addMessage(
-            'ai',
-            data.text ||
-              'น้องออร่าพร้อมตรวจเทียบกระดาษกับระบบเว็บแล้วค่ะ! พี่พยาบาลสามารถกดปุ่มรูปกล้อง 📸 ด้านล่างนี้เพื่อถ่ายรูปใบเช็กลิสต์ได้ทันทีเลยนะคะ ✨🌸📋',
-            false,
-            undefined,
-            undefined,
-            currentChoices || ['🚗 ไปหน้ารถฉุกเฉิน', '💼 ไปหน้ากระเป๋าฉุกเฉิน'],
-            {
-              actionMeta: {
-                type: 'open_file_picker',
-                label: '📸 ถ่ายรูปหรือแนบภาพใบตรวจเช็ค',
-              },
-            }
-          );
-        } else if (name === 'create_restock_requisition') {
-          const targetCategory = String(args?.targetCategory || 'drug');
-          const reqItems = Array.isArray(args?.items) ? args.items : [];
-          if (onRestockRequest) {
-            setDbActionStatus('กำลังสร้างใบขอเบิกยา/เวชภัณฑ์...');
+          } else if (name === 'resetChecklist') {
+            const targetArg = String(args?.target || '').toLowerCase();
+            const catsToReset: ('bag' | 'cart' | 'ambulance')[] =
+              targetArg.includes('ambulance') || targetArg.includes('พยาบาล')
+                ? ['ambulance']
+                : targetArg.includes('cart')
+                ? ['cart']
+                : targetArg.includes('bag')
+                ? ['bag']
+                : ['bag', 'cart', 'ambulance'];
+            const snap = onCaptureSnapshot?.(`ก่อนรีเซ็ตตาราง ${targetArg || 'all'}`);
+            setDbActionStatus('กำลังดำเนินการ...');
             try {
-              const reqRes = await onRestockRequest({
-                items: reqItems,
-                targetCategory,
-                notes: args?.notes || `ขอเบิกผ่านน้องออร่า (${activeChannel?.name || activeChannelId})`,
-              });
-              if (reqRes.success) {
-                const itemLines =
-                  reqItems.length > 0
-                    ? reqItems.map((it: any) => `• ${it.name} (${it.qty || 1})${it.reason ? ` — ${it.reason}` : ''}`).join('\n')
-                    : '• ตามรายการที่ตรวจพบว่าต่ำกว่าเกณฑ์';
-                addMessage(
-                  'ai',
-                  `📦 สร้างใบขอเบิกพัสดุ/ยาเพิ่มเรียบร้อยแล้วค่ะ!\n🆔 รหัสใบเบิก: **${reqRes.requisitionId || '-'}**\n📍 วอร์ด: ${activeChannel?.name || 'Master'} (${targetCategory})\n${itemLines}`,
-                  true,
-                  undefined,
-                  undefined,
-                  currentChoices || ['💊 เปิดหน้าคลังยา', '📋 สรุปส่งเวร (Shift Handover)'],
-                  { sources: groundingSources }
-                );
-              } else {
-                addMessage('ai', '⚠️ ไม่สามารถบันทึกใบขอเบิกได้ กรุณาลองใหม่อีกครั้งนะคะ');
-              }
+              catsToReset.forEach((c) => clearChannelCategory(activeChannelId, c));
+              reRenderData();
+              addMessage(
+                'ai',
+                data.text ||
+                  'น้องออร่าได้รีเซ็ตและเคลียร์ตารางการตรวจเช็กให้เรียบร้อยแล้วค่ะ! พร้อมสำหรับการตรวจเช็คเวรใหม่นะคะ ✨🌸',
+                false,
+                undefined,
+                undefined,
+                currentChoices || ['🚗 ตรวจเช็กรถฉุกเฉิน', '💼 ตรวจเช็กกระเป๋าฉุกเฉิน', '💊 เช็กสต็อกคลังยาวิสัญญี'],
+                { undoSnapshot: snap }
+              );
             } finally {
               setDbActionStatus(null);
             }
-          }
-        } else if (
-          name === 'delete_all_items' ||
-          name === 'delete_all_equipment' ||
-          name === 'clear_category_items' ||
-          name === 'clearTargetInventory'
-        ) {
-          const targetCat =
-            name === 'delete_all_equipment'
-              ? 'ครุภัณฑ์'
-              : String(args?.targetCategory || args?.category || 'รายการ');
-          const isEquipmentClear =
-            name === 'delete_all_equipment' ||
-            /ครุ|equipment/i.test(targetCat);
+          } else if (name === 'navigate_or_export' || name === 'navigateToPage') {
+            const navAction = String(args?.action || 'navigate').toLowerCase();
+            if (navAction === 'open_google_sheets') {
+              onOpenSheetsDrawer?.();
+              handleClose();
+              addMessage(
+                'ai',
+                '📊 เปิดหน้าต่างตั้งค่าเชื่อมต่อ **Google Sheets** ให้เรียบร้อยแล้วค่ะ ✨🌸'
+              );
+              continue;
+            }
+            if (navAction === 'open_report_preview') {
+              const pStr = String(args?.page || '');
+              const rCat =
+                pStr.includes('drug')
+                  ? 'drug'
+                  : pStr.includes('ambulance')
+                  ? 'ambulance'
+                  : pStr.includes('cart')
+                  ? 'cart'
+                  : pStr.includes('room') || pStr.includes('eq')
+                  ? 'eq'
+                  : 'bag';
+              onOpenReportModal?.(rCat);
+              handleClose();
+              addMessage('ai', '📄 เปิดหน้าตัวอย่างรายงาน PDF (A4) ให้เรียบร้อยแล้วค่ะ ✨🌸');
+              continue;
+            }
 
-          if (isEquipmentClear) {
-            const totalEqCount = Object.values(equipment || {}).reduce(
-              (sum, arr) => sum + (Array.isArray(arr) ? arr.filter((it) => it && it.name).length : 0),
-              0
+            const page = (args?.page || 'home') as any;
+            const roomId = args?.roomId ? String(args.roomId).trim().toLowerCase() : undefined;
+            if (onNavigate) {
+              onNavigate(page, undefined, roomId);
+            }
+            const pageTitles: Record<string, string> = {
+              bag_check: 'กระเป๋าฉุกเฉิน (Emergency Bag)',
+              cart_check: 'รถฉุกเฉิน (Crash Cart)',
+              ambulance_check: 'รถพยาบาลฉุกเฉิน (Ambulance)',
+              drug_check: 'คลังยาวิสัญญี',
+              room_check: roomId ? `ครุภัณฑ์ห้อง ${roomId.toUpperCase()}` : 'ห้องผ่าตัด OR',
+              eq_overview: 'ภาพรวมครุภัณฑ์',
+              home: 'หน้าหลัก',
+            };
+            addMessage(
+              'ai',
+              data.text || `น้องออร่านำทางมาที่ [${pageTitles[page] || page}] เรียบร้อยแล้วค่ะพี่พยาบาล ✨🚗`,
+              false,
+              undefined,
+              undefined,
+              currentChoices || ['📸 สแกนใบตรวจเช็ค', '✅ เช็กครบทุกรายการ', '💊 ตรวจยาวิสัญญี']
             );
-            addConfirmationCard(
-              'ยืนยันการลบครุภัณฑ์ทั้งหมด',
-              `⚠️ **ยืนยันการลบครุภัณฑ์ทั้งหมด ${totalEqCount.toLocaleString()} รายการ** ออกจากฐานข้อมูล (${activeChannel?.name || 'Master'})?\n\nข้อมูลที่ลบจะไม่สามารถกู้คืนได้ กรุณาตรวจสอบและกดปุ่มด้านล่างเพื่อดำเนินการค่ะ`,
-              'ครุภัณฑ์',
+          } else if (name === 'auditPaperChecklist') {
+            addMessage(
+              'ai',
+              data.text ||
+                'น้องออร่าพร้อมตรวจเทียบกระดาษกับระบบเว็บแล้วค่ะ! พี่พยาบาลสามารถกดปุ่มรูปกล้อง 📸 ด้านล่างนี้เพื่อถ่ายรูปใบเช็กลิสต์ได้ทันทีเลยนะคะ ✨🌸📋',
+              false,
+              undefined,
+              undefined,
+              currentChoices || ['🚗 ไปหน้ารถฉุกเฉิน', '💼 ไปหน้ากระเป๋าฉุกเฉิน'],
               {
-                actionKind: 'delete_all_equipment',
-                itemCount: totalEqCount,
+                actionMeta: {
+                  type: 'open_file_picker',
+                  label: '📸 ถ่ายรูปหรือแนบภาพใบตรวจเช็ค',
+                },
               }
             );
-          } else {
-            const normalizedCatLabel =
-              /amb|รถพยาบาล/i.test(targetCat)
-                ? 'รถพยาบาลฉุกเฉิน'
-                : /bag|เป๋า/i.test(targetCat)
-                ? 'กระเป๋าฉุกเฉิน'
-                : /cart|รถฉุกเฉิน/i.test(targetCat)
-                ? 'รถฉุกเฉิน'
-                : /drug|ยา/i.test(targetCat)
-                ? 'คลังยา'
-                : targetCat;
-            addConfirmationCard(
-              `ยืนยันล้างข้อมูลหมวด "${normalizedCatLabel}"`,
-              `⚠️ น้องออร่าได้รับคำสั่งให้ล้างรายการทั้งหมดในหมวด **[${normalizedCatLabel}]** ค่ะ\n\nเพื่อความปลอดภัยของข้อมูลในวอร์ด น้องออร่าขอทวนคำสั่งก่อนทำจริงนะคะ พี่พยาบาลต้องการดำเนินการลบข้อมูลในหมวดนี้ใช่ไหมคะ?`,
-              normalizedCatLabel
-            );
+          } else if (name === 'create_restock_requisition') {
+            const targetCategory = String(args?.targetCategory || 'drug');
+            const reqItems = Array.isArray(args?.items) ? args.items : [];
+            if (onRestockRequest) {
+              setDbActionStatus('กำลังสร้างใบขอเบิกยา/เวชภัณฑ์...');
+              try {
+                const reqRes = await onRestockRequest({
+                  items: reqItems,
+                  targetCategory,
+                  notes: args?.notes || `ขอเบิกผ่านน้องออร่า (${activeChannel?.name || activeChannelId})`,
+                });
+                if (reqRes.success) {
+                  const itemLines =
+                    reqItems.length > 0
+                      ? reqItems.map((it: any) => `• ${it.name} (${it.qty || 1})${it.reason ? ` — ${it.reason}` : ''}`).join('\n')
+                      : '• ตามรายการที่ตรวจพบว่าต่ำกว่าเกณฑ์';
+                  addMessage(
+                    'ai',
+                    `📦 สร้างใบขอเบิกพัสดุ/ยาเพิ่มเรียบร้อยแล้วค่ะ!\n🆔 รหัสใบเบิก: **${reqRes.requisitionId || '-'}**\n📍 วอร์ด: ${activeChannel?.name || 'Master'} (${targetCategory})\n${itemLines}`,
+                    true,
+                    undefined,
+                    undefined,
+                    currentChoices || ['💊 เปิดหน้าคลังยา', '📋 สรุปส่งเวร (Shift Handover)'],
+                    { sources: groundingSources }
+                  );
+                } else {
+                  addMessage('ai', '⚠️ ไม่สามารถบันทึกใบขอเบิกได้ กรุณาลองใหม่อีกครั้งนะคะ');
+                }
+              } finally {
+                setDbActionStatus(null);
+              }
+            }
+          } else if (
+            name === 'delete_all_items' ||
+            name === 'delete_all_equipment' ||
+            name === 'clear_category_items' ||
+            name === 'clearTargetInventory'
+          ) {
+            const targetCat =
+              name === 'delete_all_equipment'
+                ? 'ครุภัณฑ์'
+                : String(args?.targetCategory || args?.category || 'รายการ');
+            const isEquipmentClear =
+              name === 'delete_all_equipment' ||
+              /ครุ|equipment/i.test(targetCat);
+
+            if (isEquipmentClear) {
+              const totalEqCount = Object.values(equipment || {}).reduce(
+                (sum, arr) => sum + (Array.isArray(arr) ? arr.filter((it) => it && it.name).length : 0),
+                0
+              );
+              addConfirmationCard(
+                'ยืนยันการลบครุภัณฑ์ทั้งหมด',
+                `⚠️ **ยืนยันการลบครุภัณฑ์ทั้งหมด ${totalEqCount.toLocaleString()} รายการ** ออกจากฐานข้อมูล (${activeChannel?.name || 'Master'})?\n\nข้อมูลที่ลบจะไม่สามารถกู้คืนได้ กรุณาตรวจสอบและกดปุ่มด้านล่างเพื่อดำเนินการค่ะ`,
+                'ครุภัณฑ์',
+                {
+                  actionKind: 'delete_all_equipment',
+                  itemCount: totalEqCount,
+                }
+              );
+            } else {
+              const normalizedCatLabel =
+                /amb|รถพยาบาล/i.test(targetCat)
+                  ? 'รถพยาบาลฉุกเฉิน'
+                  : /bag|เป๋า/i.test(targetCat)
+                  ? 'กระเป๋าฉุกเฉิน'
+                  : /cart|รถฉุกเฉิน/i.test(targetCat)
+                  ? 'รถฉุกเฉิน'
+                  : /drug|ยา/i.test(targetCat)
+                  ? 'คลังยา'
+                  : targetCat;
+              addConfirmationCard(
+                `ยืนยันล้างข้อมูลหมวด "${normalizedCatLabel}"`,
+                `⚠️ น้องออร่าได้รับคำสั่งให้ล้างรายการทั้งหมดในหมวด **[${normalizedCatLabel}]** ค่ะ\n\nเพื่อความปลอดภัยของข้อมูลในวอร์ด น้องออร่าขอทวนคำสั่งก่อนทำจริงนะคะ พี่พยาบาลต้องการดำเนินการลบข้อมูลในหมวดนี้ใช่ไหมคะ?`,
+                normalizedCatLabel
+              );
+            }
+          } else if (data.text) {
+            addMessage('ai', data.text, false, undefined, undefined, currentChoices, { sources: groundingSources });
           }
-        } else if (data.text) {
-          addMessage('ai', data.text, false, undefined, undefined, currentChoices, { sources: groundingSources });
         }
       } else if (data.success && data.text) {
         addMessage('ai', data.text, false, undefined, undefined, currentChoices, { sources: groundingSources });
@@ -4316,6 +4768,11 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
                       </div>
                     )}
                     <p className="whitespace-pre-line leading-relaxed">{renderFormattedChatText(m.text)}</p>
+                    {m.sender === 'ai' && m.dbSaved === true && (
+                      <div className="mt-2 inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400 border border-emerald-500/20 text-[11px] font-bold">
+                        <span>⚡ บันทึกลงฐานข้อมูลจริงแล้ว</span>
+                      </div>
+                    )}
 
                     {/* ⚡ ระบบ Auto-Fill อัจฉริยะ (Smart Diff & Sync Card) */}
                     {m.parsedItems && m.parsedItems.length > 0 && (
@@ -4682,6 +5139,7 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
                                 setDbActionStatus('กำลังดำเนินการ...');
                                 try {
                                   const updatedNames: string[] = [];
+                                  let allCloudSaved = true;
                                   for (const entry of m.labelScanData!.items) {
                                     if (!entry.nurseConfirmed) continue;
                                     const target = entry.candidates[entry.selectedCandidateIdx];
@@ -4694,6 +5152,7 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
                                       lotNumber: entry.editedLot.trim() || undefined,
                                     });
                                     if (res.success) {
+                                      if (res.dbSaved !== true) allCloudSaved = false;
                                       updatedNames.push(`${res.updatedName} → ${entry.editedExp.trim()}`);
                                     }
                                   }
@@ -4713,7 +5172,7 @@ export const AuraAssistant: React.FC<AuraAssistantProps> = ({
                                       undefined,
                                       undefined,
                                       undefined,
-                                      { undoSnapshot: snap }
+                                      { undoSnapshot: snap, dbSaved: allCloudSaved }
                                     );
                                   }
                                 } finally {

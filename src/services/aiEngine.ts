@@ -4,6 +4,7 @@ import { EquipmentItem, DrugItem } from '../types';
 import { categoryCovers } from '../assets/categoryCovers';
 import { extractSignificantNumbers, findBestMedicalMatches, matchMedicalItemName, scoreMedicalItemMatch } from '../utils/itemUtils';
 import { authorizedFetch } from './aiService';
+import { isDefaultWard, resolveWardId } from '../utils/wardUtils';
 
 export interface VisionExtractionResult {
   success: boolean;
@@ -204,7 +205,7 @@ export function addBatchItemsToChannel(
   newItems: any[],
   targetType: 'bag' | 'cart' = 'bag'
 ): ChannelData {
-  const activeId = channelId || 'channel_master';
+  const activeId = resolveWardId(channelId);
   const key = getChannelDbKey(activeId);
 
   const currentChannelData = getStored<ChannelData | null>(key, null) || {
@@ -268,7 +269,7 @@ export function addBatchItemsToChannel(
   // Synchronously persist
   setStored(key, nextChannelData);
   setStored(getChannelListsKey(activeId), updatedLists);
-  if (activeId === 'channel_master') {
+  if (isDefaultWard(activeId)) {
     setStored(STORAGE_KEYS.CUSTOM_LISTS, updatedLists);
   }
 
@@ -289,7 +290,7 @@ export function clearChannelCategory(
   channelId: string,
   targetType: 'bag' | 'cart' | 'ambulance'
 ): { nextChannelData: ChannelData; clearedCount: number } {
-  const activeId = channelId || 'channel_master';
+  const activeId = resolveWardId(channelId);
   const key = getChannelDbKey(activeId);
 
   const currentChannelData = getStored<ChannelData | null>(key, null) || {
@@ -341,7 +342,7 @@ export function clearChannelCategory(
   // Synchronously persist
   setStored(key, nextChannelData);
   setStored(getChannelListsKey(activeId), updatedLists);
-  if (activeId === 'channel_master') {
+  if (isDefaultWard(activeId)) {
     setStored(STORAGE_KEYS.CUSTOM_LISTS, updatedLists);
   }
 

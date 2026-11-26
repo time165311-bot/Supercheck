@@ -1,12 +1,13 @@
 import { DrugItem, EquipmentItem, ListConfig, CheckItemState } from '../types';
 import { parseExpDateObj } from './itemUtils';
+import { resolveWardId } from './wardUtils';
 
 /**
- * Generates channel-isolated localStorage / sessionStorage keys so switching wards
- * never mixes drugs, equipment, checklists, or chat histories across channels.
+ * Generates ward-isolated localStorage / sessionStorage keys so switching wards
+ * never mixes drugs, equipment, checklists, or chat histories across wards.
  */
 export function getChannelStorageKeys(channelId: string) {
-  const safeId = (channelId || 'channel_master').trim() || 'channel_master';
+  const safeId = resolveWardId(channelId);
   return {
     LISTS: `anesthesia_lists_${safeId}`,
     CHECKS: `anesthesia_checks_${safeId}`,

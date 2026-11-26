@@ -13,6 +13,7 @@ export interface DrugItemCardProps {
   onDeltaQty: (id: string, delta: number) => void;
   onEdit: (item: DrugItem) => void;
   onDelete: (item: DrugItem) => void;
+  canDelete?: boolean;
 }
 
 /**
@@ -32,6 +33,7 @@ export const DrugItemCard: React.FC<DrugItemCardProps> = React.memo(({
   onDeltaQty,
   onEdit,
   onDelete,
+  canDelete = true,
 }) => {
   const cardTone =
     'bg-white dark:bg-[#1E1F20] border-slate-200 dark:border-white/10 text-slate-900 dark:text-[#E3E3E3] hover:border-blue-300 dark:hover:border-white/25';
@@ -169,14 +171,16 @@ export const DrugItemCard: React.FC<DrugItemCardProps> = React.memo(({
           >
             <Pencil className="w-3.5 h-3.5" />
           </button>
-          <button
-            type="button"
-            onClick={() => onDelete(item)}
-            className="p-2 rounded-xl text-rose-500 dark:text-[#F28B82] hover:bg-rose-50 dark:hover:bg-rose-500/15 transition-colors active:opacity-80 cursor-pointer touch-manipulation"
-            title="ลบรายการยา"
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-          </button>
+          {canDelete && (
+            <button
+              type="button"
+              onClick={() => onDelete(item)}
+              className="p-2 rounded-xl text-rose-500 dark:text-[#F28B82] hover:bg-rose-50 dark:hover:bg-rose-500/15 transition-colors active:opacity-80 cursor-pointer touch-manipulation"
+              title="ลบรายการยา"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
       </div>
     </div>

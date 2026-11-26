@@ -69,6 +69,7 @@ interface HeaderProps {
   firebaseProjectId?: string;
   firebaseDatabaseId?: string;
   onTestFirebaseConnection?: () => Promise<{ ok: boolean; msg: string }>;
+  canExportSheets?: boolean;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -101,6 +102,7 @@ export const Header: React.FC<HeaderProps> = ({
   firebaseProjectId,
   firebaseDatabaseId,
   onTestFirebaseConnection,
+  canExportSheets = true,
 }) => {
   const isAdmin = currentUser?.role === 'admin';
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -324,7 +326,7 @@ export const Header: React.FC<HeaderProps> = ({
               </button>
             )}
 
-            {sheetUrl?.trim() ? (
+            {canExportSheets && (sheetUrl?.trim() ? (
               <a
                 href={sheetUrl.trim()}
                 target="_blank"
@@ -345,7 +347,7 @@ export const Header: React.FC<HeaderProps> = ({
                 <FileSpreadsheet className="w-4 h-4 shrink-0" />
                 <span>เปิด Google Sheets</span>
               </button>
-            ) : null}
+            ) : null)}
 
             {currentUser && (
               <button

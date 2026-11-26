@@ -67,12 +67,14 @@
         "unitText": { "type": "string", "maxLength": 100 },
         "initialQtyText": { "type": "string", "maxLength": 100 },
         "channelId": { "type": "string", "maxLength": 128 },
+        "wardId": { "type": "string", "maxLength": 48 },
         "orderNumber": { "type": "string", "maxLength": 50 },
         "assetCode": { "type": "string", "maxLength": 150 },
         "sapCode": { "type": "string", "maxLength": 150 },
         "brandModel": { "type": "string", "maxLength": 500 },
         "status": { "type": "string", "maxLength": 50 },
-        "isMarked": { "type": "boolean" }
+        "isMarked": { "type": "boolean" },
+        "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "name"]
     },
@@ -103,6 +105,7 @@
         "img": { "type": "string", "maxLength": 500000 },
         "barcode": { "type": "string", "maxLength": 150 },
         "channelId": { "type": "string", "maxLength": 128 },
+        "wardId": { "type": "string", "maxLength": 48 },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "name", "category"]
@@ -121,7 +124,8 @@
         "title": { "type": "string", "maxLength": 300 },
         "rows": { "type": "array" },
         "weekDates": { "type": "object" },
-        "channelId": { "type": "string", "maxLength": 128 }
+        "channelId": { "type": "string", "maxLength": 128 },
+        "wardId": { "type": "string", "maxLength": 48 }
       },
       "required": ["id", "timestamp", "date", "who", "type"]
     },
@@ -159,6 +163,34 @@
       },
       "required": ["id"]
     },
+    "WardWorkspace": {
+      "title": "Shared Ward Workspace",
+      "description": "Shared real-time workspace keyed by Ward Code (default ANES-MASTER) with lists, checks, tombstones, and optional hashed 4-digit edit PIN",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-zA-Z0-9_\\-]+$", "minLength": 2, "maxLength": 48 },
+        "name": { "type": "string", "maxLength": 150 },
+        "lists": { "type": "object" },
+        "globalChecks": { "type": "object" },
+        "emergencyWeekDates": { "type": "object" },
+        "deletedItemIds": { "type": "array" },
+        "drugsCleared": { "type": "boolean" },
+        "equipmentCleared": { "type": "boolean" },
+        "bagCleared": { "type": "boolean" },
+        "cartCleared": { "type": "boolean" },
+        "ambulanceCleared": { "type": "boolean" },
+        "equipmentSeeded": { "type": "boolean" },
+        "drugsSeeded": { "type": "boolean" },
+        "migratedFromLegacy": { "type": "boolean" },
+        "pinEnabled": { "type": "boolean" },
+        "pinHash": { "type": "string", "maxLength": 128 },
+        "pinSalt": { "type": "string", "maxLength": 64 },
+        "sheetUrl": { "type": "string", "maxLength": 1000 },
+        "apiUrl": { "type": "string", "maxLength": 1000 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id"]
+    },
     "RestockRequisition": {
       "title": "Restock Requisition",
       "description": "Medication or emergency equipment restock requisition record",
@@ -166,6 +198,7 @@
       "properties": {
         "id": { "type": "string", "pattern": "^[a-zA-Z0-9_\\-]+$" },
         "channelId": { "type": "string", "maxLength": 128 },
+        "wardId": { "type": "string", "maxLength": 48 },
         "targetCategory": { "type": "string", "maxLength": 100 },
         "requestedBy": { "type": "string", "maxLength": 150 },
         "requestedById": { "type": "string", "maxLength": 128 },
@@ -184,21 +217,83 @@
     },
     "AuditLog": {
       "title": "Audit Log",
-      "description": "Immutable append-only activity and audit trail record",
+      "description": "Shared Ward activity and audit trail record with diff metadata and optional admin restore tracking",
       "type": "object",
       "properties": {
         "id": { "type": "string", "pattern": "^[a-zA-Z0-9_\\-]+$" },
         "timestamp": { "type": "string", "format": "date-time" },
         "userId": { "type": "string", "maxLength": 128 },
         "userName": { "type": "string", "maxLength": 150 },
+        "operatorName": { "type": "string", "maxLength": 150 },
         "role": { "type": "string", "maxLength": 50 },
         "action": { "type": "string", "maxLength": 100 },
         "targetCollection": { "type": "string", "maxLength": 100 },
         "targetId": { "type": "string", "maxLength": 128 },
+        "wardId": { "type": "string", "maxLength": 48 },
+        "itemName": { "type": "string", "maxLength": 300 },
+        "category": { "type": "string", "maxLength": 150 },
+        "oldValue": { "type": "string", "maxLength": 2000 },
+        "newValue": { "type": "string", "maxLength": 2000 },
+        "trashId": { "type": "string", "maxLength": 128 },
+        "restorablePayload": { "type": "object" },
+        "restoredAt": { "type": "string", "format": "date-time" },
+        "restoredBy": { "type": "string", "maxLength": 150 },
         "details": { "type": "object" },
         "ipAddress": { "type": "string", "maxLength": 100 }
       },
       "required": ["timestamp", "userId", "action", "targetCollection"]
+    },
+    "WardPermissionLocks": {
+      "title": "Ward Permission Locks",
+      "description": "Owner/Admin-managed permission locks scoped to a ward workspace",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "wardId": { "type": "string", "maxLength": 48 },
+        "lockStaffDeleteItems": { "type": "boolean" },
+        "lockStaffEditStructure": { "type": "boolean" },
+        "lockGoogleSheetsExport": { "type": "boolean" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "updatedBy": { "type": "string", "maxLength": 150 }
+      },
+      "required": ["id", "wardId", "lockStaffDeleteItems", "lockStaffEditStructure", "lockGoogleSheetsExport"]
+    },
+    "TrashItem": {
+      "title": "Trash Item Snapshot",
+      "description": "Full restorable snapshot of deleted drug, equipment, or checklist item",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "wardId": { "type": "string", "maxLength": 48 },
+        "targetType": { "type": "string", "enum": ["drug", "bag", "cart", "ambulance", "room"] },
+        "category": { "type": "string", "maxLength": 150 },
+        "groupOrRoomId": { "type": "string", "maxLength": 200 },
+        "itemName": { "type": "string", "maxLength": 300 },
+        "payload": { "type": "object" },
+        "tombstoneTokens": { "type": "array" },
+        "deletedBy": { "type": "string", "maxLength": 150 },
+        "deletedAt": { "type": "string", "format": "date-time" },
+        "restoredAt": { "type": "string", "format": "date-time" },
+        "restoredBy": { "type": "string", "maxLength": 150 }
+      },
+      "required": ["id", "wardId", "targetType", "itemName", "payload", "deletedBy", "deletedAt"]
+    },
+    "WardAiMemory": {
+      "title": "Ward AI Memory",
+      "description": "Ward-specific custom glossary, equipment nicknames, shorthand aliases, and AI instructions synced across sessions",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "wardId": { "type": "string", "maxLength": 48 },
+        "triggerPhrase": { "type": "string", "maxLength": 200 },
+        "meaning": { "type": "string", "maxLength": 500 },
+        "category": { "type": "string", "maxLength": 100 },
+        "ruleType": { "type": "string", "maxLength": 50 },
+        "createdBy": { "type": "string", "maxLength": 150 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "wardId", "triggerPhrase", "meaning", "createdAt", "updatedAt"]
     }
   },
   "firestore": {
@@ -210,17 +305,53 @@
       "schema": "User",
       "description": "Inspector profile preferences (owned by Firebase Auth UID or managed by Admin)"
     },
+    "/wards/{wardId}": {
+      "schema": "WardWorkspace",
+      "description": "Shared Ward Workspace document (default ANES-MASTER) synced in real time across devices"
+    },
+    "/wards/{wardId}/equipment/{itemId}": {
+      "schema": "EquipmentItem",
+      "description": "Shared Ward equipment catalog"
+    },
+    "/wards/{wardId}/drugs/{drugId}": {
+      "schema": "DrugItem",
+      "description": "Shared Ward drug inventory"
+    },
+    "/wards/{wardId}/inspection_records/{recordId}": {
+      "schema": "InspectionRecord",
+      "description": "Shared Ward inspection history"
+    },
+    "/wards/{wardId}/restock_requisitions/{reqId}": {
+      "schema": "RestockRequisition",
+      "description": "Shared Ward restock requisitions"
+    },
+    "/wards/{wardId}/audit_logs/{logId}": {
+      "schema": "AuditLog",
+      "description": "Shared Ward activity audit trail with admin restore metadata"
+    },
+    "/wards/{wardId}/admin_config/{configId}": {
+      "schema": "WardPermissionLocks",
+      "description": "Shared Ward admin permission lock configuration"
+    },
+    "/wards/{wardId}/trash/{trashId}": {
+      "schema": "TrashItem",
+      "description": "Shared Ward deleted-item snapshots for admin one-click restore"
+    },
+    "/wards/{wardId}/ai_memory/{memoryId}": {
+      "schema": "WardAiMemory",
+      "description": "Shared Ward custom AI glossary, nicknames, and persistent rules"
+    },
     "/equipment/{itemId}": {
       "schema": "EquipmentItem",
-      "description": "Equipment items catalog (Master)"
+      "description": "Legacy equipment items catalog (Master)"
     },
     "/drugs/{drugId}": {
       "schema": "DrugItem",
-      "description": "Drug inventory (Master)"
+      "description": "Legacy drug inventory (Master)"
     },
     "/inspection_records/{recordId}": {
       "schema": "InspectionRecord",
-      "description": "Historical inspection results"
+      "description": "Legacy historical inspection results"
     },
     "/settings/{docId}": {
       "schema": "Settings",
@@ -228,27 +359,27 @@
     },
     "/restock_requisitions/{reqId}": {
       "schema": "RestockRequisition",
-      "description": "Restock requisitions submitted from wards or Aura Assistant"
+      "description": "Legacy restock requisitions"
     },
     "/channels/{channelId}": {
       "schema": "WardChannelData",
-      "description": "Per-ward isolated inspection state and lists"
+      "description": "Legacy per-ward isolated inspection state and lists"
     },
     "/channels/{channelId}/equipment/{itemId}": {
       "schema": "EquipmentItem",
-      "description": "Per-ward isolated equipment catalog"
+      "description": "Legacy per-ward isolated equipment catalog"
     },
     "/channels/{channelId}/drugs/{drugId}": {
       "schema": "DrugItem",
-      "description": "Per-ward isolated drug inventory"
+      "description": "Legacy per-ward isolated drug inventory"
     },
     "/channels/{channelId}/inspection_records/{recordId}": {
       "schema": "InspectionRecord",
-      "description": "Per-ward isolated inspection history"
+      "description": "Legacy per-ward isolated inspection history"
     },
     "/channels/{channelId}/restock_requisitions/{reqId}": {
       "schema": "RestockRequisition",
-      "description": "Per-ward isolated restock requisitions"
+      "description": "Legacy per-ward isolated restock requisitions"
     },
     "/audit_logs/{logId}": {
       "schema": "AuditLog",
